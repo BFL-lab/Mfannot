@@ -1,0 +1,712 @@
+#!/usr/local/bin/perl -w -- -*-Perl-*-
+
+##############################################################################
+#
+#                                 mfannot.pl
+#
+# DESCRIPTION:
+# Attempts to do a quick first pass at annotating a masterfile
+# with meaningfull start/stop lines by calling blast on collections
+# of known genes. Manual intervention is still required to check/adjust
+# the new annotations.
+#
+# Known issues: - Annotations for START/STOP introns are interleaved (they
+#                 are at the correct position, though).
+#
+##############################################################################
+
+##############################################################################
+#                                                                            #
+#                       CONFIDENTIAL & PROPRIETARY                           #
+#       Nothing herein is to be disclosed in any way without the prior       #
+#           express written permission of Pierre Rioux                       #
+#                                                                            #
+#          Copyright 2004 Pierre Rioux, All rights reserved.                 #
+#                                                                            #
+##############################################################################
+#
+#    $Id: mfannot,v 1.1 2005/02/23 21:08:59 dto Exp $
+#
+#    $Log: mfannot,v $
+#    Revision 1.1  2005/02/23 21:08:59  dto
+#    Adding Pierre's project
+#
+#
+
+##########################
+# Initialization section #
+##########################
+
+require 5.00;
+use strict;
+use vars qw( $VERSION $RCS_VERSION );
+use IO::File;
+use PirObject;
+use Bio::SearchIO;
+
+# Load PirObject data models
+PirObject->LoadDataModel("Masterfile");  # Will load other files too.
+PirObject->LoadDataModel("MfAnnotConfig");
+
+# Default umask
+umask 027;
+
+# Program's name and version number.
+$RCS_VERSION='$Id: mfannot,v 1.1 2005/02/23 21:08:59 dto Exp $';
+($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
+my ($BASENAME) = ($0 =~ /([^\/]+)$/);
+
+# Get login name.
+my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
+
+##################################
+# Global variables and constants #
+##################################
+
+# Command-line args
+my $DEBUG=0;
+my $AUTOMATIC=0;
+my $GENCODE=undef;
+my $TAGNAME=undef;
+my $FORCEANNOT=0;
+
+my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
+my $TMPDIR = "/tmp/mfannot.$$";
+my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .    # e-value
+                            "";
+my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .    # e-value
+                            "";
+my $ANNOT_STATS = {
+    Added        => {},
+    Rediscovered => {},
+};
+
+#############################
+# Environment Verifications #
+#############################
+
+die "Please make sure the BLASTMAT environment variable is set\n" .
+    "to point to a directory where the blast matrices are stored.\n"
+    unless defined($ENV{"BLASTMAT"}) && (-d $ENV{"BLASTMAT"}) &&
+           (-f ($ENV{"BLASTMAT"} . "/PAM30"));
+
+die "Please make sure that the 'blastall' executable is in your\n" .
+    "current command search path.\n"
+    unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
+     
+
+#####################################
+# Command-Line Arguments Processing #
+#####################################
+
+# Load history of configuration
+my $PIRCONFIG = (-f $HOMECONFIGFILE && -r _)
+                ? PirObject::MfAnnotConfig->FileToObject($HOMECONFIGFILE)
+                : PirObject::MfAnnotConfig->new();
+
+# Parse command-line switches; file supplied there
+# will be stored in the $PIRCONFIG.
+&ParseCommandLineOptions($PIRCONFIG,\@ARGV);
+
+die "Error: this program must be used interactively if run without '-a' !\n"
+    if !$AUTOMATIC && ((! -t STDIN) || (! -t STDOUT)); # Use () when in doubt, said Larry.
+
+###########################################
+# Validate remaining command-line options #
+###########################################
+
+&Usage if @ARGV != 1;
+my $MASTERFILE=shift;
+die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"
+    unless -r $MASTERFILE;
+
+################
+# Trap Signals #
+################
+
+sub SigCleanup { # private
+     die "\nExiting: received signal \"" . $_[0] . "\".\n";
+}
+$SIG{'INT'}  = \&SigCleanup;
+$SIG{'TERM'} = \&SigCleanup;
+$SIG{'HUP'}  = \&SigCleanup;
+$SIG{'QUIT'} = \&SigCleanup;
+$SIG{'PIPE'} = \&SigCleanup;
+$SIG{'ALRM'} = \&SigCleanup;
+
+###############################
+#   M A I N   P R O G R A M   #
+###############################
+
+# Step zero: get all datafiles; validate them; cache
+# their locations if interactive, etc.
+&GetRunTimeParameters($PIRCONFIG);
+
+# Store current config so we remember the values next time around.
+$PIRCONFIG->ObjectToFile("$HOMECONFIGFILE.tmp");
+rename("$HOMECONFIGFILE.tmp",$HOMECONFIGFILE);
+
+# Step one: read the masterfile.
+print "\n\nParsing masterfile...\n" if !$AUTOMATIC || $DEBUG;
+my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
+
+# Step two: prepare fasta files and blast databases
+print "Creating BLAST nucleotide dabatase for masterfile...\n" if !$AUTOMATIC || $DEBUG;
+mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
+&MakeMasterBlastDB($pirmaster);
+
+# Step three: BLAST known genes with masterfile
+print "Blasting known genes against masterfile...\n" if !$AUTOMATIC || $DEBUG;
+&BlastFastaVsMasterfile();
+
+# Step four: annotate gene matches
+&AddGeneFeaturesUsingBlastOutputs($pirmaster,$TAGNAME);
+
+# Last step: log session at top of masterfile and dump it.
+&LogInfo($pirmaster);
+$pirmaster->ObjectToFile("mf.xml") if $DEBUG;
+print "Dumping new masterfile in '$MASTERFILE.new'...\n" if !$AUTOMATIC || $DEBUG;
+$pirmaster->ObjectToMasterfile("$MASTERFILE.new");
+
+exit 0;
+
+#############################
+#   S U B R O U T I N E S   #
+#############################
+
+##############################
+# Parse command-line options #
+##############################
+
+sub ParseCommandLineOptions {
+    my $config = shift; # A PirObject::MfAnnotConfig
+    my $argv = shift;
+
+    $config->SetCurrentConfigToAllUnset();
+    my $inputs = PirObject::MfAnnotConfig->InputFiles();
+
+    my $concatswitches = "";
+    my %switch2key = ();
+    for (my $n=0;$n<@$inputs;$n+=3) {
+        my ($switch,$key,$desc) = @$inputs[$n,$n+1,$n+2]; # array slice
+        $switch2key{$switch}=$key;
+        $concatswitches .= $switch;
+    }
+
+    for (;@$argv;) {
+        my ($opt,$arg) = ($argv->[0] =~ /^-([\@agtf$concatswitches])(.*)$/o);
+        last if ! defined $opt;
+        if ($opt =~ /[gt$concatswitches]/ && $arg eq "") {
+            if (@$argv < 2) {
+                print "Argument required for option \"$opt\".\n";
+                exit 1;
+            }
+            shift @$argv;
+            $arg=$argv->[0];
+        }
+
+        $DEBUG=($arg ? $arg : 1)                     if $opt eq '@';
+        $AUTOMATIC=1                                 if $opt eq 'a';
+        $GENCODE=$arg                                if $opt eq 'g';
+        $TAGNAME=$arg                                if $opt eq 't';
+        $FORCEANNOT=1                                if $opt eq 'f';
+
+        if ($switch2key{$opt}) {
+            my $key = $switch2key{$opt};
+            $config->StoreConfigValue($key,$arg);
+        }
+
+        shift @$argv;
+    }
+}
+
+#########
+# Usage #
+#########
+
+sub Usage {
+    my $inputs = PirObject::MfAnnotConfig->InputFiles();
+    my $args = "";
+    for (my $n=0;$n < @$inputs;$n+=3) {
+        my $switch = $inputs->[$n];
+        $args .= " " if $args;
+        $args .= "-$switch file";
+    }
+    print "$BASENAME $VERSION\n";
+    print "Usage: $BASENAME [-a] [-g gencode] [-f] [-t tag] $args masterfile\n";
+    print "\nwhere:\n";
+    for (my $n=0;$n < @$inputs;$n+=3) {
+        my ($switch,$desc) = ($inputs->[$n],$inputs->[$n+2]);
+        print "    -$switch file     is    '$desc'\n"
+    }
+    print     "    -a                is automatic mode (non-interactive)\n",
+              "    -f                force annotation of genes even if already present\n",
+              "    -g gencode        supplies the NCBI numeric ID of the genetic code to use\n",
+              "    -t tagname        supplies a short tag name you want to use as reminder.\n";
+    exit 1;
+}
+
+sub BlastFastaVsMasterfile {
+    my $inputs = PirObject::MfAnnotConfig->InputFiles();
+    for (my $n=0;$n<@$inputs;$n+=3) {
+        my ($key,$desc) = @$inputs[$n+1,$n+2];
+        next unless $key =~ m#(DNA|PROT)_FA$#;
+        my $type = $1;
+        my $file = $PIRCONFIG->GetConfigValue($key) || next; # undef should never happen in fact.
+        next if $file eq 'none';
+        my $escaped_file = $file;
+        $escaped_file =~ s#'#'\\'#g;
+        my $prog = $type eq "DNA" ? "blastn" : "tblastn";
+        print "  - Running $prog for '$desc'...\n" if !$AUTOMATIC || $DEBUG;
+        my $blastoutput = "$TMPDIR/$key.bls";
+        my $options = $type eq "DNA" ? $BLASTALL_DNA_OPTIONS : $BLASTALL_PROT_OPTIONS;
+        my $ret = system(
+           "/bin/sh","-c",
+           "blastall -p $prog -Q $GENCODE -D $GENCODE $options -d $TMPDIR/mf -i $escaped_file -o $blastoutput"
+        );
+        $ret >>= 8;  # shift 8 less significant bits to get return code.
+        if ($ret > 1) {
+            die "Error: blastall returned error code $ret ?!?\n";
+        }
+        if (! -r $blastoutput) {
+            die "Error: can't find report from blastall ?!?\n";
+        }
+    }
+}
+
+sub AddGeneFeaturesUsingBlastOutputs { # I like to be descriptive.
+    my $pirmaster   = shift;
+    my $tag         = shift || "aVwXyZ";
+    my $inputs = PirObject::MfAnnotConfig->InputFiles();
+    for (my $n=0;$n<@$inputs;$n+=3) {
+        my ($key,$desc) = @$inputs[$n+1,$n+2];
+        next unless $key =~ m#(DNA|PROT)_FA$#;
+        my $type = $1;
+        my $file = $PIRCONFIG->GetConfigValue($key) || next; # undef should never happen in fact.
+        next if $file eq 'none';
+        my $blastoutput = "$TMPDIR/$key.bls";
+        if (! -r $blastoutput) { # it's supposed to be here at this point.
+            die "Error: can't find $type report from blastall ?!?\n";
+        }
+        print "Annotating genes found using '$desc'...\n" if !$AUTOMATIC || $DEBUG;
+        my $searchio = new Bio::SearchIO (
+                           -format => 'blast',
+                           -file   => $blastoutput,
+                           );
+        while (my $result = $searchio->next_result() ) {
+            &AnnotateGeneFromResult($pirmaster,$type,$result,$tag);
+        }
+    }
+}
+
+sub AnnotateGeneFromResult {
+    my $pirmaster = shift;
+    my $type      = shift;
+    my $result    = shift; # an object implementing Bio::SearchIO::Result::ResultI
+    my $tag       = shift || "bVwXyZ";
+
+    my $id        = $result->query_name()        || "Unknown ID";
+    my $rdesc     = $result->query_description() || "Unknown Query Description";
+    my $dbname    = $result->database_name()     || "Unknown DB name";
+    my @hits      = $result->hits();
+    my $numhits   = scalar(@hits);  # normally, only one!
+    return if $numhits < 1;
+    print "Found result: ID=$id DESC=$rdesc DBNAME=$dbname with $numhits hits\n" if $DEBUG;
+    foreach my $hit (@hits) {
+        my $hit_name     = $hit->name();
+        my $desc         = $hit->description();
+        #my $len          = $hit->length();
+        #my $score        = $hit->raw_score();
+        #my $significance = $hit->significance();
+        my @HSPs         = $hit->hsps();
+        my $numHSPs      = scalar(@HSPs);
+        my $frame        = $hit->frame();
+        print "   Hit NAME=$hit_name DESC=$desc HSPS=$numHSPs FRAME=$frame\n" if $DEBUG;
+        @HSPs = sort { $a->hstart() <=> $b->hstart() or $a->hend() <=> $b->hend() } @HSPs;
+        my $sstrand = $HSPs[0]->strand('subject') || 1; # assume strand of first exon determines everything
+        my $arrow = ($sstrand == -1 ? "<=="   : "==>");
+
+        my ($start,$end) = ( $HSPs[0]->hstart(), $HSPs[-1]->hend() );
+        ($start,$end) = ($end, $start) if $sstrand == -1;
+        my $annot = new PirObject::AnnotPair (
+                        type      => "G",
+                        genename  => $id,
+                        startpos  => $start,
+                        endpos    => $end,
+                        direction => $arrow,
+                        startline => ";     G-$id $arrow start ;; MFFEAT=$tag",
+                        endline   => ";     G-$id $arrow end ;; MFFEAT=$tag",
+                    );
+        &AddAnnotToPirMaster($pirmaster,$annot);
+
+        # This loops annotate exons and introns.
+
+        for (my $cnt=0;@HSPs > 1 && $cnt < @HSPs;$cnt++) {
+       
+            # Annotate exons
+
+            my $HSP = $HSPs[$cnt];
+            my $estart  = $HSP->hstart();
+            my $eend    = $HSP->hend();
+            print "HSP EXON $estart..$eend $sstrand\n" if $DEBUG;
+            my $Esuffix = "-E" . ($cnt+1);
+            my $Eannot = new PirObject::AnnotPair(
+                             type      => "G",
+                             genename  => $id . $Esuffix,
+                             startpos  => ($sstrand == -1 ? $eend   : $estart),
+                             endpos    => ($sstrand == -1 ? $estart : $eend),
+                             direction => $arrow,
+                             startline => ";     G-$id$Esuffix $arrow start ;; MFFEAT=$tag",
+                             endline   => ";     G-$id$Esuffix $arrow end ;; MFFEAT=$tag",
+                          );
+            &AddAnnotToPirMaster($pirmaster,$Eannot);
+
+            last if $cnt >= $#HSPs;
+
+            # Annotate introns
+
+            my $nextHSP = $HSPs[$cnt+1];
+            my $istart  = $HSP->hend() + 1;
+            my $iend    = $nextHSP->hstart()-1;
+            print "HSP INTRON $istart..$iend $sstrand\n" if $DEBUG;
+            my $Isuffix = "-I" . ($sstrand == -1 ? @HSPs-1-$cnt : $cnt+1);
+            my $Iannot = new PirObject::AnnotPair(
+                             type      => "G",
+                             genename  => $id . $Isuffix,
+                             startpos  => ($sstrand == -1 ? $iend   : $istart),
+                             endpos    => ($sstrand == -1 ? $istart : $iend),
+                             direction => $arrow,
+                             startline => ";     G-$id$Isuffix $arrow start ;; MFFEAT=$tag",
+                             endline   => ";     G-$id$Isuffix $arrow end ;; MFFEAT=$tag",
+                          );
+            &AddAnnotToPirMaster($pirmaster,$Iannot);
+
+        }
+    }
+}
+
+my $GeneNameToAnnot_Cache = undef;
+sub AddAnnotToPirMaster {
+    my $pirmaster = shift;
+    my $annot     = shift;
+
+    my $pirannots = $pirmaster->get_annotations();
+    if (! $GeneNameToAnnot_Cache) { # build it right away
+        $GeneNameToAnnot_Cache = {};
+        foreach my $a (@$pirannots) {
+            my $genename = $a->get_genename() || next;
+            $GeneNameToAnnot_Cache->{$genename} ||= [];
+            push(@{$GeneNameToAnnot_Cache->{$genename}},$a);
+        }
+    }
+
+    my $genename = $annot->get_genename();
+    my $shortgn  = $genename;
+    $shortgn =~ s/-[EI]\d+$//;
+    my $already_list = $GeneNameToAnnot_Cache->{$shortgn};
+
+    my $record_to = $already_list ? 'Rediscovered' : 'Added';
+    $ANNOT_STATS->{$record_to}->{$shortgn} ||= { I => 0, E => 0, };
+    $ANNOT_STATS->{$record_to}->{$shortgn}->{$1}++ if $genename =~ m/-([IE])\d+$/;
+
+    if (!$already_list) {
+        push(@$pirannots,$annot);
+    } else {
+        # handle duplications here?
+        push(@$pirannots,$annot) if $FORCEANNOT;
+    }
+}
+
+sub GetRunTimeParameters {
+    my $pirconfig = shift;
+    my $inputs = PirObject::MfAnnotConfig->InputFiles();
+    my $welcomed = 0;
+    for (my $n=0;$n<@$inputs;$n+=3) {
+        my ($switch,$key,$desc) = @$inputs[$n,$n+1,$n+2];
+        my $path = $pirconfig->GetConfigValue($key);
+        if (defined $path) { # Already set on command-line.
+             next if -f $path && -r _;
+             die "Error: file '$path' supplied with option -$switch doesn't exist or is not readable.\n";
+        }
+        if ($AUTOMATIC) {
+            $pirconfig->StoreConfigValue($key,'none');  # means we do not do this processing.
+            next;
+        }
+        # Alright then, let's ask for the value interactively.
+        if (!$welcomed++) {
+            print "\nHello, welcome to $BASENAME $VERSION !\n\n",
+                  "You will be asked to supply some filenames; these can be either\n",
+                  "absolute paths or relative paths, or the keyword 'none' if you\n",
+                  "do not want to perform a particular analysis. Sometimes you will\n",
+                  "also be provided with a choice of values based on previous answers;\n",
+                  "you can select the value by entering its number in the list.\n\n";
+        }
+        my $history = $pirconfig->$key() || [];
+        print "--------------------------------------------------------------------\n";
+        print "\nData file needed: '$desc'\n",
+              "   (hint: this option can be supplied with '-$switch' on the command-line)\n\n";
+        if (@$history > 1) {
+            print "Choices:\n";
+            for (my $n=1;$n<@$history;$n++) {
+                printf "  %2d- %s\n",$n,$history->[$n];
+            }
+            print "\n";
+        }
+        for (;;) {
+            print "Enter filename: ";
+            my $val = scalar(<STDIN>);
+            die "Error: no input?\n" unless defined $val;  # eof ?!?
+            $val =~ s/^\s*//;
+            $val =~ s/\s*$//;
+            next if $val eq "";
+            if ($val =~ m#^(\d+)$#) {
+                my $number = $1;
+                if (@$history < 2) {
+                     print "Error: there are no numbered choices available right now. Try again.\n";
+                     next;
+                }
+                if ($number < 1 || $number >= @$history) {
+                     print "Error: list number out of range. Try again.\n";
+                     next;
+                }
+                $val = $history->[$number];
+            }
+            if ($val eq 'none') {
+                $pirconfig->StoreConfigValue($key,$val);
+                last;
+            }
+            if (! -f $val || ! -r _ ) {
+                print "Error: file '$val' doesn't exist or is not readable. Check and try again.\n";
+                next;
+            }
+            $pirconfig->StoreConfigValue($key,$val);
+            last;
+        }
+    }
+
+    # Other question start here.
+    if (!$AUTOMATIC && (!$GENCODE || !$TAGNAME) && !$welcomed++) {
+        print "\nHello, welcome to $BASENAME $VERSION !\n\n";
+    }
+
+    if ($AUTOMATIC) {
+         $GENCODE=1 if ! $GENCODE;   # default gencode
+         $TAGNAME=$USER . " " . scalar(localtime(time));          # default tagname
+         return;
+    }
+
+    # Ask for genetic code
+    if (! $GENCODE) {
+        print "--------------------------------------------------------------------\n";
+        print "\nGenetic code to use:\n",
+              "   (hint: this option can be supplied with '-g' on the command-line)\n\n";
+
+        # The following table should actually be constructed by reading NCBI's gc.prt...
+        my %HARDCODED_GENCODES = (
+             1 => "Standard",
+             2 => "Vertebrate Mitochondrial",
+             3 => "Yeast Mitochondrial",
+             4 => "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate Mitochondrial; Mycoplasma; Spiroplasma",
+             5 => "Invertebrate Mitochondrial",
+             6 => "Ciliate Nuclear; Dasycladacean Nuclear; Hexamita Nuclear",
+             9 => "Echinoderm Mitochondrial; Flatworm Mitochondrial",
+            10 => "Euplotid Nuclear",
+            11 => "Bacterial and Plant Plastid",
+            12 => "Alternative Yeast Nuclear",
+            13 => "Ascidian Mitochondrial",
+            14 => "Alternative Flatworm Mitochondrial",
+            15 => "Blepharisma Macronuclear",
+            16 => "Chlorophycean Mitochondrial",
+            21 => "Trematode Mitochondrial",
+            22 => "Scenedesmus Obliquus Mitochondrial",
+            23 => "Thraustochytrium Mitochondrial",
+            99 => "OGMP: TAG-Leu (previously 16)",
+            98 => "OGMP: TGA-Trp with GTG-initiation (previously 17)",
+            97 => "OGMP: TGA-Trp (previously 18)",
+            96 => "OGMP: Tetrahymena Mitochondrial (previously 19)",
+            95 => "OGMP: Basic Mitochondrial (previously 20)",
+            93 => "OGMP: TTA-stop (previously 22)",
+
+        );
+
+        foreach my $num (sort { $a <=> $b } keys %HARDCODED_GENCODES) {
+            printf "  %2s- %s\n",$num,$HARDCODED_GENCODES{$num};
+        }
+        print "\n";
+
+        for (;;) {
+            print "Enter genetic code number: ";
+            my $val = scalar(<STDIN>);
+            die "Error: no input?\n" unless defined $val;  # eof ?!?
+            $val =~ s/^\s*//;
+            $val =~ s/\s*$//;
+            next if $val eq "";
+            if ($val !~ m#^\d+$# || !defined($HARDCODED_GENCODES{$val})) {
+                print "Please enter a number from the list above.\n";
+                next;
+            }
+            $GENCODE=$val;
+            last;
+        }
+    }
+
+    # Ask for tag name
+    if (! $TAGNAME) {
+        print "--------------------------------------------------------------------\n";
+        print "\nEnter a short identifier or reminder, such as 'ABCD' or 'myrun1';\n",
+              "this identifier will be used on all newly inserted annotations in your masterfile.\n",
+              "   (hint: this option can be supplied with '-t' on the command-line)\n\n";
+        print "Enter identifier or reminder: ";
+        $TAGNAME=scalar(<STDIN>) || "";
+        $TAGNAME =~ s/^\s*//;
+        $TAGNAME =~ s/\s*$//;
+        if ($TAGNAME eq "") {
+            $TAGNAME=$USER . " " . scalar(localtime(time));
+            print "Since you did not supply anything, we'll use '$TAGNAME'.\n";
+        }
+    }
+    # Done with questions.
+}
+
+sub MakeMasterBlastDB {
+    my $mf = shift; # a PirObject::Masterfile
+
+    my $fapath   = "$TMPDIR/tmpmaster.fa";
+    my $dbprefix = "$TMPDIR/mf";
+
+    my $fh = new IO::File ">$fapath"
+        or die "Error: can't write to file '$fapath': $!\n";
+
+    my $name = $mf->get_name();
+    print $fh ">$name\n";
+
+    my $sequence = $mf->get_sequence();
+    $sequence =~ s/!//g; # darn bangs
+    my $seqlen = length($sequence);
+    my $pos = 0;
+
+    while ($pos < $seqlen) {
+        if ($pos+60 < $seqlen) {
+            print $fh substr($sequence,$pos,60),"\n";
+            $pos += 60;
+            next;
+        }
+        print $fh substr($sequence,$pos);
+        last;
+    }
+
+    $fh->close();
+
+    my $ret = system(
+           "formatdb",            # The BLAST DB creation program
+           "-p", "F",             # DNA
+           "-t", "Masterfile",    # title (not really needed)
+           "-i", "$fapath",       # The plain fasta file we just created
+           "-n", "$dbprefix",     # The three DB files created by formatdb
+           "-l", "$TMPDIR/fdb.log", # Logfile location.
+          );
+
+    $ret >>= 8;  # shift 8 less significant bits to get return code.
+    if ($ret > 1) {
+        print STDERR "Error: formatdb command returned error code '$ret' ?!?\n",
+                     "Here is the command's logfile:\n";
+        system("cat","$TMPDIR/fdb.log");
+        exit 10;
+    }
+
+    if (! -r "$dbprefix.nsq" || ! -r "$dbprefix.nhr" || ! -r "$dbprefix.nin") {
+        print STDERR "Error: can't seem to find the output of formatdb ?!?\n",
+                     "Here is the command's logfile:\n";
+        system("cat","$TMPDIR/fdb.log");
+        exit 10;
+    }
+
+}
+
+sub LogInfo {
+    my $pirmaster = shift;
+    my $header = $pirmaster->header() || [];
+
+    my @report = ();
+    my $added  = $ANNOT_STATS->{'Added'};
+    my $redisc = $ANNOT_STATS->{'Rediscovered'};
+
+    my @added  = sort keys %$added;
+    my @redisc = sort keys %$redisc;
+
+    push(@report,
+        ";;    - Gene Totals: " . scalar(@added) . " added; " . scalar(@redisc) . " rediscovered.",
+    );
+
+    push(@report,
+        ";;    - List of genes added:",
+    ) if @added;
+
+    #foreach my $genename (@added) {
+    #    my ($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
+    #    push(@report,
+    #    ";;        $genename" . ($e > 1 ? " ($e exons)" : ""),
+    #    );
+    #}
+
+    my $COLS=3;
+    my $cnt=0;
+    my $rep = "";
+    foreach my $genename (@added) {
+        my ($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
+        $rep = ";;     " if !$cnt;
+        $rep .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+        $cnt++;
+        if ($cnt >= $COLS) {
+            push(@report, $rep);
+            $cnt=0;
+        }
+    }
+    push(@report, $rep) if $cnt;
+
+    push(@report,
+        ";;    - List of genes rediscovered:",
+    ) if @redisc;
+
+    #foreach my $genename (@redisc) {
+    #    my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
+    #    push(@report,
+    #    ";;        $genename" . ($e > 1 ? " ($e exons)" : ""),
+    #    );
+    #}
+
+    $cnt=0;
+    $rep = "";
+    foreach my $genename (@redisc) {
+        my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
+        $rep = ";;     " if !$cnt;
+        $rep .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+        $cnt++;
+        if ($cnt >= $COLS) {
+            push(@report, $rep);
+            $cnt=0;
+        }
+    }
+    push(@report, $rep) if $cnt;
+
+    unshift(@$header,
+        ";; Masterfile modified automatically by $BASENAME version $VERSION",
+        ";;    - New annotations labeled with: MFFEAT=$TAGNAME",
+        @report,
+        ";;",
+    );
+
+    $pirmaster->set_header($header);
+}
+
+END {
+    # Cleanup temp directory when program exits.
+    return unless defined($TMPDIR) && $TMPDIR =~ m#^/tmp/#;
+    if (defined($DEBUG) && $DEBUG > 0) {
+        print STDERR "Debug mode warning: temporary work directory '$TMPDIR' not cleaned up.\n";
+        return;
+    }
+    system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+}
+
+# End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
