@@ -25,11 +25,15 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.4 2005/03/04 20:47:29 dto Exp $
+#    $Id: mfannot,v 1.5 2005/03/15 20:36:22 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.5  2005/03/15 20:36:22  thomash
+#    Add tRNAscanSE for prediction
+#
 #    Revision 1.4  2005/03/04 20:47:29  dto
 #    New version provided by Pierre
+#    Modified by Hoellinger T. 2005/03/14
 #
 #
 
@@ -43,6 +47,8 @@ use vars qw( $VERSION $RCS_VERSION );
 use IO::File;
 use PirObject;
 use Bio::SearchIO;
+use Bio::Tools::tRNAscanSE;		#Add by T. HOELLINGER
+use Bio::SeqUtils;			#Add by T. HOELLINGER
 
 # Load PirObject data models
 PirObject->LoadDataModel("Masterfile");  # Will load other files too.
@@ -52,7 +58,7 @@ PirObject->LoadDataModel("MfAnnotConfig");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.4 2005/03/04 20:47:29 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.5 2005/03/15 20:36:22 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -165,6 +171,9 @@ print "Blasting known genes against masterfile...\n" if !$AUTOMATIC || $DEBUG;
 # Step four: annotate gene matches
 &AddGeneFeaturesUsingBlastOutputs($pirmaster,$TAGNAME);
 
+# Step five : run tRNAscanSE and annotate with output
+&AddGeneFeatureUsingtRNAscanSE($pirmaster, $TAGNAME);
+
 # Last step: log session at top of masterfile and dump it.
 &LogInfo($pirmaster);
 $pirmaster->ObjectToFile("mf.xml") if $DEBUG;
@@ -276,6 +285,112 @@ sub BlastFastaVsMasterfile {
         }
     }
 }
+
+sub AddGeneFeatureUsingtRNAscanSE {
+
+	#Description of the sub
+	#1st : put the dna sequence into a temporary fastafile
+	#2nd : run tRNAscanSE with the temporary fasta file  
+	#3rd : parse the blast output
+	#4th : annotate with the output
+	
+	#1st : put the dna sequence into a temporary fastafile
+	
+	my $pirmaster   = shift;			#get the masterfile object
+	my $contigs = [];				#create a reference to a config file
+	my $tag = shift;		
+	
+	$contigs = $pirmaster->get_contigs();		#get the masterfiles contigs
+	
+	my $contig=undef;
+	foreach $contig (@$contigs)			#parse all the contig
+	{
+		my $name=$contig->get_name();		#get the name for the contig
+		my $seq=$contig->get_sequence();	#get the sequence for each contig
+		$seq =~ s/[^atcgATCG]//g;
+		
+		#2nd : run tRNAscanSE with the temporary fasta file
+		
+		my $fastatmp = "$TMPDIR/fasta.tmp";	#temporary fasta file
+		my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
+		 
+		open (FASTATMP, ">$fastatmp")
+		or die "can't open fasta tmp file\n";	#put into a temporary fasta file	
+		print FASTATMP ">$name\n$seq";		#put the sequence into the temporary file with fasta format
+		close FASTATMP;				#close the temporary file	
+	
+		#2nd : run tRNAscanSE with the temporary fasta file
+		if (! -r "$fastatmp")
+		{
+			die "
+			can't open fasta tmp file\n";
+			
+		}
+		system ("tRNAscan-SE","-o", "$outputtrnascansetmp", "$fastatmp");
+	
+		#3rd : parse the blast output	
+
+		my $parser = Bio::Tools::tRNAscanSE->new (-file=>"$outputtrnascansetmp") ||die "problem with trnascanSe output";
+
+		my $arntcount=1;	#couter in data parsed
+
+		
+		while (my $gene = $parser->next_prediction() )
+		{
+			#gene is a 
+			#Bio::SeqFeature::Generic
+		
+			my $start=$gene->start;				#beginning of the gene
+			my $stop=$gene->end;				#end of the gene
+			my $strand=$gene->strand;			#strand
+			my $arrow = ($strand == -1 ? "<=="   : "==>");
+			my $score=$gene->score;				#score for the predicted gene
+			my $primary_tag=$gene->primary_tag;		#T-rna gene
+			my $source_tag=$gene->source_tag;		#tRNAscan-SE	
+			
+			
+			
+			#Reg exp that convert data into a gff string
+			my $gff=$gene->gff_string();	#extract informations in gff string
+			my ($aa, $codon) = ($gff=~ m/AminoAcid\s([\w"-]+)\s*;\s*Codon\s*([\w]+)/);	
+			$aa =~ s/"//g;		#contains the aa type for tRNA (3 letters code) 
+			$codon =~ s/"//g;	#contains the codon (3b) for recognizing motif in tRNA (anti-codon) 
+			$codon = lc($codon);
+			$aa = uc(substr($aa, 0, 1)).lc(substr($aa, 1, 2));	#case treatment
+			my %CodonTable = Bio::SeqUtils->valid_aa(2);		#get the amino acide code
+			my $aaSymbol=$aa;
+			if (length($aa) == 3) {
+				$aaSymbol = $CodonTable{$aa};		#change the amino acid in one to 3 letter
+				if ($aaSymbol eq "") {
+					$aaSymbol=$aa;
+				}
+			}
+			
+			
+			
+			print  $arntcount, " ", $start, " ", $stop, " ", $strand, " ", $aa, " ", $codon, " ", $aaSymbol,"\n";
+			
+			#4th : annotate with the output
+			
+			my $annot = new PirObject::AnnotPair (
+                        type      => "G",
+                        genename  => "tRNA-$aa($codon)",
+                        startpos  => $start,
+                        endpos    => $stop,
+                        direction => $arrow,
+                        startline => ";     G-trn$aaSymbol($codon) $arrow start ;; MFFEAT=$tag",
+                        endline   => ";     G-trn$aaSymbol($codon) $arrow end ;; MFFEAT=$tag",
+                    	);
+        		&AddAnnotToPirMaster($pirmaster,$name,$annot);
+
+			
+			$arntcount ++;
+		}
+		
+	}	
+	
+}
+
 
 sub AddGeneFeaturesUsingBlastOutputs { # I like to be descriptive.
     my $pirmaster   = shift;
