@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl -w -- -*-Perl-*-
+#!/usr/bin/perl -w -- -*-Perl-*-
 
 ##############################################################################
 #
@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.5 2005/03/15 20:36:22 thomash Exp $
+#    $Id: mfannot,v 1.6 2005/03/16 14:52:49 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.6  2005/03/16 14:52:49  dto
+#    Added correct location of perl
+#
 #    Revision 1.5  2005/03/15 20:36:22  thomash
 #    Add tRNAscanSE for prediction
 #
@@ -58,7 +61,7 @@ PirObject->LoadDataModel("MfAnnotConfig");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.5 2005/03/15 20:36:22 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.6 2005/03/16 14:52:49 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
