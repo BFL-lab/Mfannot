@@ -25,17 +25,11 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.3 2005/02/23 21:28:01 dto Exp $
+#    $Id: mfannot,v 1.4 2005/03/04 20:47:29 dto Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.3  2005/02/23 21:28:01  dto
-#    Changed comment to affect file permissions
-#
-#    Revision 1.2  2005/02/23 21:13:42  dto
-#    Added environment variable for BLAST into script
-#
-#    Revision 1.1  2005/02/23 21:08:59  dto
-#    Adding Pierre's project
+#    Revision 1.4  2005/03/04 20:47:29  dto
+#    New version provided by Pierre
 #
 #
 
@@ -58,7 +52,7 @@ PirObject->LoadDataModel("MfAnnotConfig");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.3 2005/02/23 21:28:01 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.4 2005/03/04 20:47:29 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -134,6 +128,7 @@ die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"
 
 sub SigCleanup { # private
      die "\nExiting: received signal \"" . $_[0] . "\".\n";
+     # Note that some cleanup will be performed in the END block at this point.
 }
 $SIG{'INT'}  = \&SigCleanup;
 $SIG{'TERM'} = \&SigCleanup;
@@ -286,9 +281,11 @@ sub AddGeneFeaturesUsingBlastOutputs { # I like to be descriptive.
     my $pirmaster   = shift;
     my $tag         = shift || "aVwXyZ";
     my $inputs = PirObject::MfAnnotConfig->InputFiles();
+    # This loop goes through the different fasta input files that
+    # are currently defined in MfAnnotConfig.pir
     for (my $n=0;$n<@$inputs;$n+=3) {
         my ($key,$desc) = @$inputs[$n+1,$n+2];
-        next unless $key =~ m#(DNA|PROT)_FA$#;
+        next unless $key =~ m#(DNA|PROT)_FA$#;  # Convention: xx_DNA_FA or xx_PROT_FA
         my $type = $1;
         my $file = $PIRCONFIG->GetConfigValue($key) || next; # undef should never happen in fact.
         next if $file eq 'none';
@@ -309,19 +306,19 @@ sub AddGeneFeaturesUsingBlastOutputs { # I like to be descriptive.
 
 sub AnnotateGeneFromResult {
     my $pirmaster = shift;
-    my $type      = shift;
+    my $type      = shift;  # 'DNA' or 'PROT'
     my $result    = shift; # an object implementing Bio::SearchIO::Result::ResultI
     my $tag       = shift || "bVwXyZ";
 
-    my $id        = $result->query_name()        || "Unknown ID";
-    my $rdesc     = $result->query_description() || "Unknown Query Description";
-    my $dbname    = $result->database_name()     || "Unknown DB name";
-    my @hits      = $result->hits();
-    my $numhits   = scalar(@hits);  # normally, only one!
+    my $id         = $result->query_name()        || "Unknown ID";
+    my $rdesc      = $result->query_description() || "Unknown Query Description";
+    my $dbname     = $result->database_name()     || "Unknown DB name";
+    my @hits       = $result->hits();
+    my $numhits    = scalar(@hits);  # normally, only one!
     return if $numhits < 1;
     print "Found result: ID=$id DESC=$rdesc DBNAME=$dbname with $numhits hits\n" if $DEBUG;
     foreach my $hit (@hits) {
-        my $hit_name     = $hit->name();
+        my $contigname   = $hit->name();
         my $desc         = $hit->description();
         #my $len          = $hit->length();
         #my $score        = $hit->raw_score();
@@ -329,13 +326,14 @@ sub AnnotateGeneFromResult {
         my @HSPs         = $hit->hsps();
         my $numHSPs      = scalar(@HSPs);
         my $frame        = $hit->frame();
-        print "   Hit NAME=$hit_name DESC=$desc HSPS=$numHSPs FRAME=$frame\n" if $DEBUG;
+        print "   Hit NAME=$contigname DESC=$desc HSPS=$numHSPs FRAME=$frame\n" if $DEBUG;
         @HSPs = sort { $a->hstart() <=> $b->hstart() or $a->hend() <=> $b->hend() } @HSPs;
         my $sstrand = $HSPs[0]->strand('subject') || 1; # assume strand of first exon determines everything
         my $arrow = ($sstrand == -1 ? "<=="   : "==>");
 
         my ($start,$end) = ( $HSPs[0]->hstart(), $HSPs[-1]->hend() );
         ($start,$end) = ($end, $start) if $sstrand == -1;
+        $end += ($sstrand == -1) ? -3 : 3 if $type eq "PROT";
         my $annot = new PirObject::AnnotPair (
                         type      => "G",
                         genename  => $id,
@@ -345,7 +343,7 @@ sub AnnotateGeneFromResult {
                         startline => ";     G-$id $arrow start ;; MFFEAT=$tag",
                         endline   => ";     G-$id $arrow end ;; MFFEAT=$tag",
                     );
-        &AddAnnotToPirMaster($pirmaster,$annot);
+        &AddAnnotToPirMaster($pirmaster,$contigname,$annot);
 
         # This loops annotate exons and introns.
 
@@ -356,6 +354,7 @@ sub AnnotateGeneFromResult {
             my $HSP = $HSPs[$cnt];
             my $estart  = $HSP->hstart();
             my $eend    = $HSP->hend();
+            $eend += ($sstrand == -1) ? -3 : 3 if $type eq "PROT" && $cnt == $#HSPs;
             print "HSP EXON $estart..$eend $sstrand\n" if $DEBUG;
             my $Esuffix = "-E" . ($cnt+1);
             my $Eannot = new PirObject::AnnotPair(
@@ -367,7 +366,7 @@ sub AnnotateGeneFromResult {
                              startline => ";     G-$id$Esuffix $arrow start ;; MFFEAT=$tag",
                              endline   => ";     G-$id$Esuffix $arrow end ;; MFFEAT=$tag",
                           );
-            &AddAnnotToPirMaster($pirmaster,$Eannot);
+            &AddAnnotToPirMaster($pirmaster,$contigname,$Eannot);
 
             last if $cnt >= $#HSPs;
 
@@ -387,31 +386,44 @@ sub AnnotateGeneFromResult {
                              startline => ";     G-$id$Isuffix $arrow start ;; MFFEAT=$tag",
                              endline   => ";     G-$id$Isuffix $arrow end ;; MFFEAT=$tag",
                           );
-            &AddAnnotToPirMaster($pirmaster,$Iannot);
+            &AddAnnotToPirMaster($pirmaster,$contigname,$Iannot);
 
         }
     }
 }
 
-my $GeneNameToAnnot_Cache = undef;
+my $GeneNameToAnnot_Cache = undef;  # just a hash used for efficiency
 sub AddAnnotToPirMaster {
-    my $pirmaster = shift;
-    my $annot     = shift;
+    my $pirmaster  = shift;
+    my $contigname = shift;
+    my $annot      = shift;
 
-    my $pirannots = $pirmaster->get_annotations();
     if (! $GeneNameToAnnot_Cache) { # build it right away
         $GeneNameToAnnot_Cache = {};
-        foreach my $a (@$pirannots) {
-            my $genename = $a->get_genename() || next;
-            $GeneNameToAnnot_Cache->{$genename} ||= [];
-            push(@{$GeneNameToAnnot_Cache->{$genename}},$a);
+        my $contigs = $pirmaster->get_contigs();
+        foreach my $contig (@$contigs) {
+            my $name      = $contig->get_name();
+            my $pirannots = $contig->get_annotations();
+            my $cache = $GeneNameToAnnot_Cache->{$name} ||= {};
+            foreach my $a (@$pirannots) {
+                my $genename = $a->get_genename() || next;
+                $cache->{$genename} ||= [];
+                push(@{$cache->{$genename}},$a);
+            }
         }
     }
+
+    my $contig = $pirmaster->GetContigByName($contigname)    # defined in Masterfile.pir
+       || die "Error: trying to add annotation to contig '$contigname' which does not exists?!?\n";
+
+    my $pirannots = $contig->get_annotations();
+    my $annotcache = $GeneNameToAnnot_Cache->{$contigname} || {};
 
     my $genename = $annot->get_genename();
     my $shortgn  = $genename;
     $shortgn =~ s/-[EI]\d+$//;
-    my $already_list = $GeneNameToAnnot_Cache->{$shortgn};
+
+    my $already_list = $annotcache->{$shortgn};
 
     my $record_to = $already_list ? 'Rediscovered' : 'Added';
     $ANNOT_STATS->{$record_to}->{$shortgn} ||= { I => 0, E => 0, };
@@ -585,22 +597,25 @@ sub MakeMasterBlastDB {
     my $fh = new IO::File ">$fapath"
         or die "Error: can't write to file '$fapath': $!\n";
 
-    my $name = $mf->get_name();
-    print $fh ">$name\n";
+    my $contigs = $mf->get_contigs() || [];
+    foreach my $contig (@$contigs) {
+        my $name = $contig->get_name();
+        print $fh ">$name\n";
 
-    my $sequence = $mf->get_sequence();
-    $sequence =~ s/!//g; # darn bangs
-    my $seqlen = length($sequence);
-    my $pos = 0;
+        my $sequence = $contig->get_sequence();
+        $sequence =~ s/!//g; # darn bangs
+        my $seqlen = length($sequence);
+        my $pos = 0;
 
-    while ($pos < $seqlen) {
-        if ($pos+60 < $seqlen) {
-            print $fh substr($sequence,$pos,60),"\n";
-            $pos += 60;
-            next;
+        while ($pos < $seqlen) {
+            if ($pos+60 < $seqlen) {
+                print $fh substr($sequence,$pos,60),"\n";
+                $pos += 60;
+                next;
+            }
+            print $fh substr($sequence,$pos),"\n" unless $pos == $seqlen;
+            last;
         }
-        print $fh substr($sequence,$pos);
-        last;
     }
 
     $fh->close();
