@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.2 2005/02/23 21:13:42 dto Exp $
+#    $Id: mfannot,v 1.3 2005/02/23 21:28:01 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.3  2005/02/23 21:28:01  dto
+#    Changed comment to affect file permissions
+#
 #    Revision 1.2  2005/02/23 21:13:42  dto
 #    Added environment variable for BLAST into script
 #
@@ -55,7 +58,7 @@ PirObject->LoadDataModel("MfAnnotConfig");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.2 2005/02/23 21:13:42 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.3 2005/02/23 21:28:01 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -87,7 +90,7 @@ my $ANNOT_STATS = {
 #############################
 # Environment Verifications #
 #############################
-#Added by David To 11th February 2005
+# Added by David To 11th February 2005
 $ENV{"BLASTMAT"} = "/share/supported/apps/ncbi/data";
 
 die "Please make sure the BLASTMAT environment variable is set\n" .
