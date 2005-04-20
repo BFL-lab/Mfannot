@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.8 2005/04/13 20:06:07 thomash Exp $
+#    $Id: mfannot,v 1.9 2005/04/20 18:41:32 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.9  2005/04/20 18:41:32  thomash
+#    More options, accessible with command line (see help -h options)
+#
 #    Revision 1.8  2005/04/13 20:06:07  thomash
 #    New Version of Mfannot
 #    Input : A masterfile (-m) and a peplibrary (-p)
@@ -57,31 +60,33 @@
 require 5.00;
 use strict;
 use vars qw( $VERSION $RCS_VERSION );
-use IO::File;
-use PirObject;
-use Bio::SearchIO;
-use Bio::SeqUtils;			#Add by T. HOELLINGER
-use Getopt::Std;
-
-# Load PirObject data models
-PirObject->LoadDataModel("Masterfile");  # Will load other files too.
-PirObject->LoadDataModel("MfAnnotConfig");
-PirObject->LoadDataModel("tRNAscanSEparser");
+use IO::File;                             
+use PirObject;                                        #  Pir module treatment 
+use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
+use Bio::SeqUtils;                          
+use Getopt::Std;                                      #  Options treatment        
 
 
-PirObject->LoadDataModel("FlipBlastProt");
-PirObject->LoadDataModel("Orf");
-PirObject->LoadDataModel("Hsp");
-PirObject->LoadDataModel("HypProt");
-PirObject->LoadDataModel("Exon");
 
+#---General Objects
+PirObject->LoadDataModel("Masterfile");               #  Masterfile object
+PirObject->LoadDataModel("MfAnnotConfig");            #  Configuration object
+PirObject->LoadDataModel("tRNAscanSEparser");         #  Parser for tRNAscanSE output
+
+#---Objects for annotation 
+PirObject->LoadDataModel("FlipBlastProt");            #  Objects for storing ORFs predicted by Flip and kept with blast
+PirObject->LoadDataModel("Orf");                      #  ORF (belong to FlipBlastProt)
+PirObject->LoadDataModel("Hsp");                      #  High Scoring Pair (belong to Orf)
+PirObject->LoadDataModel("HypProt");                  #  Hypothetical protein : We believe its a protein after flip, blast an
+                                                      #  Organization of the results     
+PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypothetical proteins
 
 
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.8 2005/04/13 20:06:07 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.9 2005/04/20 18:41:32 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -93,14 +98,12 @@ my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
 ##################################
 
 # Command-line args
-my $DEBUG=1;
-my $AUTOMATIC=0;
-my $GENCODE=undef;
-my $TAGNAME=undef;
-my $FORCEANNOT=0;
 
+#--No more used
+my $AUTOMATIC=0;
+my $TAGNAME=undef;                            #  Tag : is presnt in masterfile within the annotations made with Mfannot
+my $FORCEANNOT=0;
 my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
-my $TMPDIR = "/tmp/mfannot.$$";
 my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .    # e-value
                             "";
 my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .    # e-value
@@ -110,23 +113,34 @@ my $ANNOT_STATS = {
     Rediscovered => {},
 };
 
-my $BLASTOUTPUT = "./blastoutput2";		#	The path for blast file results	
-my %PREDICTEDGENES;				#	Hash of predicted genes object PirObject::PredictedGene
-my $BLASTEVALUECUTOFF = 0.0001;			#	Cutoff value for the blast
-my $MINLENGTHORF = 30;				#	This is the minimum length for creating an ORF with flip
-my $MAXLENGTHFORGROUPINGORF = 1000;		#	Minimum size of a gap between 2 ORf. If 2 same ORF
+#--General options
+my $DEBUG;                                      #  Debug mode. If true, display message on the screen
+my $GENCODE=undef;                              #  Genetique code
+my $TMPDIR = "/tmp/mfannot.$$";                 #  Temporary directory
+my $LOGFILE;                                    #  log file : store all the information about run
+my $SIMILARITYSEARCH;                                #  Usefull for running similaritie gene process for annot.
+my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE is not empty (0 or 1)
+my $PEPLIBRARY;                                 #  Path for peplibrary directory
+my $MASTERFILE;                                 #  Path for Masterfile
+my $PEPFILE;                                    #  Path for the peptide file used
+my $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
+my $HYPPROTS = [];                              #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
+my $OUTPUTFILE;                                 #  Path for the new
+my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in the annotation 
 
-my $FLIPBLASTPROTS = [];			#	Array containing the Proteins predicted by Blast and Flip
-my $HYPPROTS = [];				#	Array containing the Proteins predicted by Blast and Flip and reprocessed after
-
-my $SIZE = 1000;
-
-my $PEPLIBRARY;					#	Path for peplibrary
-my $MASTERFILE;					#	Path for Masterfile
-my $PEPFILE;					#	Peptide file used f
+#--Specific for finding the closest organism
+my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
+my $MINLENGTHORFFORFINDINGCLOSESTORGANISM;      #  Minimum ORF size generated with flip
+my $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM; #  Minimum blast e-value thresold
+$BLASTOUTFORFINDINGCLOSESTORGANISM = $TMPDIR . "/blastout1";
 
 
-
+#--Specific for the annotation (parameters for flip, blastall and organization)
+my $BLASTOUTPUT                   ;             #  The path for blast file results	
+my $BLASTEVALUECUTOFF = 0.0001;			#  Cutoff value for the blast
+my $MINLENGTHORF = 30;				#  This is the minimum length for creating an ORF with flip
+my $MAXLENGTHFORGROUPINGORF = 1000;		#  Minimum size of a gap between 2 ORf. If 2 same ORF
+$BLASTOUTPUT = $TMPDIR . "/blastout2";
 
 
 #############################
@@ -145,43 +159,102 @@ die "Please make sure that the 'blastall' executable is in your\n" .
     unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
      
 
-#####################################
-# Command-Line Arguments Processing #
-#####################################
+#####################################################
+# Command-Line Arguments Processing and verification#
+#####################################################
 
+##------------------------------------------------##
+my %opts;                                                            #  Hash array for storing options
+getopts( 'o:i:p:g:dsr:l:f1:b1:is:f2:b2:h', \%opts );                 #  Get the options separated with : and put into opts array
+##------------------------------------------------##
 
-
-
-
-my %opts;			#	array wher the options are stored
-
-foreach (@ARGV) {		#	Check for help
-	if ($_ eq '-h') {
-		&Help;
-		exit 0;	
+#--Get all the options
+##-------------o option---------------------------##
+$OUTPUTFILE = $opts{'o'} || "";                                      #  New masterfile annotated or nothing
+##-------------i option--------------------------##
+$PEPFILE = $opts {'i'} || "";                                        #  Input file : for making annotation. If nothing search in the library
+my $takeinputpepfile = 0;                                            #  Something to say if we can take the input peptide file		
+if ($PEPFILE ne "") {                                                #  In this case we prefere take the the library
+	if (-r $PEPFILE) {                                           #  If the file is readable
+		$takeinputpepfile = 1;
 	}
 }
-getopts( 'm:p:g:h:', \%opts );	#	Get the options
-
-$MASTERFILE = $opts{'m'} || &GoOut;	#	If Masterfile does not exists or is not readable, exit
-
-die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"
+##------------p option--------------------------##
+$PEPLIBRARY =  $opts{'p'} || './';                                   #  If peplibrary does not exists or is not readable, exit
+##------------g option--------------------------##
+$GENCODE = $opts{'g'} || 1;                                          #  Choosen genetic code or 1 (standard code)
+##------------s option--------------------------##
+$SIMILARITYSEARCH = $opts{'s'};                                      #  Similaritie search, if defined no similarity search
+if (defined $SIMILARITYSEARCH) {
+    $SIMILARITYSEARCH = 0;
+}
+else {
+    $SIMILARITYSEARCH = 1;
+}
+##------------r option--------------------------##
+$USETRNASCANSE = $opts{'r'};                                         #  Use of tRNAscanSE : true or false (T or F)
+if (defined $USETRNASCANSE) {
+    $USETRNASCANSE = 1;
+}
+else {
+    $USETRNASCANSE = 0;
+}
+##------------l option--------------------------##
+$LOGFILE = $opts {'l'} || "";                                        #  Print in the logfile which path is given. Default : don't print
+if ($LOGFILE ne "") {                                                #  Try to open the log file
+	if (open (LOGFILE, ">$LOGFILE") <= 0) {
+		print "Can not open Logfile\n";
+	}
+	else  {
+        	$ISLOGFILE = 1;
+	}
+}
+##-------------f1 option------------------------##
+$MINLENGTHORFFORFINDINGCLOSESTORGANISM = $opts {'f1'} || 150;         #  Parameter for first run of flip (find closest organism)
+                                                                      #  : Minimum size ORF
+##-------------b1 option------------------------##
+$BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $opts {'b1'} || 0.01;   #  Parameter for first run of blast (find closest organism)
+                                                                      #  Minimum e-value for keeping results
+##-------------f2 option------------------------##
+$MINLENGTHORF = $opts {'f2'} || 40;                                   #  Parameter for second run of flip (annotation)
+                                                                      #  : Minimum size ORF
+##-------------b2 option------------------------##
+$BLASTEVALUECUTOFF = $opts {'b2'} || 0.0001;                          #  Parameter for second run of blast (annotation)
+                                                                      #  Minimum e-value for keeping results
+$MAXLENGTHFORGROUPINGORF = $opts {'is'} || 1000;                      #  Maximum size of the gap between 2 ORFs
+                                                                      #  If the size is bigger, 2 ORFs are 2 differnet hyppothetical proteins
+                                                                      #  Otherwise : the two ORFs form 1 hypothetical protein  
+##--------------d option------------------------##
+$DEBUG = $opts {'d'};                                                 #  Debug mode. True or false
+if (defined $DEBUG) {
+    $DEBUG = 1;
+}
+else {
+    $DEBUG = 0;
+}
+##-------------h option-------------------------##
+if (defined $opts {'h'}) {                                            #  On case, h defined, print a short help
+    &Help;
+    exit 0;
+}
+##--------------default option------------------##
+$MASTERFILE = shift || die &GoOut;                                    #  The default argument. If Masterfiel is not readable. Go out
+die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"    #  First thing check if masterfile is ok
     unless -r $MASTERFILE;
-
-$PEPLIBRARY =  $opts{'p'} || &GoOut;	#	If peplibrary does not exists or is not readable, exit
-
-$GENCODE = $opts{'g'} || 1;		#	Choosen genetic code or 1
-
-sub GoOut {
-	print "----------------\n";
-	&Usage;
-	exit 0;
+if ($OUTPUTFILE eq "") {                                             #  Defining the output file
+	 $OUTPUTFILE = $MASTERFILE.'.new';
 }
 
 
 ##################
 # HELP AND USAGE #
 ##################
+
+sub GoOut {
+	print "----------------\n";
+	&Usage;
+	exit 0;
+}
 
 sub Help {
 
@@ -193,10 +266,55 @@ print "-------------------\n";
 
 sub Usage {
 
-print "usage : mfannot -m masterfile -p peplibrary [options]\n",
-      "        options are :	 	 		    \n",
-      "         -g : genetic code, default standard         \n",
-      "         -h : print short help                       \n";
+print "USAGE\n",
+"  mfannot [options] masterfile\n",
+"\n",
+
+"OPTIONS\n",
+"-o  outputfile
+        name of the new masterfile created. Default name will be old
+	masterfile name + '.new'
+  -i  inputfile
+        Peptide file used for annotation of the masterfile.
+	By default, the programm will search the peptide file 
+	corresponding to the closest in the peplibrary. By default, 
+	the program will search in the local directory
+  -p  pepdirectory
+        Path for the peptide directory containing peptide files.
+        If nothing, peptide directory is './'. 
+	Remark : To be inside the process of searching peptides files,
+	files inside the directory will be finished with '.pep'
+  -g  genetic code
+        Genetic code used.
+	Default standard
+  -s  Without similarity search. 
+        Boolean. If defined, no similarity gene search with peptide 
+	file for annotation
+  -r  tRNAscanSE utilisation
+        Using of tRNAscanSE for annotation
+  -d  debug mode. 
+        Give informations about programm processing
+  -l  logfile
+        Print command and step processing in the log file. Default, 
+	don't print anything
+  -f1 flip parameter 1
+        It's the minimum ORF size for searching the closest Organism 
+	with Flip Blast correlated.
+  -f2 flip parameter 2 
+        It's the minimum ORF size for annotation with Flip Blast correlated.
+  -b1 blast parameter 1
+        Minimum signifiant e-value for keeping ORF for searching the closest
+	Organism with Flip Blast correlated.
+  -b2 blast parameter 1
+        Minimum signifiant e-value for keeping ORF for annotation with Flip 
+	Blast correlated.
+  -si size for intron
+        Under this size, 2 ORFs having the same potential name, are grouped 
+	together to form an hypothetical protein.
+	When this size is bigger, gap can not be considerated as an intron and
+	the 2 ORFs form 2 hypothetical proteins
+  -h  help
+        Display a little help\n";
 
 } 	
 
@@ -220,52 +338,139 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
+##--Header 
+my $header = "######################################################################\n".
+             "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
+             "VERSION $VERSION                                                      \n".
+	     "Programmed by david To, Thomas Hoellinger, Pierre Rioux and Franz Lang\n".
+	     "######################################################################\n\n";
+print $header if $DEBUG;
+print LOGFILE $header if $ISLOGFILE;    
 
+##--OPTIONS OF THE PROGRAM
+my $options ="----------------------------------\n".
+             "        General Options	        \n".
+             "----------------------------------\n";
+$options .= "new Masterfile created : $OUTPUTFILE\n";
+$options .= LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
+$options .= "Genetic code : $GENCODE\n";
+
+if ($SIMILARITYSEARCH) {
+  if ($takeinputpepfile == 0) {
+    $options .= "Look in the peptide library\n";
+    $options .= "Directory : $PEPLIBRARY\n";	     
+  }
+  else {
+    $options .= "Peptide file : $PEPFILE\n";
+  }
+}
+else {
+   $options .=  "Any search in gene similarity for annotation\n";
+}
+
+if ($USETRNASCANSE == 0) {
+  $options .= "No usage of tRNAscanSE\n";
+}
+else {
+  $options .= "Usage of tRNAscanSE\n";
+}
+
+print LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
+print $options if $DEBUG;                       #Print the options on the screen 
+
+  
 mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
 
+if ($takeinputpepfile == 0 && $SIMILARITYSEARCH) {  
+  print "----------------------------------\n",  # First print : debug
+        "  Look For The Closest Organism   \n",
+        "----------------------------------\n" if $DEBUG;
+  print LOGFILE "----------------------------------\n",  # First print : debug
+                "  Look For The Closest Organism   \n",
+                "----------------------------------\n" if $ISLOGFILE;
+  my $optionsforlooking;                         # options, 
+  $optionsforlooking = "Minimum size ORF, for flip running : $MINLENGTHORFFORFINDINGCLOSESTORGANISM\n";
+  $optionsforlooking .= "Blast e-value cutoff : $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM\n";
+  print "options :\n$optionsforlooking" if $DEBUG;
+  print LOGFILE "options :\n$optionsforlooking" if $ISLOGFILE;
+  $PEPFILE = &FindClosestOrganism;               # Look for the closest Organism
+  if (not defined ($PEPFILE)) {
+    die "Peptide file not found in pep directory\n";
+  }
+  $PEPFILE = $PEPLIBRARY. "/" . $PEPFILE;
+  print "The closest Organism is : $PEPFILE\n" if $DEBUG;
+  print LOGFILE "The closest Organism is : $PEPFILE\n" if $ISLOGFILE;
+}
 
-print "##################################\n",
-      "  LOOK FOR THE CLOSEST ORGANISM	 \n",
-      "##################################\n";
-$PEPFILE = &FindClosestOrganism;
+if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
+  die "Unable to read $PEPFILE\n";
+}
 
-
-$PEPFILE = $PEPLIBRARY. "/" . $PEPFILE;
-print "The closest Organism is : $PEPFILE\n";
-
-
-print "##################################\n",
-      "	  RUN FLIP on $MASTERFILE	 \n",
-      "##################################\n";
-&RunFlip;
-
-print "##################################\n",
-      "	  RUN BLAST 			 \n",
-      "##################################\n";
-&BlastFlipVSGene;
-
-print "\n\nParsing masterfile...\n" if !$AUTOMATIC || $DEBUG;
+print "----------------------------------\n",
+      "           Annotation             \n",
+      "----------------------------------\n" if $DEBUG;
+print LOGFILE "----------------------------------\n",
+              "           Annotation             \n",
+              "----------------------------------\n" if $ISLOGFILE;
+my $step=1;
+print "$step) Parsing masterfile...\n" if $DEBUG;
+$step += 1; 
 my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
+	      
+if ($SIMILARITYSEARCH) {
+  $options = "Options : \n";                  # Options & parameters used for the blast
+  $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
+  $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+  print $options if $DEBUG;
+  print LOGFILE $options if $ISLOGFILE;
 
-print "##################################\n",
-      "	  ANNOTATION 			 \n",
-      "##################################\n";
+                                 # Run the programm step by, to know the right step            
+  print "$step) Run Flip...\n" if $DEBUG;
+  $step += 1; 
+  &RunFlip;
 
-print "Parse Information From Blast Results\n"; 
-&ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
+  print "$step) Run Blast...\n" if $DEBUG;
+  $step += 1;  
+  &BlastFlipVSGene;
 
-print "Fill Hyp prot Array With FLIPBLASTPROTSArray\n"; 
-&FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
+  print "$step) Parse Information From Blast Results...\n" if $DEBUG;
+  $step += 1;
+  &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
 
-print "Organise Prot Array\n"; 
-&OrganiseHYPPROTSArray ($pirmaster);
+  print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
+  $step += 1; 
+  &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
-print "Annotate from Hyp Prots Array\n";
-&AnnotateMfFromHYPPROTSArray ($pirmaster);
+  print "$step) Organise Prot Array...\n" if $DEBUG; 
+  $step += 1; 
+  &OrganiseHYPPROTSArray ($pirmaster);
 
-print "Dumping new masterfile in '$MASTERFILE.new'...\n" if !$AUTOMATIC || $DEBUG;
-$pirmaster->ObjectToMasterfile("$MASTERFILE.new");
+  print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
+  $step += 1; 
+  &AnnotateMfFromHYPPROTSArray ($pirmaster);
+}
+  
+if ($USETRNASCANSE) {
+    print "$step) Annotate with tRNAscanSE...\n" if $DEBUG;
+    $step += 1; 
+    &AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");
+}    
+    
+print "----------------------------------\n",
+      "       End of the Programm        \n",
+      "----------------------------------\n" if $DEBUG;  
 
+#system ("rm $TMPDIR -f -r") || print "problem for cleaning; 
+
+&LogInfo ($pirmaster);
+print "Dumping new masterfile in $OUTPUTFILE...\n" if  $DEBUG;
+$pirmaster->ObjectToMasterfile("$OUTPUTFILE");
+
+
+if ($ISLOGFILE == 1) {
+        print "close Logfile : $LOGFILE\n" if $DEBUG;
+	close LOGFILE || print "Logfile not closed\n";
+}
 exit 0;
 
 #############################
@@ -276,132 +481,100 @@ exit 0;
 # Parse command-line options #
 ##############################
 
-sub FindClosestOrganism	#	This function is regarding into the PEPLIBRARY if what is the file having
-{			#	the
+sub FindClosestOrganism    # This function is regarding into the PEPLIBRARY if what is the file having
+{                          # the
 	
-	my $directory = $PEPLIBRARY;						#	Data directory
-	my $pepfile = "$TMPDIR/Pep.txt";
-	my $peplib = "$TMPDIR/Peplib";
-	my $flipcutoff = 150;
-	my $blastoutput = "blastoutput";
-	my $blastcutoff = 0.01;
+    my $directory = $PEPLIBRARY;                     # Data directory
+    my $pepfile = "$TMPDIR/Pep.txt";
+    my $peplib = "$TMPDIR/Peplib";
+    my $flipcutoff = $MINLENGTHORFFORFINDINGCLOSESTORGANISM;
+    my $blastoutput = $BLASTOUTFORFINDINGCLOSESTORGANISM;
+    my $blastcutoff = $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM;
 	
-	opendir (DIR, $directory) or die 'can not open directory\n';		#	Open the directory
-	my @files = grep {/\.pep$/ && -f "$directory/$_"} readdir (DIR);	#	Keep the existing *.pep files
-	close (DIR);
+    opendir (DIR, $directory) or die 'can not open directory\n';        # Open the directory
+    my @files = grep {/\.pep$/ && -f "$directory/$_"} readdir (DIR);    # Keep the existing *.pep files
+    close (DIR);
 	
 	
-	if (-f $pepfile) {
-		system ("rm -f $pepfile");
-	}
-	foreach (@files) {
-		system ("cat $directory/$_ | sed 's/^>.*/>$_/' >> $pepfile")
-		#push (@commandarg, "$directory/$_");		
-	}	
-	#push (@commandarg, '>');
-	#push (@commandarg, $pepfile);
-								#	Close the directory
-	#print @files;
+    if (-f $pepfile) {
+        system ("rm -f $pepfile");
+    }
+    foreach (@files) {
+        system ("cat $directory/$_ | sed 's/^>.*/>$_/' >> $pepfile")	
+    }	
+	
+	
+    #########	FIRST RUN FORMATDB	###################
+	
+    my $cmdformatdb = "formatdb -p T -i $pepfile -n $peplib";
+    print "$cmdformatdb\n" if $DEBUG;
+    my $resformatdb = system("$cmdformatdb");
+    #print $resformatdb if $DEBUG;
+	
+    #########	THEN RUN FLIP	###################	
+    my $cmdflip = "flip -l $flipcutoff $MASTERFILE > $TMPDIR/flip1.output";
+    my $resflip =  system $cmdflip;
+    print "$cmdflip\n" if $DEBUG;
+    #print "$resflip\n" if $DEBUG;		
 
+    #########	THEN RUN BLAST	###################		
 
-	#my $command = join (" ", @commandarg);	
-	#system ($command);
+    my $cmdblast = "blastall -p blastp -d $peplib -i prot.lst -o $blastoutput";  #  -p programm
+                                                                                 #  -d database
+                                                                                 #  -i input
+                                                                                 #  -o output
+    print "$cmdblast\n" if $DEBUG;                                                             
+    my $resblast = system("$cmdblast");
+    #print $resblast if $DEBUG;
 	
-	#########	FIRST RUN FORMATDB	###################
+    #########	THEN PARSE THE BLAST ###############	
 	
-	my $cmd1 = "formatdb -p T -i $pepfile -n $peplib -l journal";
-	print "$cmd1\n";
-	system("$cmd1");
-	#system ('formatdb', 
-	#	'-p', 'T', 
-	#	'-i', $pepfile,
-	#	'-n', $peplib,
-	#	'-l', 'journal',
-	#	);
-	
-	#########	THEN RUN FLIP	###################	
-	my $cmd2 = "flip -l $flipcutoff $MASTERFILE";
-	print "$cmd2\n";
-	system("$cmd2");
-	#system ("flip",			#	program name
-		##"-s", "ATG",		#	List of start codon
-		##"-m",			#	With the start codon
-		#"-l", $flipcutoff,	#	minimum length fo an ORF
-		##"-g", $GENCODE,		#	genetic code	 
-		#"$MASTERFILE");
-	
-	# After that flip will create files in the local directory wich are called prot.lst, and prot.src
-			
-		
-	#########	THEN RUN BLAST	###################		
+    my %bestresults;
+    if (! -r $blastoutput) { # it's supposed to be here at this point.
+        die "Error: can't find report from blastall ?!?\n";
+    }
+    my $searchio = new Bio::SearchIO (
+                                       -format => 'blast',
+                                       -file   => $blastoutput,
+                                      );
+   RESULT : while (my $result = $searchio->next_result() ) {
+                my $contigname = $result->query_name()        || "Unknown ID";
+                my $rdesc      = $result->query_description() || "Unknown Query Description";
+                my $dbname     = $result->database_name()     || "Unknown DB name";
+                my @hits       = $result->hits();             # Bio::Search::Hit::HitI		
+                my $numhits    = scalar(@hits);               # normally, only one! 
+                next RESULT if $numhits < 1;
+                my $hit=$hits[0];
+                my $hypprotein   = $hit->name();              # returns the name of the Hit sequence
+                my $desc         = $hit->description();       # Get the description of the query sequence
+                my $score        = $hit->score();             # Get the blast score
+                my $evalue	 = $hit->significance();      # Get the e-value
 
-	my $cmd3 = "blastall -p blastp -d $peplib -i prot.lst -o $blastoutput";
-	print "$cmd3\n";
-	system("$cmd3");
-	#system ("blastall", 				#	Name of the program
-	#	"-p", "blastp", 			#	what kind of subprogram ? tblastn or blastp
-	#	"-d", "$peplib",			#	Directory where the database is stored
-	#	"-i", "prot.lst",			#	input : the flip output results
-	#	#"-D", $GENCODE,			#	Database genetic code
-	#	"-o", "$blastoutput"			#	The blastoutput
-	#	);
-			
+                if ($evalue < $blastcutoff) {                 # Keep only if evalue is good
+                    $bestresults {$hypprotein} += 1; 
+                }		 
+	   }
 	
-	#########	THEN PARSE THE BLAST ###############	
+    ##########   THEN LOOK FOR THE BEST : THE MAX OCCURENCES IN THE ARRAY  #######
 	
-	my %bestresults;
+    my @bestresultskeys = keys(%bestresults);
 	
-	if (! -r $blastoutput) { # it's supposed to be here at this point.
-            die "Error: can't find report from blastall ?!?\n";
+    if (scalar(@bestresultskeys) < 1) {                       # If there is no file
+        return "";
+    } 
+	
+    my $bestfile = $bestresultskeys[0];
+    foreach (@bestresultskeys) {
+        if ($bestresults {$_} > $bestresults {$bestfile}) {
+            $bestfile = $_;
         }
-	my $searchio = new Bio::SearchIO (
-                           -format => 'blast',
-                           -file   => $blastoutput,
-                           );
-        RESULT : while (my $result = $searchio->next_result() ) {
-		 my $contigname = $result->query_name()        || "Unknown ID";
-		 my $rdesc      = $result->query_description() || "Unknown Query Description";
-    		 my $dbname     = $result->database_name()     || "Unknown DB name";
-    		 my @hits       = $result->hits();		# Bio::Search::Hit::HitI		
-    		 my $numhits    = scalar(@hits);  		# normally, only one! 
-    		 next RESULT if $numhits < 1;
-		 my $hit=$hits[0];
-    	         my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
-                 my $desc         = $hit->description();	#	Get the description of the query sequence
-                 my $score        = $hit->score();		#	Get the blast score
-                 my $evalue	 = $hit->significance();	#	Get the e-value
-		 
-		 if ($evalue < $blastcutoff) {			#	Keep only if evalue is good
-		 	#print "query_name : $contigname\n";
-			#print "query_description : $rdesc\n";
-			#print "description : $desc\n";
-			#print "name : $hypprotein\n";
-			#print "----------------\n";
-			$bestresults {$hypprotein} += 1; 
-		 }	
-		 
-	}
+        else {
+            next;
+        }
+    }
 	
-	##########   THEN LOOK FOR THE BEST : THE MAX OCCURENCES IN THE ARRAY  #######
-	
-	my @bestresultskeys = keys(%bestresults);
-	
-	if (scalar(@bestresultskeys) < 1) {			#	If there is no file
-		return "";
-	} 
-	
-	my $bestfile = $bestresultskeys[0];
-	foreach (@bestresultskeys) {
-		if ($bestresults {$_} > $bestresults {$bestfile}) {
-			$bestfile = $_;
-		}
-		else {
-			next;
-		}
-	}
-	
-	undef (%bestresults);
-	return $bestfile || undef;
+    undef (%bestresults);
+    return $bestfile || undef;
 }
 
 sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from the blast results
@@ -441,7 +614,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			my $exonend = $exon->end;
 			my $exonstrand = $exon->strand;
 			
-			print "Exons $name $exonstart $exonend $exonstrand\n";
+			#print "Exons $name $exonstart $exonend $exonstrand\n";
 			
 			my $exonannot = new PirObject::AnnotPair (
               			genename  => "G-$name-E$number",
@@ -485,7 +658,7 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 			CODON : while (not ($found) and ($currentpos < $hypprot->end))
 			{
 				my $codon = uc (substr($seq, $currentpos-1, 3));
-				print $hypprot->name, " $codon $currentpos\n";
+				#print $hypprot->name, " $codon $currentpos\n";
 				
 				if (ValueIsIn($possiblestarts, $codon) == 1)
 				{
@@ -520,7 +693,7 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 			}
 		}
 		
-		print $hypprot->name, " ", $newstartpos, " ", $oldstartpos, "\n";
+		#print $hypprot->name, " ", $newstartpos, " ", $oldstartpos, "\n";
 		
 		#	Now we have found the new start codon
 		#	Exons have to be reorganized
@@ -598,57 +771,34 @@ sub ValueIsIn {		# check if a value is in an array
 }
 
 sub RunFlip { # This function run flip with the mf
-
-system ("flip",			#	program name
-	"-s", "ATG",		#	List of start codon
-	"-m",			#	With the start codon
-	"-l", $MINLENGTHORF,#	minimum length fo an ORF
-	"-g", $GENCODE,		#	genetic code	 
-	"$MASTERFILE");
 	
-	# After that flip will create files in the local directory wich are called prot.lst, and prot.src
+    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip2.output";
+    my $resultat = system ($cmdflip);	
+    print "$cmdflip\n" if $DEBUG;
+    # print "$resultat\n" if $DEBUG || defined $resultat;
+    # After that flip will create files in the local directory wich are called prot.lst, and prot.src
+
 } 
 
 
 
 sub BlastFlipVSGene {	# it runs blast with the flip results against file containing genes 
 
-       
-        my $type = 'PROT';				#	DNA or PROT
-        my $file = $PEPFILE; 				# 	undef should never happen in fact.
-        #next if $file eq 'none';			#	get the name of the file containing genes
-        my $escaped_file = $file;			
-	print "escaped file : $escaped_file\n";
-        $escaped_file =~ s#'#'\\'#g;
-        my $prog = $type eq "DNA" ? "tblastn" : "blastp";#	The blast program used 	
-	my $option_p = ($type eq "PROT" ? 'T' : 'F');	#	Option for formatdb
-	#print "formatdb", "-p", $option_p, "-t", "banque", "-i", $escaped_file, "-n", "mf", "-l", "fdb.log","\n" if $DEBUG;
-	my $command = "formatdb -p $option_p -t banque -i $escaped_file -n $TMPDIR/mf -l fdb.log";
-	print "$command\n";
-	#RUN OF FORMATDB : creating in database for the blast with the input files
-	#system ("formatdb",				#	Name of the program
-	#	"-p", $option_p, 			#	Is protein or nucleic acid
-	#	"-t", "banque", 			#	Title of the banq
-	#	"-i",$escaped_file, 			#	Input : data for creating data base
-	#	"-n", "$TMPDIR/mf",				#	Extension for the database files
-	#	"-l", "fdb.log"				#	Logfile
-	#	);
-	system($command);
-	
-	#RUN FOR BLAST : run blast with the db created and the flip results		
-	my $cmd2 = "blastall -p $prog -d $TMPDIR/mf -i prot.lst -D $GENCODE -o $BLASTOUTPUT";
-	print "$cmd2\n";
-	system("$cmd2");
-	#system ("blastall", 				#	Name of the program
-	#	"-p", $prog, 				#	what kind of subprogram ? tblastn or blastp
-	#	"-d", "$TMPDIR/mf",				#	Directory where the database is stored
-	#	"-i", "prot.lst",			#	input : the flip output results
-	#	"-D", $GENCODE,				#	Database genetic code
-	#	"-o", $BLASTOUTPUT			#	The blastoutput
-	#	);
-		
-	#exit 0;	
 
+    my $file = $PEPFILE;                                # undef should never happen in fact.
+    my $escaped_file = $file;
+    $escaped_file =~ s#'#'\\'#g;         
+    my $command = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf -l fdb.log";
+    print "$command\n" if $DEBUG;
+    my $resformatdb = system($command);
+    #print "$resformatdb\n" if $DEBUG;
+
+    #RUN FOR BLAST : run blast with the db created and the flip results		
+    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf -i prot.lst -D $GENCODE -o $BLASTOUTPUT";
+    print "$cmdblast\n" if $DEBUG;
+    my $resblast = system ($cmdblast);
+    #print "$resblast\n" if $DEBUG;
+	
 }
 
 sub ParseInformationFromBlastResult {
@@ -660,22 +810,19 @@ sub ParseInformationFromBlastResult {
     # are currently defined in MfAnnotConfig.pir
    
         
-        my $type = 'PROT';
-        my $file = $PEPFILE;
-        my $blastoutput = $BLASTOUTPUT;
-        if (! -r $blastoutput) { # it's supposed to be here at this point.
-            die "Error: can't find $type report from blastall ?!?\n";
-        }
-        print "Annotating genes found using ...\n" if !$AUTOMATIC || $DEBUG;
-        my $searchio = new Bio::SearchIO (
-                           -format => 'blast',
-                           -file   => $blastoutput,
-                           );
-        while (my $result = $searchio->next_result() ) {
-            &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$tag);
-        }
-    
-
+    my $type = 'PROT';
+    my $file = $PEPFILE;
+    my $blastoutput = $BLASTOUTPUT;
+    if (! -r $blastoutput) { # it's supposed to be here at this point.
+        die "Error: can't find $type report from blastall ?!?\n";
+    }
+    my $searchio = new Bio::SearchIO (
+                                       -format => 'blast',
+                                       -file   => $blastoutput,
+                                     );
+    while (my $result = $searchio->next_result() ) {
+        &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$tag);
+    }
 }
 
 sub FillFLIPBLASTPROTArrayFromBlastResult {
@@ -712,7 +859,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $hit=$hits[0];
     #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
     my $desc         = $hit->description();	#	Get the description of the query sequence
-    print "description $desc\n"; 
+    #print "description $desc\n"; 
     my ($hypprotein) = ($desc =~ /\s*([\w]*)\s*;/); 
     my $score        = $hit->score();		#	Get the blast score
     my $evalue	 = $hit->significance();	#	Get the e-value
@@ -763,7 +910,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     
     
     
-    print scalar(@hsps),"hsp pour $hypprotein\n";
+    #print scalar(@hsps),"hsp pour $hypprotein\n";
 	
         
 }
@@ -781,7 +928,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 		my $orfs = $flipblastprot->orfs;
 		my $numberorfs = scalar (@$orfs);
 		
-		print "$name,  $contigname $numberorfs\n";
+		# print "$name,  $contigname $numberorfs\n";
 		
 		if ($numberorfs < 1) {
 			return;			#	Impossible but ...
@@ -854,7 +1001,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 			
 		}
 		else{	# 	On the case you have many ORFs
-			print "this case is not treated yet \n";
 			
 			my $neworfs = [];
 			
@@ -881,7 +1027,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 			
 			ORF : foreach my $orf(@$orfs)
 			{
-				print "ben rassure moi on rentre qd meme ici\n";	
+				
 			
 				#	Now the thing is to create a new hyp prot if the conditions are not required
 				#	First : if the $currentprot is not defined
@@ -967,14 +1113,14 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 					next ORF;
 				}
 				
-				print "On arrive desfois ici \n";
+				#print "On arrive desfois ici \n";
 				
 				#------------	case	 3-4 : Check space between 2 ORFs, including overlapping
 				if ($orf->strand == 1)	#	Two case : right strand or opposite strand
 				{
-					print "Mais on rentre la qd meme $name\n"; 
-					if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $SIZE)) {
-						print "On rentre la dedans un jour $name\n"; 
+					#print "Mais on rentre la qd meme $name\n"; 
+					if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
+						#print "On rentre la dedans un jour $name\n"; 
 						my $newstart = ($orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
 						my $newend = ($orf->end > $newhypprot->end ? $orf->end : $newhypprot->end); 
 					
@@ -1045,7 +1191,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 				}	
 				else {			#	Opposite strand
 				
-					if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $SIZE)) {
+					if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
 						my $newstart = ($orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
 						my $newend = ($orf->end < $newhypprot->end ? $orf->end : $newhypprot->end); 
 					
@@ -1280,9 +1426,11 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			can't open fasta tmp file\n";
 			
 		}
-		system ("tRNAscan-SE", "-O", "-o", "$outputtrnascansetmp", "$fastatmp");	#-O for searching tRNA in organellar
-												#-C for unsing coves
-												#-o to write the result in a output file	
+		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		print "$tRNAscanSEcmd\n" if $DEBUG;
+		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
+                                                                #-C for unsing coves
+                                                                #-o to write the result in a output file	
 		my $parser = new PirObject::tRNAscanSEparser;					#Open the parser for tRNAscanSE
 		$parser->loadObjectfromFile("$outputtrnascansetmp");				#Parse the file with the file and fill the object
 		
@@ -1585,13 +1733,6 @@ sub LogInfo {
         ";;    - List of genes rediscovered:",
     ) if @redisc;
 
-    #foreach my $genename (@redisc) {
-    #    my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
-    #    push(@report,
-    #    ";;        $genename" . ($e > 1 ? " ($e exons)" : ""),
-    #    );
-    #}
-
     $cnt=0;
     $rep = "";
     foreach my $genename (@redisc) {
@@ -1608,7 +1749,7 @@ sub LogInfo {
 
     unshift(@$header,
         ";; Masterfile modified automatically by $BASENAME version $VERSION",
-        ";;    - New annotations labeled with: MFFEAT=$TAGNAME",
+        #";;    - New annotations labeled with: MFFEAT=$TAGNAME",ded; 0 rediscovere
         @report,
         ";;",
     );
@@ -1616,14 +1757,18 @@ sub LogInfo {
     $pirmaster->set_header($header);
 }
 
-END {
-    # Cleanup temp directory when program exits.
+END {              # With exit, programm will go here
+                   # Cleanup temp directory when program exits.
+
     return unless defined($TMPDIR) && $TMPDIR =~ m#^/tmp/#;
-    if (defined($DEBUG) && $DEBUG > 0) {
-        print STDERR "Debug mode warning: temporary work directory '$TMPDIR' not cleaned up.\n";
-        return;
-    }
+    #if (defined($DEBUG) && $DEBUG > 0) {
+    #    print STDERR "Debug mode warning: temporary work directory '$TMPDIR' not cleaned up.\n";
+    #    return;
+    #}
+    
+    print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
     system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+    
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
