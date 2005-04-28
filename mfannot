@@ -25,11 +25,17 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.9 2005/04/20 18:41:32 thomash Exp $
+#    $Id: mfannot,v 1.10 2005/04/28 19:10:55 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.9  2005/04/20 18:41:32  thomash
-#    More options, accessible with command line (see help -h options)
+#    Revision 1.10  2005/04/28 19:10:55  thomash
+#    Comment added,
+#    Options problemes fixed by allowing
+#    setting parameters
+#    This mfannot version runs with the new
+#    MAsterfile.pir object that allows the user
+#    to load annotation from a Masterfile
+#    having the same name
 #
 #    Revision 1.8  2005/04/13 20:06:07  thomash
 #    New Version of Mfannot
@@ -86,7 +92,7 @@ PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypo
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.9 2005/04/20 18:41:32 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.10 2005/04/28 19:10:55 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -101,16 +107,16 @@ my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
 
 #--No more used
 my $AUTOMATIC=0;
-my $TAGNAME=undef;                            #  Tag : is presnt in masterfile within the annotations made with Mfannot
+my $TAGNAME=undef;                              #  Tag : is presnt in masterfile within the annotations made with Mfannot
 my $FORCEANNOT=0;
 my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
-my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .    # e-value
+my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .      # e-value
                             "";
-my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .    # e-value
+my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .      # e-value
                             "";
 my $ANNOT_STATS = {
-    Added        => {},
-    Rediscovered => {},
+    'Added'        => {},                         # It means, never see it before
+    'Rediscovered' => {},                         # Means exist at the same place (not added into the file)
 };
 
 #--General options
@@ -118,7 +124,7 @@ my $DEBUG;                                      #  Debug mode. If true, display 
 my $GENCODE=undef;                              #  Genetique code
 my $TMPDIR = "/tmp/mfannot.$$";                 #  Temporary directory
 my $LOGFILE;                                    #  log file : store all the information about run
-my $SIMILARITYSEARCH;                                #  Usefull for running similaritie gene process for annot.
+my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE is not empty (0 or 1)
 my $PEPLIBRARY;                                 #  Path for peplibrary directory
 my $MASTERFILE;                                 #  Path for Masterfile
@@ -165,7 +171,7 @@ die "Please make sure that the 'blastall' executable is in your\n" .
 
 ##------------------------------------------------##
 my %opts;                                                            #  Hash array for storing options
-getopts( 'o:i:p:g:dsr:l:f1:b1:is:f2:b2:h', \%opts );                 #  Get the options separated with : and put into opts array
+getopts( 'o:i:p:g::S:t:dhsrl:1:2:3:4:', \%opts );                 #  Get the options separated with : and put into opts array
 ##------------------------------------------------##
 
 #--Get all the options
@@ -181,6 +187,8 @@ if ($PEPFILE ne "") {                                                #  In this 
 }
 ##------------p option--------------------------##
 $PEPLIBRARY =  $opts{'p'} || './';                                   #  If peplibrary does not exists or is not readable, exit
+##------------t option--------------------------##
+$TAGNAME = $opts{'t'} || scalar(localtime(time));                    #  Tagname :  
 ##------------g option--------------------------##
 $GENCODE = $opts{'g'} || 1;                                          #  Choosen genetic code or 1 (standard code)
 ##------------s option--------------------------##
@@ -210,18 +218,18 @@ if ($LOGFILE ne "") {                                                #  Try to o
 	}
 }
 ##-------------f1 option------------------------##
-$MINLENGTHORFFORFINDINGCLOSESTORGANISM = $opts {'f1'} || 150;         #  Parameter for first run of flip (find closest organism)
+$MINLENGTHORFFORFINDINGCLOSESTORGANISM = $opts {'1'} || 150;         #  Parameter for first run of flip (find closest organism)
                                                                       #  : Minimum size ORF
 ##-------------b1 option------------------------##
-$BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $opts {'b1'} || 0.01;   #  Parameter for first run of blast (find closest organism)
+$BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $opts {'2'} || 0.01;   #  Parameter for first run of blast (find closest organism)
                                                                       #  Minimum e-value for keeping results
 ##-------------f2 option------------------------##
-$MINLENGTHORF = $opts {'f2'} || 40;                                   #  Parameter for second run of flip (annotation)
+$MINLENGTHORF = $opts {'3'} || 40;                                   #  Parameter for second run of flip (annotation)
                                                                       #  : Minimum size ORF
 ##-------------b2 option------------------------##
-$BLASTEVALUECUTOFF = $opts {'b2'} || 0.0001;                          #  Parameter for second run of blast (annotation)
+$BLASTEVALUECUTOFF = $opts {'4'} || 0.0001;                          #  Parameter for second run of blast (annotation)
                                                                       #  Minimum e-value for keeping results
-$MAXLENGTHFORGROUPINGORF = $opts {'is'} || 1000;                      #  Maximum size of the gap between 2 ORFs
+$MAXLENGTHFORGROUPINGORF = $opts {'S'} || 1000;                      #  Maximum size of the gap between 2 ORFs
                                                                       #  If the size is bigger, 2 ORFs are 2 differnet hyppothetical proteins
                                                                       #  Otherwise : the two ORFs form 1 hypothetical protein  
 ##--------------d option------------------------##
@@ -244,7 +252,6 @@ die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"    #  First t
 if ($OUTPUTFILE eq "") {                                             #  Defining the output file
 	 $OUTPUTFILE = $MASTERFILE.'.new';
 }
-
 
 ##################
 # HELP AND USAGE #
@@ -297,18 +304,18 @@ print "USAGE\n",
   -l  logfile
         Print command and step processing in the log file. Default, 
 	don't print anything
-  -f1 flip parameter 1
+  -1  flip parameter 1
         It's the minimum ORF size for searching the closest Organism 
 	with Flip Blast correlated.
-  -f2 flip parameter 2 
-        It's the minimum ORF size for annotation with Flip Blast correlated.
-  -b1 blast parameter 1
+  -2  blast parameter 1
         Minimum signifiant e-value for keeping ORF for searching the closest
-	Organism with Flip Blast correlated.
-  -b2 blast parameter 1
+	Organism with Flip Blast correlated.	
+  -3  flip parameter 2 
+        It's the minimum ORF size for annotation with Flip Blast correlated.
+  -4  blast parameter 1
         Minimum signifiant e-value for keeping ORF for annotation with Flip 
 	Blast correlated.
-  -si size for intron
+  -S  size for intron
         Under this size, 2 ORFs having the same potential name, are grouped 
 	together to form an hypothetical protein.
 	When this size is bigger, gap can not be considerated as an intron and
@@ -354,6 +361,7 @@ my $options ="----------------------------------\n".
 $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
 $options .= "Genetic code : $GENCODE\n";
+$options .= "Tag for annotation : $TAGNAME\n";
 
 if ($SIMILARITYSEARCH) {
   if ($takeinputpepfile == 0) {
@@ -416,7 +424,30 @@ my $step=1;
 print "$step) Parsing masterfile...\n" if $DEBUG;
 $step += 1; 
 my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
-	      
+my $contigs = $pirmaster->get_contigs();
+my $numbercontigs = 0;                              # Number of contigs in the masterfile
+my $numberannot = 0;                                # Number of annotations detected in the program
+
+$numbercontigs += scalar (@$contigs);
+foreach my $contig ( @$contigs) {
+    my $annotations = $contig-> get_annotations();
+    $numberannot += scalar (@$annotations);
+    #foreach my $annot ( @$annotations) {
+    #    print "annot : ";
+    #	print  "name ", $annot->get_genename, " ", if defined($annot->get_genename);
+    #	print  "start ", $annot->get_startpos, " ", if defined($annot->get_startpos);
+    #	print  "end ", $annot->get_endpos, if defined($annot->get_endpos);
+    #    print "\n";
+    #}
+}
+
+print "Number of contigs in Masterfile : $numbercontigs\n",
+      "Number of annotations (or commentaries) detected : $numberannot\n" if $DEBUG;
+
+print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
+              "Number of annotations (or commentaries) detected : $numberannot\n" if $ISLOGFILE;
+      
+      	      
 if ($SIMILARITYSEARCH) {
   $options = "Options : \n";                  # Options & parameters used for the blast
   $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
@@ -460,12 +491,19 @@ print "----------------------------------\n",
       "       End of the Programm        \n",
       "----------------------------------\n" if $DEBUG;  
 
+my $cntigs = $pirmaster->contigs();
+my $annotations = $cntigs->[0]->annotations();
+
+     
+      
 #system ("rm $TMPDIR -f -r") || print "problem for cleaning; 
+
 
 &LogInfo ($pirmaster);
 print "Dumping new masterfile in $OUTPUTFILE...\n" if  $DEBUG;
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
+ 
 
 if ($ISLOGFILE == 1) {
         print "close Logfile : $LOGFILE\n" if $DEBUG;
@@ -593,12 +631,12 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		
 	
 		my $protannot = new PirObject::AnnotPair (
-              			genename  => "G-$name",
+              			genename  => "$name",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
-                        	startline => ";     G-$name $arrow start ;; MFFEAT=$tag",
-                        	endline   => ";     G-$name $arrow end ;; MFFEAT=$tag",
+                        	startline => ";     G-$name $arrow start ;; MFFEAT=$TAGNAME ;; $tag",
+                        	endline   => ";     G-$name $arrow end ;; MFFEAT=$TAGNAME ;;$tag",
                     	);
         	&AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
 	
@@ -616,16 +654,21 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			
 			#print "Exons $name $exonstart $exonend $exonstrand\n";
 			
-			my $exonannot = new PirObject::AnnotPair (
-              			genename  => "G-$name-E$number",
+			my $exonannotstart = new PirObject::AnnotPair (
+              			genename  => "commentary",
                         	startpos  => $exonstart,
-                        	endpos    => $exonend,
                         	direction => $arrow,
-                        	startline => ";;     possible G-$name-E$number $arrow start",
-                        	endline   => ";;     possible G-$name-E$number $arrow end",
+                        	startline => ";;     possible G-$name-E$number $arrow start ;; MFFEAT=$TAGNAME",
+			);
+			my $exonannotend = new PirObject::AnnotPair (
+              			genename  => "commentary",
+                        	startpos  => $exonend,
+                        	direction => $arrow,
+                        	startline => ";;     possible G-$name-E$number $arrow end ;; MFFEAT=$TAGNAME",
 			);
 			$number++;	
-			&AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);		
+			&AddAnnotToPirMaster($pirmaster,$contigname,$exonannotstart);
+			&AddAnnotToPirMaster($pirmaster,$contigname,$exonannotend);		
 		
 		}
 	
@@ -1471,7 +1514,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 										
 			my $annot = new PirObject::AnnotPair (
-              			genename  => "tRNA-$type($acodon)",
+              			genename  => "trn$aaSymbol($acodon)",                     # Before : genename  => "tRNA-$type($acodon)",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
@@ -1496,44 +1539,38 @@ sub AddAnnotToPirMaster {
     my $pirmaster  = shift;
     my $contigname = shift;
     my $annot      = shift;
-
-    if (! $GeneNameToAnnot_Cache) { # build it right away
-        $GeneNameToAnnot_Cache = {};
-        my $contigs = $pirmaster->get_contigs();
-        foreach my $contig (@$contigs) {
-            my $name      = $contig->get_name();
-            my $pirannots = $contig->get_annotations();
-            my $cache = $GeneNameToAnnot_Cache->{$name} ||= {};
-            foreach my $a (@$pirannots) {
-                my $genename = $a->get_genename() || next;
-                $cache->{$genename} ||= [];
-                push(@{$cache->{$genename}},$a);
-            }
-        }
+    my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name\n";
+    my $annotations = $contig->get_annotations;
+    
+    
+    ANNOTATION : foreach my $annotation (@$annotations){
+        my $annotname = $annotation->genename;
+	my $annotstart = $annotation->startpos;
+	my $annotend = $annotation->endpos;
+	$annotname = "commentary" if (!defined  $annotname);
+	$annotstart = -1 if (!defined  $annotstart);
+	$annotend = -1 if (!defined  $annotend);
+	
+	
+	##--First case : if both are same commentary on the same line 
+	if (($annotname eq "commentary") && ($annot->genename eq "commentary") && ($annot->startpos == $annotstart) && $annot->startline eq $annotation->startline) {
+	    #Nothing is done in this case,
+	    #print "On est bien dans ce cas\n";
+	    #print "Annot : ",  $annot->startline, " Courante : ", $annotation->startline, " $annotstart ", $annot->startpos, "\n" ;
+	    return;
+	}
+	
+	##--Second case : No commentary, both have same start end, and genename;
+	if (($annotname ne "commentary") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
+            $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
+	    return;
+	}
+		
     }
-
-    my $contig = $pirmaster->GetContigByName($contigname)    # defined in Masterfile.pir
-       || die "Error: trying to add annotation to contig '$contigname' which does not exists?!?\n";
-
-    my $pirannots = $contig->get_annotations();
-    my $annotcache = $GeneNameToAnnot_Cache->{$contigname} || {};
-
-    my $genename = $annot->get_genename();
-    my $shortgn  = $genename;
-    $shortgn =~ s/-[EI]\d+$//;
-
-    my $already_list = $annotcache->{$shortgn};
-
-    my $record_to = $already_list ? 'Rediscovered' : 'Added';
-    $ANNOT_STATS->{$record_to}->{$shortgn} ||= { I => 0, E => 0, };
-    $ANNOT_STATS->{$record_to}->{$shortgn}->{$1}++ if $genename =~ m/-([IE])\d+$/;
-
-    if (!$already_list) {
-        push(@$pirannots,$annot);
-    } else {
-        # handle duplications here?
-        push(@$pirannots,$annot) if $FORCEANNOT;
-    }
+    
+    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "commentary");
+    push (@$annotations, $annot);
+    
 }
 
 sub GetRunTimeParameters {
@@ -1717,6 +1754,8 @@ sub LogInfo {
     my $COLS=3;
     my $cnt=0;
     my $rep = "";
+    print "Added : ", scalar(@added), "\n" if $DEBUG;
+    print LOGFILE "Added : ", scalar(@added), "\n" if $ISLOGFILE;
     foreach my $genename (@added) {
         my ($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
         $rep = ";;     " if !$cnt;
@@ -1735,6 +1774,8 @@ sub LogInfo {
 
     $cnt=0;
     $rep = "";
+    print "Rediscovered : ", scalar(@redisc), "\n" if $DEBUG;
+    print LOGFILE "Rediscovered : ", scalar(@redisc), "\n" if $ISLOGFILE;
     foreach my $genename (@redisc) {
         my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
         $rep = ";;     " if !$cnt;
@@ -1749,7 +1790,7 @@ sub LogInfo {
 
     unshift(@$header,
         ";; Masterfile modified automatically by $BASENAME version $VERSION",
-        #";;    - New annotations labeled with: MFFEAT=$TAGNAME",ded; 0 rediscovere
+        ";;    - New annotations labeled with: MFFEAT=$TAGNAME",
         @report,
         ";;",
     );
