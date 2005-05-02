@@ -25,9 +25,16 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.10 2005/04/28 19:10:55 thomash Exp $
+#    $Id: mfannot,v 1.11 2005/05/02 21:53:09 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.11  2005/05/02 21:53:09  thomash
+#    Contains modification for running with Option.pir module.
+#    (looking for a rc file and buil it at the end)
+#    Now the programme is looking for options into .mfannot.rc (rc file)
+#    He replace the default options by these which are in the file.
+#    He is looking after for line command argument
+#
 #    Revision 1.10  2005/04/28 19:10:55  thomash
 #    Comment added,
 #    Options problemes fixed by allowing
@@ -70,9 +77,7 @@ use IO::File;
 use PirObject;                                        #  Pir module treatment 
 use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
 use Bio::SeqUtils;                          
-use Getopt::Std;                                      #  Options treatment        
-
-
+   
 
 #---General Objects
 PirObject->LoadDataModel("Masterfile");               #  Masterfile object
@@ -86,13 +91,14 @@ PirObject->LoadDataModel("Hsp");                      #  High Scoring Pair (belo
 PirObject->LoadDataModel("HypProt");                  #  Hypothetical protein : We believe its a protein after flip, blast an
                                                       #  Organization of the results     
 PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypothetical proteins
+PirObject->LoadDataModel("Option");                   #  A module for options gestion
 
 
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.10 2005/04/28 19:10:55 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.11 2005/05/02 21:53:09 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -129,6 +135,7 @@ my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE 
 my $PEPLIBRARY;                                 #  Path for peplibrary directory
 my $MASTERFILE;                                 #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
+my $TAKEINPUTFILE;
 my $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
 my $HYPPROTS = [];                              #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $OUTPUTFILE;                                 #  Path for the new
@@ -170,88 +177,7 @@ die "Please make sure that the 'blastall' executable is in your\n" .
 #####################################################
 
 ##------------------------------------------------##
-my %opts;                                                            #  Hash array for storing options
-getopts( 'o:i:p:g::S:t:dhsrl:1:2:3:4:', \%opts );                 #  Get the options separated with : and put into opts array
-##------------------------------------------------##
-
-#--Get all the options
-##-------------o option---------------------------##
-$OUTPUTFILE = $opts{'o'} || "";                                      #  New masterfile annotated or nothing
-##-------------i option--------------------------##
-$PEPFILE = $opts {'i'} || "";                                        #  Input file : for making annotation. If nothing search in the library
-my $takeinputpepfile = 0;                                            #  Something to say if we can take the input peptide file		
-if ($PEPFILE ne "") {                                                #  In this case we prefere take the the library
-	if (-r $PEPFILE) {                                           #  If the file is readable
-		$takeinputpepfile = 1;
-	}
-}
-##------------p option--------------------------##
-$PEPLIBRARY =  $opts{'p'} || './';                                   #  If peplibrary does not exists or is not readable, exit
-##------------t option--------------------------##
-$TAGNAME = $opts{'t'} || scalar(localtime(time));                    #  Tagname :  
-##------------g option--------------------------##
-$GENCODE = $opts{'g'} || 1;                                          #  Choosen genetic code or 1 (standard code)
-##------------s option--------------------------##
-$SIMILARITYSEARCH = $opts{'s'};                                      #  Similaritie search, if defined no similarity search
-if (defined $SIMILARITYSEARCH) {
-    $SIMILARITYSEARCH = 0;
-}
-else {
-    $SIMILARITYSEARCH = 1;
-}
-##------------r option--------------------------##
-$USETRNASCANSE = $opts{'r'};                                         #  Use of tRNAscanSE : true or false (T or F)
-if (defined $USETRNASCANSE) {
-    $USETRNASCANSE = 1;
-}
-else {
-    $USETRNASCANSE = 0;
-}
-##------------l option--------------------------##
-$LOGFILE = $opts {'l'} || "";                                        #  Print in the logfile which path is given. Default : don't print
-if ($LOGFILE ne "") {                                                #  Try to open the log file
-	if (open (LOGFILE, ">$LOGFILE") <= 0) {
-		print "Can not open Logfile\n";
-	}
-	else  {
-        	$ISLOGFILE = 1;
-	}
-}
-##-------------f1 option------------------------##
-$MINLENGTHORFFORFINDINGCLOSESTORGANISM = $opts {'1'} || 150;         #  Parameter for first run of flip (find closest organism)
-                                                                      #  : Minimum size ORF
-##-------------b1 option------------------------##
-$BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $opts {'2'} || 0.01;   #  Parameter for first run of blast (find closest organism)
-                                                                      #  Minimum e-value for keeping results
-##-------------f2 option------------------------##
-$MINLENGTHORF = $opts {'3'} || 40;                                   #  Parameter for second run of flip (annotation)
-                                                                      #  : Minimum size ORF
-##-------------b2 option------------------------##
-$BLASTEVALUECUTOFF = $opts {'4'} || 0.0001;                          #  Parameter for second run of blast (annotation)
-                                                                      #  Minimum e-value for keeping results
-$MAXLENGTHFORGROUPINGORF = $opts {'S'} || 1000;                      #  Maximum size of the gap between 2 ORFs
-                                                                      #  If the size is bigger, 2 ORFs are 2 differnet hyppothetical proteins
-                                                                      #  Otherwise : the two ORFs form 1 hypothetical protein  
-##--------------d option------------------------##
-$DEBUG = $opts {'d'};                                                 #  Debug mode. True or false
-if (defined $DEBUG) {
-    $DEBUG = 1;
-}
-else {
-    $DEBUG = 0;
-}
-##-------------h option-------------------------##
-if (defined $opts {'h'}) {                                            #  On case, h defined, print a short help
-    &Help;
-    exit 0;
-}
-##--------------default option------------------##
-$MASTERFILE = shift || die &GoOut;                                    #  The default argument. If Masterfiel is not readable. Go out
-die "Masterfile '$MASTERFILE' doesn't exist or is not readable.\n"    #  First thing check if masterfile is ok
-    unless -r $MASTERFILE;
-if ($OUTPUTFILE eq "") {                                             #  Defining the output file
-	 $OUTPUTFILE = $MASTERFILE.'.new';
-}
+&GetOptions ;
 
 ##################
 # HELP AND USAGE #
@@ -259,71 +185,20 @@ if ($OUTPUTFILE eq "") {                                             #  Defining
 
 sub GoOut {
 	print "----------------\n";
-	&Usage;
+	#&Usage;
 	exit 0;
+
 }
 
 sub Help {
 
 print "Help for mfannot.pl\n";
 print "-------------------\n";
-&Usage;
+#&Usage;
 
 }
 
-sub Usage {
-
-print "USAGE\n",
-"  mfannot [options] masterfile\n",
-"\n",
-
-"OPTIONS\n",
-"-o  outputfile
-        name of the new masterfile created. Default name will be old
-	masterfile name + '.new'
-  -i  inputfile
-        Peptide file used for annotation of the masterfile.
-	By default, the programm will search the peptide file 
-	corresponding to the closest in the peplibrary. By default, 
-	the program will search in the local directory
-  -p  pepdirectory
-        Path for the peptide directory containing peptide files.
-        If nothing, peptide directory is './'. 
-	Remark : To be inside the process of searching peptides files,
-	files inside the directory will be finished with '.pep'
-  -g  genetic code
-        Genetic code used.
-	Default standard
-  -s  Without similarity search. 
-        Boolean. If defined, no similarity gene search with peptide 
-	file for annotation
-  -r  tRNAscanSE utilisation
-        Using of tRNAscanSE for annotation
-  -d  debug mode. 
-        Give informations about programm processing
-  -l  logfile
-        Print command and step processing in the log file. Default, 
-	don't print anything
-  -1  flip parameter 1
-        It's the minimum ORF size for searching the closest Organism 
-	with Flip Blast correlated.
-  -2  blast parameter 1
-        Minimum signifiant e-value for keeping ORF for searching the closest
-	Organism with Flip Blast correlated.	
-  -3  flip parameter 2 
-        It's the minimum ORF size for annotation with Flip Blast correlated.
-  -4  blast parameter 1
-        Minimum signifiant e-value for keeping ORF for annotation with Flip 
-	Blast correlated.
-  -S  size for intron
-        Under this size, 2 ORFs having the same potential name, are grouped 
-	together to form an hypothetical protein.
-	When this size is bigger, gap can not be considerated as an intron and
-	the 2 ORFs form 2 hypothetical proteins
-  -h  help
-        Display a little help\n";
-
-} 	
+	
 
 
 ################
@@ -345,7 +220,10 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
-##--Header 
+
+open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
+
+
 my $header = "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
              "VERSION $VERSION                                                      \n".
@@ -359,12 +237,11 @@ my $options ="----------------------------------\n".
              "        General Options	        \n".
              "----------------------------------\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
-$options .= LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n";
 
 if ($SIMILARITYSEARCH) {
-  if ($takeinputpepfile == 0) {
+  if ($TAKEINPUTFILE == 0) {
     $options .= "Look in the peptide library\n";
     $options .= "Directory : $PEPLIBRARY\n";	     
   }
@@ -389,7 +266,7 @@ print $options if $DEBUG;                       #Print the options on the screen
   
 mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
 
-if ($takeinputpepfile == 0 && $SIMILARITYSEARCH) {  
+if ($TAKEINPUTFILE == 0 && $SIMILARITYSEARCH) {  
   print "----------------------------------\n",  # First print : debug
         "  Look For The Closest Organism   \n",
         "----------------------------------\n" if $DEBUG;
@@ -518,6 +395,41 @@ exit 0;
 ##############################
 # Parse command-line options #
 ##############################
+
+sub GetOptions {          # this function is here to manipulate options
+
+    my $option = new PirObject::Option ();   #  buil a new option model
+    $option->FillOption ();                  #  This one buil with the default option and look for a rc file
+    
+    ### Now The object contains all the options
+    
+    
+    #--General options
+    $DEBUG = $option->debug;                     #  Debug mode. If true, display message on the screen
+    $GENCODE = $option->genetic;                 #  Genetique code
+    $LOGFILE = $option->logfile;                 #  log file : store all the information about run
+    $SIMILARITYSEARCH = $option->similarity;     #  Usefull for running similaritie gene process for annot.
+    $ISLOGFILE= $option->islogfile;              #  Just to know if the $LOGFILE is not empty (0 or 1)
+    $PEPLIBRARY = $option->pepdirectory;         #  Path for peplibrary directory
+    $MASTERFILE = $option->masterfile;           #  Path for Masterfile
+    $PEPFILE = $option->inputfile;               #  Path for the peptide file used
+    $OUTPUTFILE = $option->outputfile;           #  Path for the new
+    $USETRNASCANSE = $option->tRNAscanSE;        #  T or F : use of tRNAscanSE in the annotation 
+    $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
+    $TAGNAME = $option->tagname;                 #  Adds a tag  
+    
+    #--Specific for finding the closest organism
+    $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
+    $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $option->blast1; #  Minimum blast e-value thresold
+   
+
+    #--Specific for the annotation (parameters for flip, blastall and organization)	
+    $BLASTEVALUECUTOFF = $option->blast2;            #  Cutoff value for the blast
+    $MINLENGTHORF = $option->flip2;                #  This is the minimum length for creating an ORF with flip
+    $MAXLENGTHFORGROUPINGORF = $option->intronsize; #  Minimum size of a gap between 2 ORf. If 2 same ORF
+
+    
+}
 
 sub FindClosestOrganism    # This function is regarding into the PEPLIBRARY if what is the file having
 {                          # the
