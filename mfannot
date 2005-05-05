@@ -25,15 +25,15 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.11 2005/05/02 21:53:09 thomash Exp $
+#    $Id: mfannot,v 1.12 2005/05/05 16:00:06 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.11  2005/05/02 21:53:09  thomash
-#    Contains modification for running with Option.pir module.
-#    (looking for a rc file and buil it at the end)
-#    Now the programme is looking for options into .mfannot.rc (rc file)
-#    He replace the default options by these which are in the file.
-#    He is looking after for line command argument
+#    Revision 1.12  2005/05/05 16:00:06  thomash
+#    Disallow, 2 annotations for the same gene, by default
+#    Allows 2 annotations if option -f.
+#    Give, too non coresponding ORF (it means, with no
+#    corresponding gene after running blast) with a
+#    specific cutoff size
 #
 #    Revision 1.10  2005/04/28 19:10:55  thomash
 #    Comment added,
@@ -93,12 +93,13 @@ PirObject->LoadDataModel("HypProt");                  #  Hypothetical protein : 
 PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypothetical proteins
 PirObject->LoadDataModel("Option");                   #  A module for options gestion
 
+PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.11 2005/05/02 21:53:09 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.12 2005/05/05 16:00:06 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -116,14 +117,19 @@ my $AUTOMATIC=0;
 my $TAGNAME=undef;                              #  Tag : is presnt in masterfile within the annotations made with Mfannot
 my $FORCEANNOT=0;
 my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
-my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .      # e-value
+my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .      #  e-value
                             "";
-my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .      # e-value
+my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .      #  e-value
                             "";
 my $ANNOT_STATS = {
-    'Added'        => {},                         # It means, never see it before
-    'Rediscovered' => {},                         # Means exist at the same place (not added into the file)
+    'Added'        => {},                       #  It means, never see it before
+    'Rediscovered' => {},                       #  Means exist at the same place (not added into the file)
 };
+my $EMPTYORFS = [];                             #  An array containing, EmptyOrf object. It means ORFs having
+                                                #  no corresponding genes
+my $ANNOTSEEN = {};                             #  An array storing annotations that have been seen before
+my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)		
+
 
 #--General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
@@ -145,7 +151,7 @@ my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
 my $MINLENGTHORFFORFINDINGCLOSESTORGANISM;      #  Minimum ORF size generated with flip
 my $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM; #  Minimum blast e-value thresold
-$BLASTOUTFORFINDINGCLOSESTORGANISM = $TMPDIR . "/blastout1";
+$BLASTOUTFORFINDINGCLOSESTORGANISM =  $TMPDIR . "/blastout1";
 
 
 #--Specific for the annotation (parameters for flip, blastall and organization)
@@ -153,7 +159,7 @@ my $BLASTOUTPUT                   ;             #  The path for blast file resul
 my $BLASTEVALUECUTOFF = 0.0001;			#  Cutoff value for the blast
 my $MINLENGTHORF = 30;				#  This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF = 1000;		#  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT = $TMPDIR . "/blastout2";
+$BLASTOUTPUT = "blastout2";
 
 
 #############################
@@ -170,8 +176,13 @@ die "Please make sure the BLASTMAT environment variable is set\n" .
 die "Please make sure that the 'blastall' executable is in your\n" .
     "current command search path.\n"
     unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
+    
+    
+    ############  THINGS TO PUT IN VERIFICATION ########
+     #      - Check if tRNAscanSE is installed
+     #      - Check if flip is installed
+     #      - Check if formatdb is installed
      
-
 #####################################################
 # Command-Line Arguments Processing and verification#
 #####################################################
@@ -197,8 +208,6 @@ print "-------------------\n";
 #&Usage;
 
 }
-
-	
 
 
 ################
@@ -356,6 +365,10 @@ if ($SIMILARITYSEARCH) {
   print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
   $step += 1; 
   &AnnotateMfFromHYPPROTSArray ($pirmaster);
+  
+  print "$step) Process Empty ORFs...\n" if $DEBUG; 
+  $step += 1; 
+  &AnnotateEmptyOrfs ($pirmaster);
 }
   
 if ($USETRNASCANSE) {
@@ -417,7 +430,8 @@ sub GetOptions {          # this function is here to manipulate options
     $USETRNASCANSE = $option->tRNAscanSE;        #  T or F : use of tRNAscanSE in the annotation 
     $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
     $TAGNAME = $option->tagname;                 #  Adds a tag  
-    
+    $FORCEANNOT = $option->force;                #  Force the annotation when 2 annotations have the same name
+        
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
     $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $option->blast1; #  Minimum blast e-value thresold
@@ -527,6 +541,168 @@ sub FindClosestOrganism    # This function is regarding into the PEPLIBRARY if w
     return $bestfile || undef;
 }
 
+sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and annotate it as ORFs
+
+     my $pirmaster = shift; 
+
+     EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {   #  process each non corresponding orf
+     
+	 my $contigname = $emptyorf->contigname;
+	 
+	 my $start = $emptyorf->start;
+         my $end = $emptyorf->end;
+	 my $strand = $emptyorf->strand;
+	 my $arrow = ($strand == 1 ? '==>' : '<==');
+	 
+	 my $overlappingcutoff = 0.1;                 #  authorized overlapping  
+	 my $minimumlengthorf = 500;                  #  minimum Orf size
+	 
+	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
+         my $annotations = $contig->get_annotations;
+	 
+	 next EMPTYORF if (abs($start - $end) < $minimumlengthorf);   
+	 
+	 #print "--------------------------\n";
+	 #print "ORF  $start  $end  $strand\n";
+	  
+         ANNOT : foreach my $annotation (@$annotations) {
+	     
+	    #print "verification";
+	   # print "ca tourne \n"; 
+	    
+	     #print "type",  $annotation->type, "\n" if (defined($annotation->type));
+	     
+	     
+	     next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
+	     
+	     #  process only if it's a gene, 
+	     
+	     
+	     #print "c dedans qd meme\n";
+	     
+	     
+	     my $annotstart = $annotation->startpos;
+	     my $annotend = $annotation->endpos;
+	     my $annotarrow = $annotation->direction;
+	     my $annotstrand;
+	     if ($annotarrow =~ /\.*==>\.*/) { $annotstrand = -1; }  #  We get the strand
+	     else                            { $annotstrand = 1;  }
+	     
+	     
+	     
+	     
+	     # SIZE CHECK
+	     
+	     
+	     if ($strand == $annotstrand) {           #  Gene and empty orf must be on the same strand
+	                                              #  For calculation
+		
+		#### Case were it seems to work
+	        next ANNOT if (($strand == -1) && (($start <= $annotend) or ($end >= $annotstart)));
+		next ANNOT if (($strand == 1) && (($start >= $annotend) or ($end <= $annotstart)));
+		
+		#### Case were it doesn't work
+		
+		######## FOUR CASES
+						      
+		####  1) ORF is inside the gene and longer than the gene
+		####         |___________________|      ORF
+		####            |______________|        GENE
+		
+		if ($strand == -1 && $start >= $annotstart && $end <= $annotend ) {
+		    #print "ca merde ds 1a\n";
+		    next EMPTYORF;
+		}
+		if ($strand == 1 && $start <= $annotstart && $end >= $annotend) {
+		    #print "ca merde ds 1b\n";
+		    next EMPTYORF;    
+		}				       
+		
+		
+		####  2) ORF is inside the gene and smaller than the gene
+		####            |_____________|        ORF
+		####         |___________________|     GENE
+		
+		if ($strand == -1 && $start <= $annotstart && $end >= $annotend ) {
+		    #print "ca merde ds 2a\n";
+		    next EMPTYORF;
+		}
+		if ($strand == 1 && $start >= $annotstart && $end <= $annotend) {
+		    #print "ca merde ds 2b\n";
+		    next EMPTYORF;    
+		}
+		
+		####  3) ORF is overlapping the gene
+		####                        |___________|        ORF
+		####         |____________________|              GENE
+		
+		if ($start >= $annotstart && $end >= $annotend) {
+		    
+		    my $overlapping=0;                           #  Overlapping calculation
+		    $overlapping += abs($annotstart-$end) if ($strand == -1);
+		    $overlapping += abs($annotend-$start) if ($strand == 1);
+		    
+		    $overlapping = $overlapping / abs ($end - $start);
+		    
+		    if ($overlapping > $overlappingcutoff) {
+		        #print "ca merde ds 3\n";
+			#print "ANNOT $annotstart $annotend $annotstrand\n";
+			next EMPTYORF;
+	            }
+		     
+		}
+		
+		####  4) ORF is overlapping the gene
+		####        |__________|              ORF
+		####              |________________|  GENE
+		
+		if ($start <= $annotstart && $end <= $annotend) {
+		
+		    my $overlapping=0;                        #  Overlapping calculation
+		    $overlapping += abs($end-$annotstart) if ($strand == -1);
+		    $overlapping += abs($start-$annotend) if ($strand == 1);
+		    
+		    $overlapping = $overlapping / abs ($end - $start);
+		    
+		    if ($overlapping > $overlappingcutoff) {
+		       #print "ca merde ds 4\n";
+		       #print "ANNOT $annotstart $annotend $annotstrand\n";
+		       next EMPTYORF;
+	            }
+		}
+		
+		
+	    }	
+	
+	    	
+						                                        
+	     
+	}
+	
+	#print "bon ques ce quon ajoute ?\n"; 
+	
+	 #####  If all the annotation has been parsed without founding something 
+	 #####  To unallow annotation of ORF, -> Empty orf annotation
+	 
+	 #print "SIZE OF ANNOT ORF : ", abs ($start-$end), "\n";
+	 
+	 my $orfannot = new PirObject::AnnotPair (
+	                        type      => "G",  
+              			genename  => "ncOrf",
+                        	startpos  => $start,
+                        	endpos    => $end,
+                        	direction => $arrow,
+                        	startline => ";     G-ncOrf $arrow start ;; MFFEAT=$TAGNAME",
+                        	endline   => ";     G-ncOrf $arrow end ;; MFFEAT=$TAGNAME",
+                    	);
+    
+         &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
+     
+     }  #  END OF FOR EACH EMPTY ORFS
+
+
+}
+
 sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from the blast results
 
 
@@ -543,6 +719,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		
 	
 		my $protannot = new PirObject::AnnotPair (
+		                type      => "G", 
               			genename  => "$name",
                         	startpos  => $start,
                         	endpos    => $end,
@@ -567,13 +744,15 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			#print "Exons $name $exonstart $exonend $exonstrand\n";
 			
 			my $exonannotstart = new PirObject::AnnotPair (
-              			genename  => "commentary",
+			        type      => "C",
+              			genename  => "comment",
                         	startpos  => $exonstart,
                         	direction => $arrow,
                         	startline => ";;     possible G-$name-E$number $arrow start ;; MFFEAT=$TAGNAME",
 			);
 			my $exonannotend = new PirObject::AnnotPair (
-              			genename  => "commentary",
+			        type      => "C",
+              			genename  => "comment",
                         	startpos  => $exonend,
                         	direction => $arrow,
                         	startline => ";;     possible G-$name-E$number $arrow end ;; MFFEAT=$TAGNAME",
@@ -821,10 +1000,20 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
     
     $strand = ($strand eq 'orig' ? 1 : -1);
-    if ($evalue > $BLASTEVALUECUTOFF) {	# If the e-value is not enough for these ORF you can 
-    	
-    	return;
+    
+    ###--------------------QUIT THE FUNCTION IF EVALUE IS TOO  WEAK-----------------------------#
+    if ($evalue > $BLASTEVALUECUTOFF) {	        # If the e-value is not enough for these ORF you can
+                                                # It creates an Empty ORF 
+    	my $newemptyorf = new PirObject::EmptyOrf (start   => $start,
+                                                   end    => $end,
+				                   strand => $strand,
+				                   score  => $evalue,
+						   contigname => $contigname,
+				                   );
+	push (@$EMPTYORFS, $newemptyorf);       # Put into the array, to be processed after   
+	return;
     }
+    ###-----------------------------------------------------------------------------------------#
     
     if (scalar(@hsps) == 0) {
     	return;				#	An ORF that has a good evalue but no HSP => impossible but ...
@@ -1426,7 +1615,8 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 										
 			my $annot = new PirObject::AnnotPair (
-              			genename  => "trn$aaSymbol($acodon)",                     # Before : genename  => "tRNA-$type($acodon)",
+              			type      => "G", 
+				genename  => "trn$aaSymbol($acodon)",                     # Before : genename  => "tRNA-$type($acodon)",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
@@ -1454,34 +1644,63 @@ sub AddAnnotToPirMaster {
     my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name\n";
     my $annotations = $contig->get_annotations;
     
-    
+    if ($FIRSTTIME) {             # if it's the first time => fill $ANNOTSEEN
+        foreach my $annotation (@$annotations){
+	   	     if ($annotation->type eq "G") {
+		$ANNOTSEEN->{$annotation->genename} = 'defined'; 
+	    }
+	
+	}
+	$FIRSTTIME = 0;
+     }
+     
     ANNOTATION : foreach my $annotation (@$annotations){
         my $annotname = $annotation->genename;
+	my $annottype = $annotation->type || "C";
 	my $annotstart = $annotation->startpos;
 	my $annotend = $annotation->endpos;
-	$annotname = "commentary" if (!defined  $annotname);
+	$annotname = "comment" if (!defined  $annotname);
 	$annotstart = -1 if (!defined  $annotstart);
 	$annotend = -1 if (!defined  $annotend);
 	
 	
-	##--First case : if both are same commentary on the same line 
-	if (($annotname eq "commentary") && ($annot->genename eq "commentary") && ($annot->startpos == $annotstart) && $annot->startline eq $annotation->startline) {
+	##--First case : if both are same comment on the same line 
+	if (($annottype eq "C") && ($annot->type eq "C") && ($annot->startpos == $annotstart) && $annot->startline eq $annotation->startline) {
 	    #Nothing is done in this case,
 	    #print "On est bien dans ce cas\n";
 	    #print "Annot : ",  $annot->startline, " Courante : ", $annotation->startline, " $annotstart ", $annot->startpos, "\n" ;
 	    return;
 	}
 	
-	##--Second case : No commentary, both have same start end, and genename;
-	if (($annotname ne "commentary") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
+	##--Second case : No comment, both have same start end, and genename;
+	if (($annottype ne "C") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
 	    return;
 	}
 		
     }
     
-    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "commentary");
-    push (@$annotations, $annot);
+    if ($FORCEANNOT) {       #   If no Force annot, you can add a new one 
+        $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+        push (@$annotations, $annot);
+    }
+    else {                       #   If force annot exists
+    
+        if ($annot->type eq "C") {
+	    push (@$annotations, $annot);
+	    return;
+	}
+    
+	if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
+            $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+            #$ANNOTSEEN->{$annot->genename} = 'defined';
+	}
+	else {                                            #  It means, force annot but this annotations doesn't seems to have an other copy    
+ 	    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+            $ANNOTSEEN->{$annot->genename} = 'defined';	    
+	    push (@$annotations, $annot);
+	}
+    }    #    end of if forceannot .......
     
 }
 
