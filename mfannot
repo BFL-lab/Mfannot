@@ -25,9 +25,15 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.12 2005/05/05 16:00:06 thomash Exp $
+#    $Id: mfannot,v 1.13 2005/05/05 19:41:33 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.13  2005/05/05 19:41:33  thomash
+#    mfannot modified in order to have more than one annotation
+#    per ORF;
+#    if option -m is in line command it will active the multi
+#    annotation per ORF option
+#
 #    Revision 1.12  2005/05/05 16:00:06  thomash
 #    Disallow, 2 annotations for the same gene, by default
 #    Allows 2 annotations if option -f.
@@ -99,7 +105,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.12 2005/05/05 16:00:06 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.13 2005/05/05 19:41:33 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -146,6 +152,7 @@ my $FLIPBLASTPROTS = [];                        #  Array containing the Proteins
 my $HYPPROTS = [];                              #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $OUTPUTFILE;                                 #  Path for the new
 my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in the annotation 
+my $MULTIORFS;                                  #  0 or 1 allows many gene annotations for 1 ORF 
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -431,6 +438,7 @@ sub GetOptions {          # this function is here to manipulate options
     $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
     $TAGNAME = $option->tagname;                 #  Adds a tag  
     $FORCEANNOT = $option->force;                #  Force the annotation when 2 annotations have the same name
+    $MULTIORFS = $option->multiorfs;             #  Permit 2 annotations for an ORF
         
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
@@ -988,72 +996,79 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     
     #sort (@hits)
     my $arrow = ($strand eq 'orig' ? '==>' : '<==');
-    
-    #foreach my $hit (@hits) {
-    my $hit=$hits[0];
-    #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
-    my $desc         = $hit->description();	#	Get the description of the query sequence
-    #print "description $desc\n"; 
-    my ($hypprotein) = ($desc =~ /\s*([\w]*)\s*;/); 
-    my $score        = $hit->score();		#	Get the blast score
-    my $evalue	 = $hit->significance();	#	Get the e-value
-    my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
-    
     $strand = ($strand eq 'orig' ? 1 : -1);
     
+    my $hit=$hits[0];    
     ###--------------------QUIT THE FUNCTION IF EVALUE IS TOO  WEAK-----------------------------#
-    if ($evalue > $BLASTEVALUECUTOFF) {	        # If the e-value is not enough for these ORF you can
+    if ($hit->significance > $BLASTEVALUECUTOFF) {	        # If the e-value is not enough for these ORF you can
                                                 # It creates an Empty ORF 
     	my $newemptyorf = new PirObject::EmptyOrf (start   => $start,
                                                    end    => $end,
 				                   strand => $strand,
-				                   score  => $evalue,
+				                   score  => $hit->significance,
 						   contigname => $contigname,
 				                   );
-	push (@$EMPTYORFS, $newemptyorf);       # Put into the array, to be processed after   
-	return;
+	push (@$EMPTYORFS, $newemptyorf);       #  Put into the array, to be processed after   
+	return;                                 #  Exit the function, because there is no significant ORF 
     }
     ###-----------------------------------------------------------------------------------------#
     
-    if (scalar(@hsps) == 0) {
-    	return;				#	An ORF that has a good evalue but no HSP => impossible but ...
-    }
-    elsif (scalar(@hsps) == 1) {
-    		
-    }	
     
-    #----	Creating a new ORF object	---
-    my $neworf = new PirObject::Orf (start   => $start,
+    foreach my $hit (@hits) {
+    # my $hit=$hits[0];
+    #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
+        my $desc         = $hit->description();	#	Get the description of the query sequence
+    #print "description $desc\n"; 
+        my ($hypprotein) = ($desc =~ /\s*([\w]*)\s*;/); 
+        my $score        = $hit->score();		#	Get the blast score
+        my $evalue	 = $hit->significance();	#	Get the e-value
+        my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
+    
+        
+    
+	return if ($evalue > $BLASTEVALUECUTOFF);
+    
+    
+        if (scalar(@hsps) == 0) {
+            return;				#	An ORF that has a good evalue but no HSP => impossible but ...
+        }
+        elsif (scalar(@hsps) == 1) {
+    		
+        }	
+    
+        #----	Creating a new ORF object	---
+        my $neworf = new PirObject::Orf (start   => $start,
                                       end    => $end,
 				      strand => $strand,
 				      score  => $evalue,
 				      hsps   => []);
-    my $refhsparray = $neworf->hsps;	#	An array reference,					      
-    foreach (@hsps) {
-    	my $newhsp = new PirObject::Hsp (start  => $_->start,
-					 end    => $_->end,
-					 strand => $_->strand);
-	push (@$refhsparray, $newhsp);
+        my $refhsparray = $neworf->hsps;	#	An array reference,					      
+        foreach (@hsps) {
+    	    my $newhsp = new PirObject::Hsp (start  => $_->start,
+		                             end    => $_->end,
+					     strand => $_->strand);
+	    push (@$refhsparray, $newhsp);
 	}
     
 				      			      
-    my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
-    #	Two case
-    if (defined $newflipblastprot) {	#	Wether the prot is already defined
-    	my $reforfarray = $newflipblastprot->orfs;
-	push (@$reforfarray, $neworf);	#	Annd we just add a new orf
-    }
-    else {
-    	my $newflipblastprot = new PirObject::FlipBlastProt (name        => $hypprotein,	#	First we create the flipblast prot
+        my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
+        #	Two case
+        if (defined $newflipblastprot) {	#	Wether the prot is already defined
+    	    my $reforfarray = $newflipblastprot->orfs;
+	    push (@$reforfarray, $neworf);	#	Annd we just add a new orf
+        }
+        else {
+    	    my $newflipblastprot = new PirObject::FlipBlastProt (name        => $hypprotein,	#	First we create the flipblast prot
 							     contigname => $contigname,
 							     orfs       => []);
-	my $reforfarray = $newflipblastprot->orfs;
-	push (@$reforfarray, $neworf);	#	Annd we just add a new orf
-	push (@$FLIPBLASTPROTS, $newflipblastprot);
-    }	
+	    my $reforfarray = $newflipblastprot->orfs;
+	    push (@$reforfarray, $neworf);	#	Annd we just add a new orf
+	    push (@$FLIPBLASTPROTS, $newflipblastprot);
+        }	
     
+	return if (! $MULTIORFS);                 #       Exit the function after the first hit if multi ORFS not allowed
     
-    
+    }
     #print scalar(@hsps),"hsp pour $hypprotein\n";
 	
         
