@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.13 2005/05/05 19:41:33 thomash Exp $
+#    $Id: mfannot,v 1.14 2005/05/09 15:00:30 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.14  2005/05/09 15:00:30  thomash
+#    Problems fixed (Exons problems)
+#
 #    Revision 1.13  2005/05/05 19:41:33  thomash
 #    mfannot modified in order to have more than one annotation
 #    per ORF;
@@ -101,11 +104,12 @@ PirObject->LoadDataModel("Option");                   #  A module for options ge
 
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
+
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.13 2005/05/05 19:41:33 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.14 2005/05/09 15:00:30 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -716,7 +720,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 
 	my $pirmaster = shift;
 
-	foreach my $hyprot (@$HYPPROTS)
+	HYPPROT : foreach my $hyprot (@$HYPPROTS)
 	{
 		my $name = $hyprot->name;
 		my $contigname = $hyprot->contigname;
@@ -726,6 +730,8 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		my $tag = $hyprot->remark;
 		
 	
+		#print "----------------------------------\n";
+		#print "Annotation :, $name, $start, $end, $arrow\n";
 		my $protannot = new PirObject::AnnotPair (
 		                type      => "G", 
               			genename  => "$name",
@@ -735,8 +741,9 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
                         	startline => ";     G-$name $arrow start ;; MFFEAT=$TAGNAME ;; $tag",
                         	endline   => ";     G-$name $arrow end ;; MFFEAT=$TAGNAME ;;$tag",
                     	);
-        	&AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
-	
+        	my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
+	        next HYPPROT if (!defined ($res) or $res == 0);
+		
 		my $exons =  $hyprot->exons;
 		
 				
@@ -748,6 +755,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			my $exonstart = $exon->start;
 			my $exonend = $exon->end;
 			my $exonstrand = $exon->strand;
+			#print "Exon $number, $exonstart, $exonend, $exonstrand\n";
 			
 			#print "Exons $name $exonstart $exonend $exonstrand\n";
 			
@@ -1653,6 +1661,11 @@ sub AddGeneFeatureUsingtRNAscanSE {
 my $GeneNameToAnnot_Cache = undef;  # just a hash used for efficiency
 
 sub AddAnnotToPirMaster {
+
+    #### MEANING CODE FOR THIS FUNCTION
+    #### return 1 means ok, it has been added
+    #### return 0 means function quit before the end, => rediscovered 
+   
     my $pirmaster  = shift;
     my $contigname = shift;
     my $annot      = shift;
@@ -1684,36 +1697,39 @@ sub AddAnnotToPirMaster {
 	    #Nothing is done in this case,
 	    #print "On est bien dans ce cas\n";
 	    #print "Annot : ",  $annot->startline, " Courante : ", $annotation->startline, " $annotstart ", $annot->startpos, "\n" ;
-	    return;
+	    return 0;
 	}
 	
 	##--Second case : No comment, both have same start end, and genename;
 	if (($annottype ne "C") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
-	    return;
+	    return 0;
 	}
 		
     }
     
-    if ($FORCEANNOT) {       #   If no Force annot, you can add a new one 
+    if ($FORCEANNOT) {       #   If Force annot, you can add a new one 
         $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
         push (@$annotations, $annot);
+	return 1;
     }
-    else {                       #   If force annot exists
+    else {                       #   If force annot does not exist
     
         if ($annot->type eq "C") {
 	    push (@$annotations, $annot);
-	    return;
+	    return 1;
 	}
     
 	if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+	    return 0;
             #$ANNOTSEEN->{$annot->genename} = 'defined';
 	}
 	else {                                            #  It means, force annot but this annotations doesn't seems to have an other copy    
  	    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
             $ANNOTSEEN->{$annot->genename} = 'defined';	    
 	    push (@$annotations, $annot);
+	    return 1;
 	}
     }    #    end of if forceannot .......
     
