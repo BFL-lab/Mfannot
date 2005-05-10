@@ -25,12 +25,17 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.15 2005/05/10 19:20:14 thomash Exp $
+#    $Id: mfannot,v 1.16 2005/05/10 21:11:01 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.15  2005/05/10 19:20:14  thomash
-#    Version that implements new options
-#    See help, for details
+#    Revision 1.16  2005/05/10 21:11:01  thomash
+#    2 new options added
+#    -el The empty ORF minimum length (or -emptyorflen)
+#        It's the cutoff value for an ORF, which doesn't correspond to a
+#        gene, appearing in the Masterfile as ncorf (non corresponding ORF)
+#    -oc Overlapping cutoff
+#        The non corresponding ORF that overlaps more than the cutoff are
+#        not presented in the Masterfile
 #
 #    Revision 1.14  2005/05/09 15:00:30  thomash
 #    Problems fixed (Exons problems)
@@ -109,11 +114,13 @@ PirObject->LoadDataModel("Option");                   #  A module for options ge
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
 
+
+
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.15 2005/05/10 19:20:14 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.16 2005/05/10 21:11:01 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -178,7 +185,9 @@ my $BLASTOUTPUT                   ;             #  The path for blast file resul
 my $BLASTEVALUECUTOFF = 0.0001;			#  Cutoff value for the blast
 my $MINLENGTHORF = 30;				#  This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF = 1000;		#  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT = "blastout2";
+$BLASTOUTPUT = "blastout2";                     #  Blastreport 
+my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
+my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 
 
 #############################
@@ -340,6 +349,9 @@ if ($SIMILARITYSEARCH) {
   $options = "Options : \n";                  # Options & parameters used for the blast
   $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
   $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+  $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
+  $options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
+  
   print $options if $DEBUG;
   print LOGFILE $options if $ISLOGFILE;
 }
@@ -477,9 +489,11 @@ sub GetOptions {          # this function is here to manipulate options
    
 
     #--Specific for the annotation (parameters for flip, blastall and organization)	
-    $BLASTEVALUECUTOFF = $option->blast2;            #  Cutoff value for the blast
-    $MINLENGTHORF = $option->flip2;                #  This is the minimum length for creating an ORF with flip
-    $MAXLENGTHFORGROUPINGORF = $option->intronsize; #  Minimum size of a gap between 2 ORf. If 2 same ORF
+    $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
+    $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
+    $MAXLENGTHFORGROUPINGORF = $option->intronsize;                        #  Minimum size of a gap between 2 ORf. If 2 same ORF
+    $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
+    $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
 
     
 }
@@ -593,8 +607,8 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $strand = $emptyorf->strand;
 	 my $arrow = ($strand == 1 ? '==>' : '<==');
 	 
-	 my $overlappingcutoff = 0.1;                 #  authorized overlapping  
-	 my $minimumlengthorf = 500;                  #  minimum Orf size
+	 my $overlappingcutoff = $MINLENEMPTYORF;                 #  authorized overlapping  
+	 my $minimumlengthorf = $OVERLAPPINGCUTOFF;                  #  minimum Orf size
 	 
 	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
          my $annotations = $contig->get_annotations;
