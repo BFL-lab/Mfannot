@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.14 2005/05/09 15:00:30 thomash Exp $
+#    $Id: mfannot,v 1.15 2005/05/10 19:20:14 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.15  2005/05/10 19:20:14  thomash
+#    Version that implements new options
+#    See help, for details
+#
 #    Revision 1.14  2005/05/09 15:00:30  thomash
 #    Problems fixed (Exons problems)
 #
@@ -109,7 +113,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.14 2005/05/09 15:00:30 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.15 2005/05/10 19:20:14 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -157,6 +161,10 @@ my $HYPPROTS = [];                              #  Array containing the Proteins
 my $OUTPUTFILE;                                 #  Path for the new
 my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in the annotation 
 my $MULTIORFS;                                  #  0 or 1 allows many gene annotations for 1 ORF 
+my $NEWRCFILE;                                  #  0 or 1 : print if a new rcfile is generated
+my $NORCFILE;                                   #  0 or 1, if a rcfile has been used for loading data
+my $RCFILE;                                     #  The rcfile used for loading options
+
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -194,12 +202,7 @@ die "Please make sure that the 'blastall' executable is in your\n" .
      #      - Check if flip is installed
      #      - Check if formatdb is installed
      
-#####################################################
-# Command-Line Arguments Processing and verification#
-#####################################################
 
-##------------------------------------------------##
-&GetOptions ;
 
 ##################
 # HELP AND USAGE #
@@ -240,30 +243,45 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
+#####################################################
+# Command-Line Arguments Processing and verification#
+#####################################################
+
+##------------------------------------------------##
+&GetOptions ;
 
 open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
 
 
-my $header = "######################################################################\n".
+my $header = "\n".
+             "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
              "VERSION $VERSION                                                      \n".
 	     "Programmed by david To, Thomas Hoellinger, Pierre Rioux and Franz Lang\n".
 	     "######################################################################\n\n";
+	     
 print $header if $DEBUG;
-print LOGFILE $header if $ISLOGFILE;    
+print LOGFILE $header if $ISLOGFILE;
 
 ##--OPTIONS OF THE PROGRAM
 my $options ="----------------------------------\n".
              "        General Options	        \n".
              "----------------------------------\n";
+	    
+if ($NORCFILE) {
+    $options .= "No rcfile used for options\n";
+}
+else {
+    $options .= "$RCFILE used for loading options\n";
+}
 $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n";
+$options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 
 if ($SIMILARITYSEARCH) {
   if ($TAKEINPUTFILE == 0) {
-    $options .= "Look in the peptide library\n";
-    $options .= "Directory : $PEPLIBRARY\n";	     
+    $options .= "Look in the peptide library $PEPLIBRARY\n";	     
   }
   else {
     $options .= "Peptide file : $PEPFILE\n";
@@ -317,6 +335,15 @@ print "----------------------------------\n",
 print LOGFILE "----------------------------------\n",
               "           Annotation             \n",
               "----------------------------------\n" if $ISLOGFILE;
+
+if ($SIMILARITYSEARCH) {
+  $options = "Options : \n";                  # Options & parameters used for the blast
+  $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
+  $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+  print $options if $DEBUG;
+  print LOGFILE $options if $ISLOGFILE;
+}
+
 my $step=1;
 print "$step) Parsing masterfile...\n" if $DEBUG;
 $step += 1; 
@@ -346,13 +373,8 @@ print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
       
       	      
 if ($SIMILARITYSEARCH) {
-  $options = "Options : \n";                  # Options & parameters used for the blast
-  $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
-  $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
-  print $options if $DEBUG;
-  print LOGFILE $options if $ISLOGFILE;
-
-                                 # Run the programm step by, to know the right step            
+                                 
+  # Run the programm step by, to know the right step            
   print "$step) Run Flip...\n" if $DEBUG;
   $step += 1; 
   &RunFlip;
@@ -443,7 +465,12 @@ sub GetOptions {          # this function is here to manipulate options
     $TAGNAME = $option->tagname;                 #  Adds a tag  
     $FORCEANNOT = $option->force;                #  Force the annotation when 2 annotations have the same name
     $MULTIORFS = $option->multiorfs;             #  Permit 2 annotations for an ORF
-        
+    $NEWRCFILE = $option->newrcfile;             #  Just used to be printed. Indiquates that a new rcfile will be created
+    $NORCFILE = $option->norcfile;               #  0 or 1, if a rcfile has been used for loading data
+    $RCFILE = $option->rcfile;;                  #  The rcfile used for loading options
+
+    
+    
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
     $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $option->blast1; #  Minimum blast e-value thresold
