@@ -1,0 +1,14 @@
+outputfile = sculimt.all.clean.new
+pepdirectory = ./
+genetic = 1
+flip1 = 150
+blast1 = 0.01
+flip2 = 100
+blast2 = 1e-10
+intronsize = 1000
+similarity = 1
+trnascanse = 0
+debug = 1
+force = 0
+emptyorflen = 700
+overlapcut = 0.5
