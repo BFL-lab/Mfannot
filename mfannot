@@ -25,17 +25,19 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.16 2005/05/10 21:11:01 thomash Exp $
+#    $Id: mfannot,v 1.17 2005/05/11 21:22:43 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.16  2005/05/10 21:11:01  thomash
-#    2 new options added
-#    -el The empty ORF minimum length (or -emptyorflen)
-#        It's the cutoff value for an ORF, which doesn't correspond to a
-#        gene, appearing in the Masterfile as ncorf (non corresponding ORF)
-#    -oc Overlapping cutoff
-#        The non corresponding ORF that overlaps more than the cutoff are
-#        not presented in the Masterfile
+#    Revision 1.17  2005/05/11 21:22:43  thomash
+#    The multiples annotations for a same frame function has been improved
+#    Before, all the significant annotation were taken for the same ORF.
+#    It could have a sense if a protein contains two functionnal domains
+#    derived from 2 different protein.
+#    The most of the time, an ORF having more than one annotation,
+#    comes when two similar proteins correspond to the annotation
+#    In this case we just want one annotation.
+#    This has been done (but not tested one real fusion protein)
+#    And work on proteins present in masterfiles used
 #
 #    Revision 1.14  2005/05/09 15:00:30  thomash
 #    Problems fixed (Exons problems)
@@ -120,7 +122,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.16 2005/05/10 21:11:01 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.17 2005/05/11 21:22:43 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -283,6 +285,7 @@ if ($NORCFILE) {
 else {
     $options .= "$RCFILE used for loading options\n";
 }
+$options .= "Masterfile used : $MASTERFILE\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n";
@@ -1062,8 +1065,13 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     }
     ###-----------------------------------------------------------------------------------------#
     
+    ####  Now we have the start, we have the end, the strand
+    ####  And we would like to know if more than one hit is allowed
     
-    foreach my $hit (@hits) {
+    
+    my @overlapping;
+    
+    HIT : foreach my $hit (@hits) {
     # my $hit=$hits[0];
     #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
         my $desc         = $hit->description();	#	Get the description of the query sequence
@@ -1073,8 +1081,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $evalue	 = $hit->significance();	#	Get the e-value
         my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
     
-        
-    
 	return if ($evalue > $BLASTEVALUECUTOFF);
     
     
@@ -1083,8 +1089,71 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         }
         elsif (scalar(@hsps) == 1) {
     		
-        }	
+        }
+	
+	#------- Calculate a sort of frame to see what's the region covered by this ORF
+	#  Story : You can have some case more than one protein per gen.
+	#  It's a sort of fusion protein.
+	#  Each of both have a functional part
+	
+	#-----------------------------------------------------------------------------#
+	# To make distinction between a protein fusion and a protein annotated as twice
+	# We have to check the High Scoring Pair frame. If there is no overllapping between 
+	# HSP frames, it means you have many proteins on the same frame
+	# If there is, it's probably because many similar proteins corresponds to the same gene
+	
+	
+	my $frame = {};
+	my $framestart = $hsps[0]->start;
+	my $frameend = $hsps[0]->end;
+	#my $framestrand = $strand;
+	
+	#  We don't need to check for strand because HSP are sorted as if there were on the right strand
+
+	foreach (@hsps) {	
+	    $framestart = $_->start if ($_->start < $framestart);
+            $frameend = $_->end if ($_->end > $frameend);
+        }
+	$frame -> {"start"} = $framestart;
+	$frame -> {"end"} = $frameend;
+	#push (@overlapping, 
+	
+	
+	#----  Regarding for overlapping in hits : if it's rigth, only one hit is allowed
+	
+	my $isoverlapping = 0;                          #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
+	           
+	CURRENTFRAME : foreach my $currentframe (@overlapping) {
+	
+	
+	    ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
+	    
+	    # 1)     |----------------|             first frame
+	    #               |-----------------|     second frame
+	    
+	    # 2)            |----------------|      first frame
+	    #        |-----------------|            second frame
+	    
+	    # 2)          |---------|               first frame
+	    #        |-----------------|            second frame
+	    
+	    # 4)    |-----------------|             first frame
+	    #         |---------|                   second frame
+	                            
+				    #       Case were we are on the right strand
+	    $isoverlapping = 1 if (($currentframe->{"start"} <  $frame -> {"start"}) && ($currentframe->{"end"} >  $frame -> {"start"}));
+	    $isoverlapping = 1 if (($frame -> {"start"} <  $currentframe->{"start"}) && ($frame -> {"end"} >  $currentframe->{"start"}));
+	    $isoverlapping = 1 if (($frame -> {"start"} <  $currentframe->{"start"}) && ($currentframe -> {"end"} <  $frame->{"end"})); 
+	    $isoverlapping = 1 if (($currentframe -> {"start"} <  $frame->{"start"}) && ($frame -> {"end"} <  $currentframe->{"end"}));  
+	    
+	    last CURRENTFRAME if $isoverlapping == 1;   #       Go out of the loop if there is a overlapping frame  
+	}
+	
+	
+	next HIT if ($isoverlapping == 1);              #       If there is an overlapping, the HIT isn't good for annotation
+	push (@overlapping, $frame) if 	($isoverlapping == 0);
     
+	
         #----	Creating a new ORF object	---
         my $neworf = new PirObject::Orf (start   => $start,
                                       end    => $end,
