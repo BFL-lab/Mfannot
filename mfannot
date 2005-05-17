@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.17 2005/05/11 21:22:43 thomash Exp $
+#    $Id: mfannot,v 1.18 2005/05/17 20:11:00 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.18  2005/05/17 20:11:00  thomash
+#    Problems fixed with, empty orf minimum length
+#
 #    Revision 1.17  2005/05/11 21:22:43  thomash
 #    The multiples annotations for a same frame function has been improved
 #    Before, all the significant annotation were taken for the same ORF.
@@ -122,7 +125,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.17 2005/05/11 21:22:43 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.18 2005/05/17 20:11:00 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -151,7 +154,10 @@ my $ANNOT_STATS = {
 my $EMPTYORFS = [];                             #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
 my $ANNOTSEEN = {};                             #  An array storing annotations that have been seen before
-my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)		
+my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)	
+my %GENENAMEOCCURENCE;                          #  An hash array, defined only if the gene has been discovered
+
+	
 
 
 #--General options
@@ -173,6 +179,7 @@ my $MULTIORFS;                                  #  0 or 1 allows many gene annot
 my $NEWRCFILE;                                  #  0 or 1 : print if a new rcfile is generated
 my $NORCFILE;                                   #  0 or 1, if a rcfile has been used for loading data
 my $RCFILE;                                     #  The rcfile used for loading options
+my $ORFPROCESS;                                 #  Allows ORF appearing in the masterfile as annotations
 
 
 #--Specific for finding the closest organism
@@ -184,9 +191,9 @@ $BLASTOUTFORFINDINGCLOSESTORGANISM =  $TMPDIR . "/blastout1";
 
 #--Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT                   ;             #  The path for blast file results	
-my $BLASTEVALUECUTOFF = 0.0001;			#  Cutoff value for the blast
-my $MINLENGTHORF = 30;				#  This is the minimum length for creating an ORF with flip
-my $MAXLENGTHFORGROUPINGORF = 1000;		#  Minimum size of a gap between 2 ORf. If 2 same ORF
+my $BLASTEVALUECUTOFF;	          		#  Cutoff value for the blast
+my $MINLENGTHORF;				#  This is the minimum length for creating an ORF with flip
+my $MAXLENGTHFORGROUPINGORF;     		#  Minimum size of a gap between 2 ORf. If 2 same ORF
 $BLASTOUTPUT = "blastout2";                     #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
@@ -352,6 +359,7 @@ if ($SIMILARITYSEARCH) {
   $options = "Options : \n";                  # Options & parameters used for the blast
   $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
   $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+  $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
   $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
   $options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
   
@@ -414,9 +422,11 @@ if ($SIMILARITYSEARCH) {
   $step += 1; 
   &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
-  print "$step) Process Empty ORFs...\n" if $DEBUG; 
-  $step += 1; 
-  &AnnotateEmptyOrfs ($pirmaster);
+  if ($ORFPROCESS) {
+      print "$step) Process Empty ORFs...\n" if $DEBUG; 
+      $step += 1; 
+      &AnnotateEmptyOrfs ($pirmaster);
+  }
 }
   
 if ($USETRNASCANSE) {
@@ -482,8 +492,8 @@ sub GetOptions {          # this function is here to manipulate options
     $MULTIORFS = $option->multiorfs;             #  Permit 2 annotations for an ORF
     $NEWRCFILE = $option->newrcfile;             #  Just used to be printed. Indiquates that a new rcfile will be created
     $NORCFILE = $option->norcfile;               #  0 or 1, if a rcfile has been used for loading data
-    $RCFILE = $option->rcfile;;                  #  The rcfile used for loading options
-
+    $RCFILE = $option->rcfile;                   #  The rcfile used for loading options
+    $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
     
     
     #--Specific for finding the closest organism
@@ -610,13 +620,15 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $strand = $emptyorf->strand;
 	 my $arrow = ($strand == 1 ? '==>' : '<==');
 	 
-	 my $overlappingcutoff = $MINLENEMPTYORF;                 #  authorized overlapping  
-	 my $minimumlengthorf = $OVERLAPPINGCUTOFF;                  #  minimum Orf size
-	 
+	 my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
+	 my $minimumlengthorf = $MINLENEMPTYORF;                  #  minimum Orf size
+	
 	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
          my $annotations = $contig->get_annotations;
 	 
+	 
 	 next EMPTYORF if (abs($start - $end) < $minimumlengthorf);   
+	# print "Taille de l'ORF : ", abs($start - $end), " et minimum : $minimumlengthorf\n";
 	 
 	 #print "--------------------------\n";
 	 #print "ORF  $start  $end  $strand\n";
@@ -728,6 +740,7 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 		}
 		
 		
+		
 	    }	
 	
 	    	
@@ -742,14 +755,16 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 
 	 #print "SIZE OF ANNOT ORF : ", abs ($start-$end), "\n";
 	 
+	 my $GenenameORF = "Orf". abs($start-$end);
+	 
 	 my $orfannot = new PirObject::AnnotPair (
 	                        type      => "G",  
-              			genename  => "ncOrf",
+              			genename  => $GenenameORF,
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
-                        	startline => ";     G-ncOrf $arrow start ;; MFFEAT=$TAGNAME",
-                        	endline   => ";     G-ncOrf $arrow end ;; MFFEAT=$TAGNAME",
+                        	startline => ";     G-$GenenameORF $arrow start ;; MFFEAT=$TAGNAME",
+                        	endline   => ";     G-$GenenameORF $arrow end ;; MFFEAT=$TAGNAME",
                     	);
     
          &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
@@ -758,6 +773,18 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 
 
 }
+
+sub NextLetter {                        #       A function that gives you the next letter
+
+    my $letter = shift;
+    my $newletter = ord ($letter);
+    $newletter ++;
+    $newletter = chr $newletter;
+    return $newletter;
+    
+}
+
+
 
 sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from the blast results
 
