@@ -25,11 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.18 2005/05/17 20:11:00 thomash Exp $
+#    $Id: mfannot,v 1.19 2005/05/20 21:56:28 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.18  2005/05/17 20:11:00  thomash
-#    Problems fixed with, empty orf minimum length
+#    Revision 1.19  2005/05/20 21:56:28  thomash
+#    Contains, orf modifications.
+#    Now, overlapping is calculated on the both strands
 #
 #    Revision 1.17  2005/05/11 21:22:43  thomash
 #    The multiples annotations for a same frame function has been improved
@@ -125,7 +126,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.18 2005/05/17 20:11:00 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.19 2005/05/20 21:56:28 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -392,7 +393,7 @@ print "Number of contigs in Masterfile : $numbercontigs\n",
       "Number of annotations (or commentaries) detected : $numberannot\n" if $DEBUG;
 
 print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
-              "Number of annotations (or commentaries) detected : $numberannot\n" if $ISLOGFILE;
+              "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
       
       	      
 if ($SIMILARITYSEARCH) {
@@ -409,7 +410,7 @@ if ($SIMILARITYSEARCH) {
   print "$step) Parse Information From Blast Results...\n" if $DEBUG;
   $step += 1;
   &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
-
+  
   print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
   $step += 1; 
   &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
@@ -549,10 +550,10 @@ sub FindClosestOrganism    # This function is regarding into the PEPLIBRARY if w
 
     #########	THEN RUN BLAST	###################		
 
-    my $cmdblast = "blastall -p blastp -d $peplib -i prot.lst -o $blastoutput";  #  -p programm
-                                                                                 #  -d database
-                                                                                 #  -i input
-                                                                                 #  -o output
+    my $cmdblast = "blastall -p blastp -d $peplib -i prot.lst -o $blastoutput 2> $TMPDIR/blasterr.txt";  #  -p programm
+                                                                                                         #  -d database
+                                                                                                         #  -i input
+                                                                                                         #  -o output
     print "$cmdblast\n" if $DEBUG;                                                             
     my $resblast = system("$cmdblast");
     #print $resblast if $DEBUG;
@@ -608,171 +609,142 @@ sub FindClosestOrganism    # This function is regarding into the PEPLIBRARY if w
 }
 
 sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and annotate it as ORFs
-
-     my $pirmaster = shift; 
+                          #  It means ORF having non corresponding gene in a pepfile
+			  
+     my $pirmaster = shift;    # get the masterfile object
 
      EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {   #  process each non corresponding orf
      
-	 my $contigname = $emptyorf->contigname;
-	 
-	 my $start = $emptyorf->start;
-         my $end = $emptyorf->end;
+         ####  Get informations  about empty ORF
+	 my $contigname = $emptyorf->contigname;       #  Get the contigname corresponding to the empty ORFs
 	 my $strand = $emptyorf->strand;
 	 my $arrow = ($strand == 1 ? '==>' : '<==');
-	 
+	 my $start;
+         my $end;
+	 if ($emptyorf->start < $emptyorf->end) {
+	     $start = $emptyorf->start;
+	     $end = $emptyorf->end;
+	 }
+	 else {
+	     $start = $emptyorf->end;
+	     $end = $emptyorf->start;
+	 }
+
 	 my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
-	 my $minimumlengthorf = $MINLENEMPTYORF;                  #  minimum Orf size
-	
+	 my $minimumlengthorf = $MINLENEMPTYORF;                     #  minimum Orf size, below this size, the ORF is no more kept
 	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
-         my $annotations = $contig->get_annotations;
+         
 	 
+	 my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
 	 
-	 next EMPTYORF if (abs($start - $end) < $minimumlengthorf);   
-	# print "Taille de l'ORF : ", abs($start - $end), " et minimum : $minimumlengthorf\n";
-	 
-	 #print "--------------------------\n";
-	 #print "ORF  $start  $end  $strand\n";
+	 # Verification
+	 next EMPTYORF if (abs($end - $start) < $minimumlengthorf);  #  Size Verification 
 	  
          ANNOT : foreach my $annotation (@$annotations) {
 	     
-	    #print "verification";
-	   # print "ca tourne \n"; 
-	    
-	     #print "type",  $annotation->type, "\n" if (defined($annotation->type));
-	     
-	     
+	     ## Verifiaction : 
+	     ## -doesn't take the annotation if it's something else than a comment
 	     next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
+	     	     
+	     ## Get information from current annotation
+	     my $annotstart;
+	     my $annotend; 
+	     if ( $annotation->startpos <  $annotation->endpos) {
+	         $annotstart = $annotation->startpos;
+	         $annotend = $annotation->endpos;
+             }
+	     else {
+	         $annotstart = $annotation->endpos;
+	         $annotend = $annotation->startpos;
+	     }
+		 
+	
 	     
-	     #  process only if it's a gene, 
+	     # OVERLAPPING CHECK
+	     # overlapping is allowed below a given cutoff 
+	     # this cutoff is inside the variable $OVERLAPPINGCUTOFF
 	     
-	     
-	     #print "c dedans qd meme\n";
-	     
-	     
-	     my $annotstart = $annotation->startpos;
-	     my $annotend = $annotation->endpos;
-	     my $annotarrow = $annotation->direction;
-	     my $annotstrand;
-	     if ($annotarrow =~ /\.*==>\.*/) { $annotstrand = -1; }  #  We get the strand
-	     else                            { $annotstrand = 1;  }
-	     
-	     
-	     
-	     
-	     # SIZE CHECK
-	     
-	     
-	     if ($strand == $annotstrand) {           #  Gene and empty orf must be on the same strand
-	                                              #  For calculation
+	     #### Case were it seems to work
+             next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
 		
-		#### Case were it seems to work
-	        next ANNOT if (($strand == -1) && (($start <= $annotend) or ($end >= $annotstart)));
-		next ANNOT if (($strand == 1) && (($start >= $annotend) or ($end <= $annotstart)));
+             #### Case were it doesn't work
 		
-		#### Case were it doesn't work
-		
-		######## FOUR CASES
+	     ######## FOUR CASES
 						      
-		####  1) ORF is inside the gene and longer than the gene
-		####         |___________________|      ORF
-		####            |______________|        GENE
+	     ####  1) ORF is inside the gene and longer than the gene
+	     ####         |___________________|      ORF
+	     ####            |______________|        GENE
 		
-		if ($strand == -1 && $start >= $annotstart && $end <= $annotend ) {
-		    #print "ca merde ds 1a\n";
-		    next EMPTYORF;
-		}
-		if ($strand == 1 && $start <= $annotstart && $end >= $annotend) {
-		    #print "ca merde ds 1b\n";
-		    next EMPTYORF;    
-		}				       
+	
+	     if ($start <= $annotstart && $end >= $annotend) {
+		next EMPTYORF;    
+	     }				       
 		
 		
-		####  2) ORF is inside the gene and smaller than the gene
-		####            |_____________|        ORF
-		####         |___________________|     GENE
+	     ####  2) ORF is inside the gene and smaller than the gene
+	     ####            |_____________|        ORF
+	     ####         |___________________|     GENE
 		
-		if ($strand == -1 && $start <= $annotstart && $end >= $annotend ) {
-		    #print "ca merde ds 2a\n";
-		    next EMPTYORF;
-		}
-		if ($strand == 1 && $start >= $annotstart && $end <= $annotend) {
-		    #print "ca merde ds 2b\n";
-		    next EMPTYORF;    
-		}
+	     if ($start >= $annotstart && $end <= $annotend) {
+		next EMPTYORF;    
+	     }
 		
-		####  3) ORF is overlapping the gene
-		####                        |___________|        ORF
-		####         |____________________|              GENE
+	     ####  3) ORF is overlapping the gene
+	     ####                        |___________|        ORF
+	     ####         |____________________|              GENE
 		
-		if ($start >= $annotstart && $end >= $annotend) {
+	     if ($start >= $annotstart && $end >= $annotend) {
 		    
 		    my $overlapping=0;                           #  Overlapping calculation
-		    $overlapping += abs($annotstart-$end) if ($strand == -1);
-		    $overlapping += abs($annotend-$start) if ($strand == 1);
-		    
+		    $overlapping += abs($annotstart-$end);
 		    $overlapping = $overlapping / abs ($end - $start);
 		    
 		    if ($overlapping > $overlappingcutoff) {
-		        #print "ca merde ds 3\n";
-			#print "ANNOT $annotstart $annotend $annotstrand\n";
 			next EMPTYORF;
 	            }
 		     
-		}
+	      }  
 		
-		####  4) ORF is overlapping the gene
-		####        |__________|              ORF
-		####              |________________|  GENE
+	      ####  4) ORF is overlapping the gene
+	      ####        |__________|              ORF
+	      ####              |________________|  GENE
 		
-		if ($start <= $annotstart && $end <= $annotend) {
+	      if ($start <= $annotstart && $end <= $annotend) {
 		
-		    my $overlapping=0;                        #  Overlapping calculation
-		    $overlapping += abs($end-$annotstart) if ($strand == -1);
-		    $overlapping += abs($start-$annotend) if ($strand == 1);
+	       	  my $overlapping=0;                        #  Overlapping calculation
+		  $overlapping += abs($start-$annotend);
 		    
-		    $overlapping = $overlapping / abs ($end - $start);
+		  $overlapping = $overlapping / abs ($end - $start);
 		    
-		    if ($overlapping > $overlappingcutoff) {
-		       #print "ca merde ds 4\n";
-		       #print "ANNOT $annotstart $annotend $annotstrand\n";
-		       next EMPTYORF;
-	            }
-		}
+		  if ($overlapping > $overlappingcutoff) {
+		     next EMPTYORF;
+	          }
+	      }
 		
-		
-		
-	    }	
+	    
 	
-	    	
-						                                        
-	     
-	}
+	}  # End of traversing each annotation
 	
-	#print "bon ques ce quon ajoute ?\n"; 
-	
-	 #####  If all the annotation has been parsed without founding something 
-	 #####  To unallow annotation of ORF, -> Empty orf annotation
-	 
-	 #print "SIZE OF ANNOT ORF : ", abs ($start-$end), "\n";
-	 
-	 my $GenenameORF = "Orf". abs($start-$end);
-	 
+	 ### Creating an annotation object for storing in the masterfile
+	 my $GenenameORF = "Orf". abs($start-$end);  
 	 my $orfannot = new PirObject::AnnotPair (
 	                        type      => "G",  
               			genename  => $GenenameORF,
-                        	startpos  => $start,
-                        	endpos    => $end,
+                        	startpos  => $emptyorf->start,
+                        	endpos    => $emptyorf->end,
                         	direction => $arrow,
                         	startline => ";     G-$GenenameORF $arrow start ;; MFFEAT=$TAGNAME",
                         	endline   => ";     G-$GenenameORF $arrow end ;; MFFEAT=$TAGNAME",
                     	);
     
-         &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
+	# Put into the table containing all of the masterfile annotations
+	# So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
+        &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
      
      }  #  END OF FOR EACH EMPTY ORFS
 
 
-}
+}  # End function AnnotateEmptyOrfs
 
 sub NextLetter {                        #       A function that gives you the next letter
 
@@ -794,6 +766,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 	HYPPROT : foreach my $hyprot (@$HYPPROTS)
 	{
 		my $name = $hyprot->name;
+		next HYPPROT if (not (defined $name) or ($name eq ""));    #  go the next protein if name is not defined, 
 		my $contigname = $hyprot->contigname;
 		my $start = $hyprot->start;
 		my $end = $hyprot->end;
@@ -1015,7 +988,7 @@ sub BlastFlipVSGene {	# it runs blast with the flip results against file contain
     #print "$resformatdb\n" if $DEBUG;
 
     #RUN FOR BLAST : run blast with the db created and the flip results		
-    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf -i prot.lst -D $GENCODE -o $BLASTOUTPUT";
+    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf -i prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
     #print "$resblast\n" if $DEBUG;
@@ -1069,6 +1042,11 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
           
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
+    # if ((not (defined $strand)) or (not (defined  $start)) or (not (defined $end)) or (not (defined $rdesc))) {
+    # print "starnd $strand\n, 
+    #      start  $start\n
+    #	  emd $end\n
+    #	  rdesc $rdesc\n";}
     #print "ligne 376 $strand, $start, $end \n";
     my $debut = ($start < $end ? $start : $end);
     my $fin = ($start < $end ? $end : $start);
@@ -1104,6 +1082,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $desc         = $hit->description();	#	Get the description of the query sequence
     #print "description $desc\n"; 
         my ($hypprotein) = ($desc =~ /\s*([\w]*)\s*;/); 
+	next HIT if (not (defined $hypprotein) or $hypprotein eq "");
         my $score        = $hit->score();		#	Get the blast score
         my $evalue	 = $hit->significance();	#	Get the e-value
         my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
@@ -1195,7 +1174,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	    push (@$refhsparray, $newhsp);
 	}
     
-				      			      
+	print "Nom de la prot : $hypprotein, nom du contig : $contigname\n";			      			      
         my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
         #	Two case
         if (defined $newflipblastprot) {	#	Wether the prot is already defined
