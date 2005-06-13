@@ -25,9 +25,18 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.19 2005/05/20 21:56:28 thomash Exp $
+#    $Id: mfannot,v 1.20 2005/06/13 21:04:54 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.20  2005/06/13 21:04:54  thomash
+#    - orf size changed : nucleotides => amino acids
+#    - grouping of exons
+#    - add a number for each gene (if the number of copies is more than
+#    - 1)),
+#      to the normal genes and trna genes
+#    - change exons : comments => real annotations
+#    - Exon problems corrected
+#
 #    Revision 1.19  2005/05/20 21:56:28  thomash
 #    Contains, orf modifications.
 #    Now, overlapping is calculated on the both strands
@@ -126,7 +135,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.19 2005/05/20 21:56:28 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.20 2005/06/13 21:04:54 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -181,7 +190,6 @@ my $NEWRCFILE;                                  #  0 or 1 : print if a new rcfil
 my $NORCFILE;                                   #  0 or 1, if a rcfile has been used for loading data
 my $RCFILE;                                     #  The rcfile used for loading options
 my $ORFPROCESS;                                 #  Allows ORF appearing in the masterfile as annotations
-
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -390,12 +398,13 @@ foreach my $contig ( @$contigs) {
 }
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
-      "Number of annotations (or commentaries) detected : $numberannot\n" if $DEBUG;
+      "Number of annotations (or comments) detected : $numberannot\n" if $DEBUG;
 
 print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
               "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
       
-      	      
+&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes, there is
+	            	      
 if ($SIMILARITYSEARCH) {
                                  
   # Run the programm step by, to know the right step            
@@ -439,7 +448,8 @@ if ($USETRNASCANSE) {
 print "----------------------------------\n",
       "       End of the Programm        \n",
       "----------------------------------\n" if $DEBUG;  
-
+  
+      
 my $cntigs = $pirmaster->contigs();
 my $annotations = $cntigs->[0]->annotations();
 
@@ -638,7 +648,7 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
 	 
 	 # Verification
-	 next EMPTYORF if (abs($end - $start) < $minimumlengthorf);  #  Size Verification 
+	 next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
 	  
          ANNOT : foreach my $annotation (@$annotations) {
 	     
@@ -726,7 +736,10 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	}  # End of traversing each annotation
 	
 	 ### Creating an annotation object for storing in the masterfile
-	 my $GenenameORF = "Orf". abs($start-$end);  
+	 my $orfsize = abs($start-$end);
+	 $orfsize = $orfsize / 3;
+	 $orfsize = int ($orfsize);
+	 my $GenenameORF = "orf". $orfsize;  
 	 my $orfannot = new PirObject::AnnotPair (
 	                        type      => "G",  
               			genename  => $GenenameORF,
@@ -756,7 +769,25 @@ sub NextLetter {                        #       A function that gives you the ne
     
 }
 
+sub InitializeANNOTSEEN {   # this function initilaise the hash array
+                            # After the masterfile has been opened
+			    # This one contain how many annotation per genname
+			    
 
+my $pirmaster = shift;
+my $contigs = $pirmaster->get_contigs;
+foreach my $contig (@$contigs) {
+    my $annotations = $contig->get_annotations;
+    foreach my $annotation (@$annotations){
+        if ($annotation->type eq "G") {
+	    $ANNOTSEEN->{$annotation->genename} += 1; 
+	} # end if
+    } # next annotation	
+	
+ } # next contig 
+	    
+
+}
 
 sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from the blast results
 
@@ -776,50 +807,55 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 	
 		#print "----------------------------------\n";
 		#print "Annotation :, $name, $start, $end, $arrow\n";
+		
+		my $numberofthisannot = $ANNOTSEEN->{$name} || 0;               # get the number for each annot  
+		$numberofthisannot += 1;                                        # increase by one, because it's current
+		my $linename = $name;                                           # the name gene in start and endline
+		$linename .= "_$numberofthisannot" if ($numberofthisannot >= 2); # If there is more than one, add this at the end
+		
 		my $protannot = new PirObject::AnnotPair (
 		                type      => "G", 
               			genename  => "$name",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
-                        	startline => ";     G-$name $arrow start ;; MFFEAT=$TAGNAME ;; $tag",
-                        	endline   => ";     G-$name $arrow end ;; MFFEAT=$TAGNAME ;;$tag",
+                        	startline => ";     G-$linename $arrow start ;; MFFEAT=$TAGNAME ;; $tag",
+                        	endline   => ";     G-$linename $arrow end ;; MFFEAT=$TAGNAME ;;$tag",
                     	);
         	my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
-	        next HYPPROT if (!defined ($res) or $res == 0);
+	        
+	        my $exons =  $hyprot->exons;
 		
-		my $exons =  $hyprot->exons;
+		if (!defined ($res) or $res == 0)  # go out of the function if the protein has not been added
+	        {
+		    	$ANNOT_STATS->{'Rediscovered'}->{$protannot->genename}->{'E'} += scalar (@$exons) if (scalar (@$exons) > 0);
+			next HYPPROT;
+		} 
+			
+	       
 		
-				
+		
+		# Annotating exons	
 		my $number = 1;
 		foreach my $exon (@$exons) {
 			
-			#my $exonstart = ($hyprot->strand == 1 ? $exon->start + $start : $start - $exon->start);
-			#my $exonend =   ($hyprot->strand == 1 ? $exon->end + $start : $start - $exon->end );
 			my $exonstart = $exon->start;
 			my $exonend = $exon->end;
 			my $exonstrand = $exon->strand;
-			#print "Exon $number, $exonstart, $exonend, $exonstrand\n";
+		
 			
-			#print "Exons $name $exonstart $exonend $exonstrand\n";
-			
-			my $exonannotstart = new PirObject::AnnotPair (
-			        type      => "C",
-              			genename  => "comment",
+			my $exonannot = new PirObject::AnnotPair (
+			        type      => "E",
+              			genename  => "$name",
                         	startpos  => $exonstart,
+				endpos    => $exonend,
                         	direction => $arrow,
-                        	startline => ";;     possible G-$name-E$number $arrow start ;; MFFEAT=$TAGNAME",
+                        	startline => ";     G-$linename-E$number $arrow start ;; MFFEAT=$TAGNAME",
+				endline   => ";     G-$linename-E$number $arrow end ;; MFFEAT=$TAGNAME",
 			);
-			my $exonannotend = new PirObject::AnnotPair (
-			        type      => "C",
-              			genename  => "comment",
-                        	startpos  => $exonend,
-                        	direction => $arrow,
-                        	startline => ";;     possible G-$name-E$number $arrow end ;; MFFEAT=$TAGNAME",
-			);
+			
 			$number++;	
-			&AddAnnotToPirMaster($pirmaster,$contigname,$exonannotstart);
-			&AddAnnotToPirMaster($pirmaster,$contigname,$exonannotend);		
+			my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);	
 		
 		}
 	
@@ -941,6 +977,94 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 		undef (@$exons);	# 	unreferencing the array
 		$hypprot->set_start ($newstartpos);
 		$hypprot->set_exons ($newexons);
+		
+		# After the real start has been done, delete exon
+		# having an overlapping => take one exon : look if he is overlapping 
+		# the others and group them.
+		if (scalar (@$newexons) >1) {   # only if there are more than one exon
+		    my $newexons2 = [];
+		    foreach my $exon (@$newexons) {  # go through the exons
+		        my $found = 0;
+			foreach my $currentexon (@$newexons2) {  # go through the new exons
+		            
+			    if ($hypprot->strand == 1) {   #First case, if the two exons beginn with -1
+			        # for each strand, 4 case
+				if (($exon->start <= $currentexon->start) &&   ($exon->end >= $currentexon->end)) {
+				    #   __________________  other
+				    #       _________       current 
+				    $currentexon->set_start ($exon->start);                                        
+				    $currentexon->set_end ($exon->end);                                             
+				    $found = 1;
+				}
+				elsif (($exon->start <= $currentexon->start) &&   ($exon->end <= $currentexon->end) && ($exon->end >= $currentexon->start)) {   
+				    #   ____________       other
+				    #       _____________  current    
+			            $currentexon->set_start ($exon->start);                                                                                     
+				    $found = 1;
+				}
+				elsif (($exon->start > $currentexon->start) &&   ($exon->end > $currentexon->end) && ($exon->start <= $currentexon->end)) {   
+			            #         ____________ other
+				    #   _____________      current    
+				    $currentexon->set_end ($exon->end);                                                
+				    $found = 1;
+				}
+				elsif (($exon->start > $currentexon->start) &&   ($exon->end < $currentexon->end)) {
+				    #   __________________  current
+				     #       _________       other      
+				    $found = 1;                                                                    
+				}
+			    }  # end of case if strand == 1
+			    
+			    elsif ($hypprot->strand == -1) {   #First case, if the two exons beginn with -1
+			        # for each strand, 4 case
+				if (($exon->start >= $currentexon->start) &&   ($exon->end <= $currentexon->end)) {
+				    #   __________________  other
+				    #       _________       current 
+				    $currentexon->set_start ($exon->start);                                        
+				    $currentexon->set_end ($exon->end);                                             
+				    $found = 1;
+				}
+				elsif (($exon->start >= $currentexon->start) && ($exon->end >= $currentexon->end) && ($exon->end <= $currentexon->start)) {
+				    #   ____________       other
+				    #       _____________  current     
+			            $currentexon->set_start ($exon->start);                                           
+				    $found = 1;
+				}
+				elsif (($exon->start <= $currentexon->start) &&  ($exon->end <= $currentexon->end) && ($exon->start >= $currentexon->end) ) {
+				    #         ____________ other
+				    #   _____________      current       
+			            $currentexon->set_end ($exon->end);                                             
+				    $found = 1;
+				}
+				elsif (($exon->start <= $currentexon->start) &&   ($exon->end >= $currentexon->end)) {
+				    #   __________________  current   
+				    #       _________       other   
+				    $found = 1;                                                                     
+				}
+			    }  # End of case if strand == -1
+			    
+			}
+			if ($found == 0) { # that means, this exons can not be grouped with no other
+			
+			    push (@$newexons2, $exon);
+			
+			}
+		     }
+		     
+		     #print "Nom de la prot ou on a change les exons : ", $hypprot->name, "\n";
+		     #print "Avant\n";
+		     #foreach my $currentexon (@$newexons) {  # go through the new exons
+		     #         print $currentexon->start, " ", $currentexon->end, " ", $currentexon->strand, "\n";
+		     #	}
+		     #print "Apres\n";
+		     #foreach my $currentexon (@$newexons2) {  # go through the new exons
+		     #         print $currentexon->start, " ", $currentexon->end, " ", $currentexon->strand, "\n";
+		     #	}
+		     	
+		     # At the end, attribut the new exon table,
+		     $hypprot->set_exons ($newexons2);	
+		}
+		
 		
 		
 	}	#	End for each prot
@@ -1098,7 +1222,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         }
 	
 	#------- Calculate a sort of frame to see what's the region covered by this ORF
-	#  Story : You can have some case more than one protein per gen.
+	#  Story : You can have, for some case, more than one protein per gen.
 	#  It's a sort of fusion protein.
 	#  Each of both have a functional part
 	
@@ -1166,7 +1290,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 				      strand => $strand,
 				      score  => $evalue,
 				      hsps   => []);
-        my $refhsparray = $neworf->hsps;	#	An array reference,					      
+        my $refhsparray = $neworf->hsps;	       #	An array reference,					      
         foreach (@hsps) {
     	    my $newhsp = new PirObject::Hsp (start  => $_->start,
 		                             end    => $_->end,
@@ -1174,7 +1298,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	    push (@$refhsparray, $newhsp);
 	}
     
-	print "Nom de la prot : $hypprotein, nom du contig : $contigname\n";			      			      
+		      			      
         my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
         #	Two case
         if (defined $newflipblastprot) {	#	Wether the prot is already defined
@@ -1193,7 +1317,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	return if (! $MULTIORFS);                 #       Exit the function after the first hit if multi ORFS not allowed
     
     }
-    #print scalar(@hsps),"hsp pour $hypprotein\n";
+
 	
         
 }
@@ -1696,6 +1820,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
 		
 		my $fastatmp = "$TMPDIR/fasta.tmp";	#temporary fasta file
 		my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
+		
 		 
 		open (FASTATMP, ">$fastatmp")
 		or die "can't open fasta tmp file\n";	#put into a temporary fasta file	
@@ -1748,20 +1873,35 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			if ($aaSymbol = $CodonTable{$type})				#change the amino acid in one to 3 letter
 			{}
 			else {$aaSymbol=$type;}
-			#if ($aaSymbol) {
-			#		$aaSymbol='?';
-			#}
 			
+			
+			#----- Create annotation -----#
+			chomp ($aaSymbol) if (defined $aaSymbol);
+			my $genename = "trn$aaSymbol";
 										
 			my $annot = new PirObject::AnnotPair (
               			type      => "G", 
-				genename  => "trn$aaSymbol($acodon)",                     # Before : genename  => "tRNA-$type($acodon)",
+				genename  => "$genename",                     # Before : genename  => "tRNA-$type($acodon)",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
-                        	startline => ";     G-trn$aaSymbol($acodon) $arrow start ;; MFFEAT=$tag score=$score",
-                        	endline   => ";     G-trn$aaSymbol($acodon) $arrow end ;; MFFEAT=$tag",
+               
                     	);
+			
+			my $number = $ANNOTSEEN->{$annot->genename} || 0;
+			my $arnname = $genename;
+			
+			$number += 1;
+			if ($number > 1)
+			{ 
+			    $arnname .= "_$number";
+			}
+			
+			$acodon =~ tr/UTCGAutcga/uucgauucga/;
+			$arnname .= "($acodon)";
+			$annot->set_startline (";     $arnname $arrow start ;; MFFEAT=$tag score=$score");
+			$annot->set_endline (";     $arnname $arrow end ;; MFFEAT=$tag");
+		
         		&AddAnnotToPirMaster($pirmaster,$name,$annot);
 
 			
@@ -1788,16 +1928,9 @@ sub AddAnnotToPirMaster {
     my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name\n";
     my $annotations = $contig->get_annotations;
     
-    if ($FIRSTTIME) {             # if it's the first time => fill $ANNOTSEEN
-        foreach my $annotation (@$annotations){
-	   	     if ($annotation->type eq "G") {
-		$ANNOTSEEN->{$annotation->genename} = 'defined'; 
-	    }
-	
-	}
-	$FIRSTTIME = 0;
-     }
+    
      
+    # Here we compare all the annotations, with the one we try to add 
     ANNOTATION : foreach my $annotation (@$annotations){
         my $annotname = $annotation->genename;
 	my $annottype = $annotation->type || "C";
@@ -1812,7 +1945,6 @@ sub AddAnnotToPirMaster {
 	if (($annottype eq "C") && ($annot->type eq "C") && ($annot->startpos == $annotstart) && $annot->startline eq $annotation->startline) {
 	    #Nothing is done in this case,
 	    #print "On est bien dans ce cas\n";
-	    #print "Annot : ",  $annot->startline, " Courante : ", $annotation->startline, " $annotstart ", $annot->startpos, "\n" ;
 	    return 0;
 	}
 	
@@ -1821,12 +1953,22 @@ sub AddAnnotToPirMaster {
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
 	    return 0;
 	}
+	
+	##--Third case : Exons
+	if ($annot->type eq "E") { # it's an exon. The protein has normally already been added
+	    if (defined ($annot->genename)) {
+	        $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++;
+	    }
+	    push (@$annotations, $annot);
+	    return 1;
+	}	
 		
     }
     
     if ($FORCEANNOT) {       #   If Force annot, you can add a new one 
         $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
         push (@$annotations, $annot);
+	$ANNOTSEEN->{$annot->genename} += 1;
 	return 1;
     }
     else {                       #   If force annot does not exist
@@ -1843,7 +1985,7 @@ sub AddAnnotToPirMaster {
 	}
 	else {                                            #  It means, force annot but this annotations doesn't seems to have an other copy    
  	    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
-            $ANNOTSEEN->{$annot->genename} = 'defined';	    
+            $ANNOTSEEN->{$annot->genename} += 1;    
 	    push (@$annotations, $annot);
 	    return 1;
 	}
