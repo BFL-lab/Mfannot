@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.20 2005/06/13 21:04:54 thomash Exp $
+#    $Id: mfannot,v 1.21 2005/06/15 15:59:54 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.21  2005/06/15 15:59:54  thomash
+#    ORF size corrected
+#
 #    Revision 1.20  2005/06/13 21:04:54  thomash
 #    - orf size changed : nucleotides => amino acids
 #    - grouping of exons
@@ -135,7 +138,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.20 2005/06/13 21:04:54 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.21 2005/06/15 15:59:54 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -648,7 +651,12 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
 	 
 	 # Verification
-	 next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
+	 
+	 
+	 #next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
+	 next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
+	 
+	
 	  
          ANNOT : foreach my $annotation (@$annotations) {
 	     
@@ -1899,8 +1907,8 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 			$acodon =~ tr/UTCGAutcga/uucgauucga/;
 			$arnname .= "($acodon)";
-			$annot->set_startline (";     $arnname $arrow start ;; MFFEAT=$tag score=$score");
-			$annot->set_endline (";     $arnname $arrow end ;; MFFEAT=$tag");
+			$annot->set_startline (";     G-$arnname $arrow start ;; MFFEAT=$tag score=$score");
+			$annot->set_endline (";     G-$arnname $arrow end ;; MFFEAT=$tag");
 		
         		&AddAnnotToPirMaster($pirmaster,$name,$annot);
 
