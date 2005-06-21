@@ -25,9 +25,16 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.21 2005/06/15 15:59:54 thomash Exp $
+#    $Id: mfannot,v 1.22 2005/06/21 15:27:54 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.22  2005/06/21 15:27:54  thomash
+#    - Bug fixed on trnas
+#    - Coments put in options
+#    - unallow introns and exons in orfs
+#    - put in option strict masterfile loading
+#    - add a trna cuttof
+#
 #    Revision 1.21  2005/06/15 15:59:54  thomash
 #    ORF size corrected
 #
@@ -138,7 +145,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.21 2005/06/15 15:59:54 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.22 2005/06/21 15:27:54 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -193,6 +200,8 @@ my $NEWRCFILE;                                  #  0 or 1 : print if a new rcfil
 my $NORCFILE;                                   #  0 or 1, if a rcfile has been used for loading data
 my $RCFILE;                                     #  The rcfile used for loading options
 my $ORFPROCESS;                                 #  Allows ORF appearing in the masterfile as annotations
+my $LOADSTRICT;                                 #  Load strict Masterfile
+my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -209,6 +218,7 @@ my $MAXLENGTHFORGROUPINGORF;     		#  Minimum size of a gap between 2 ORf. If 2 
 $BLASTOUTPUT = "blastout2";                     #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
+my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
 
 
 #############################
@@ -293,6 +303,7 @@ my $header = "\n".
 print $header if $DEBUG;
 print LOGFILE $header if $ISLOGFILE;
 
+
 ##--OPTIONS OF THE PROGRAM
 my $options ="----------------------------------\n".
              "        General Options	        \n".
@@ -309,6 +320,7 @@ $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n";
 $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
+$options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
 if ($SIMILARITYSEARCH) {
   if ($TAKEINPUTFILE == 0) {
@@ -374,6 +386,7 @@ if ($SIMILARITYSEARCH) {
   $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
   $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
   $options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
+  $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
   
   print $options if $DEBUG;
   print LOGFILE $options if $ISLOGFILE;
@@ -382,7 +395,7 @@ if ($SIMILARITYSEARCH) {
 my $step=1;
 print "$step) Parsing masterfile...\n" if $DEBUG;
 $step += 1; 
-my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
+my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
 my $contigs = $pirmaster->get_contigs();
 my $numbercontigs = 0;                              # Number of contigs in the masterfile
 my $numberannot = 0;                                # Number of annotations detected in the program
@@ -422,6 +435,17 @@ if ($SIMILARITYSEARCH) {
   print "$step) Parse Information From Blast Results...\n" if $DEBUG;
   $step += 1;
   &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
+  
+  # Just print 
+  foreach (@$FLIPBLASTPROTS){
+      print "Protein name : ", $_->name, "\n";
+      my $orfs = $_->orfs;
+      foreach my $orf (@$orfs) {
+         print "orf start ", $orf->start, " end ", $orf->end, " strand ", $orf->strand, "\n";
+      
+      }
+  
+  }
   
   print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
   $step += 1; 
@@ -508,7 +532,8 @@ sub GetOptions {          # this function is here to manipulate options
     $NORCFILE = $option->norcfile;               #  0 or 1, if a rcfile has been used for loading data
     $RCFILE = $option->rcfile;                   #  The rcfile used for loading options
     $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
-    
+    $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
+    $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
     
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
@@ -521,6 +546,7 @@ sub GetOptions {          # this function is here to manipulate options
     $MAXLENGTHFORGROUPINGORF = $option->intronsize;                        #  Minimum size of a gap between 2 ORf. If 2 same ORF
     $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
     $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
+    $TRNACUTOFF = $option->trnacutoff;                                     #  tRNAs cutoff 
 
     
 }
@@ -634,15 +660,7 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $arrow = ($strand == 1 ? '==>' : '<==');
 	 my $start;
          my $end;
-	 if ($emptyorf->start < $emptyorf->end) {
-	     $start = $emptyorf->start;
-	     $end = $emptyorf->end;
-	 }
-	 else {
-	     $start = $emptyorf->end;
-	     $end = $emptyorf->start;
-	 }
-
+	 
 	 my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
 	 my $minimumlengthorf = $MINLENEMPTYORF;                     #  minimum Orf size, below this size, the ORF is no more kept
 	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
@@ -652,6 +670,24 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 
 	 # Verification
 	 
+	 # Get the new start codon
+	 my $seq = $contig->sequence;						#	Get the sequence
+	 $seq =~ s/!//g;
+	 
+	 my $newstart = &FindNewStart ($seq, $emptyorf->start, $emptyorf->end, $strand);
+         
+	 
+	 $emptyorf->set_start ($newstart);
+
+	 if ($emptyorf->start < $emptyorf->end) {
+	     $start = $emptyorf->start;
+	     $end = $emptyorf->end;
+	 }
+	 else {
+	     $start = $emptyorf->end;
+	     $end = $emptyorf->start;
+	 }
+
 	 
 	 #next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
 	 next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
@@ -747,15 +783,19 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 my $orfsize = abs($start-$end);
 	 $orfsize = $orfsize / 3;
 	 $orfsize = int ($orfsize);
-	 my $GenenameORF = "orf". $orfsize;  
+	 my $GenenameORF = "orf". $orfsize;
+	 my $startline = ";     G-$GenenameORF $arrow start";
+	 $startline = " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;     # add comments if option is activated
+	 my $endline = ";     G-$GenenameORF $arrow end";
+	 $endline = " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # add comments if option is activated
 	 my $orfannot = new PirObject::AnnotPair (
 	                        type      => "G",  
               			genename  => $GenenameORF,
                         	startpos  => $emptyorf->start,
                         	endpos    => $emptyorf->end,
                         	direction => $arrow,
-                        	startline => ";     G-$GenenameORF $arrow start ;; MFFEAT=$TAGNAME",
-                        	endline   => ";     G-$GenenameORF $arrow end ;; MFFEAT=$TAGNAME",
+                        	startline => $startline,
+                        	endline   => $endline,
                     	);
     
 	# Put into the table containing all of the masterfile annotations
@@ -821,14 +861,19 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		my $linename = $name;                                           # the name gene in start and endline
 		$linename .= "_$numberofthisannot" if ($numberofthisannot >= 2); # If there is more than one, add this at the end
 		
+		my $startline = ";     G-$linename $arrow start"; 
+		$startline .=  " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS;   # add comments if option is checked
+		my $endline = ";     G-$linename $arrow end";
+		$endline .= " ;; MFFEAT=$TAGNAME ;;$tag" if $ADDCOMMENTS;       # add comments if option is checked
+		
 		my $protannot = new PirObject::AnnotPair (
 		                type      => "G", 
               			genename  => "$name",
                         	startpos  => $start,
                         	endpos    => $end,
                         	direction => $arrow,
-                        	startline => ";     G-$linename $arrow start ;; MFFEAT=$TAGNAME ;; $tag",
-                        	endline   => ";     G-$linename $arrow end ;; MFFEAT=$TAGNAME ;;$tag",
+                        	startline => $startline,
+                        	endline   => $endline,
                     	);
         	my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
 	        
@@ -841,7 +886,9 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		} 
 			
 	       
-		
+		if ($name =~ /^orf/) {   # if it's an ORF, then it goes to through, because an ORF must not have  
+		    next HYPPROT;
+		}
 		
 		# Annotating exons	
 		my $number = 1;
@@ -851,6 +898,10 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			my $exonend = $exon->end;
 			my $exonstrand = $exon->strand;
 		
+			my $startline = ";     G-$linename-E$number $arrow start";
+			$startline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;           # option checked, add comments
+			my $endline = ";     G-$linename-E$number $arrow end";
+			$endline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;             # option checked, add comments
 			
 			my $exonannot = new PirObject::AnnotPair (
 			        type      => "E",
@@ -858,8 +909,8 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
                         	startpos  => $exonstart,
 				endpos    => $exonend,
                         	direction => $arrow,
-                        	startline => ";     G-$linename-E$number $arrow start ;; MFFEAT=$TAGNAME",
-				endline   => ";     G-$linename-E$number $arrow end ;; MFFEAT=$TAGNAME",
+                        	startline => $startline,
+				endline   => $endline,
 			);
 			
 			$number++;	
@@ -871,6 +922,71 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 	}
 
 
+}
+
+sub FindNewStart {  # This function is assuming to return the new start codon,  
+
+  # arg1, sequence
+  # arg2, start,
+  # arg3, end
+  # arg4, strand
+
+  my $possiblestarts = ['ATG', 'AUG'];
+  my $seq = shift;                                # the sequence where to look
+  my $oldstartpos = shift;                        # Get the old start position
+  my $newstartpos = $oldstartpos;             
+  my $currentpos  = $oldstartpos;
+  my $end = shift;                                # the end of the gene
+  my $strand = shift;                             # the strand of the gene
+  		  
+  my $found = 0;
+  
+  
+  ####	Two cases
+		if ($strand == 1)						#	Right strand
+		{
+			CODON : while (not ($found) and ($currentpos < $end))
+			{
+				my $codon = uc (substr($seq, $currentpos-1, 3));
+				$codon =~ tr/ATUGCatugc/ATTGCATTGC/;
+				#print $hypprot->name, " $codon $currentpos\n";
+				#print "codon 
+				
+				if (ValueIsIn($possiblestarts, $codon) == 1)
+				{
+					$found = 1;
+					$newstartpos = $currentpos;
+					next CODON;
+				}
+				else {
+					$currentpos += 1;
+					next CODON;
+				}
+			}		
+		}
+		else 									#	Complementary strand
+		{
+			CODON : while (not ($found) and ($currentpos-3 > $end))
+			{
+				my $codon = uc (substr($seq, $currentpos-3-1, 3));
+				$codon =~ tr/ATUGCatugc/TAACGTAACG/;
+				$codon = reverse ($codon);				#	Reverse and complementary
+				
+				if (ValueIsIn($possiblestarts, $codon) == 1)
+				{
+					$found = 1;
+					$newstartpos = $currentpos-1;
+					next CODON;
+				}
+				else {
+					$currentpos -= 1;
+					next CODON;
+				}
+			}
+		}
+  
+    return $newstartpos;
+  
 }
 
 sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start and recreating exon if necessary
@@ -896,6 +1012,7 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 			CODON : while (not ($found) and ($currentpos < $hypprot->end))
 			{
 				my $codon = uc (substr($seq, $currentpos-1, 3));
+				$codon =~ tr/ATUGCatugc/ATTGCATTGC/;
 				#print $hypprot->name, " $codon $currentpos\n";
 				
 				if (ValueIsIn($possiblestarts, $codon) == 1)
@@ -915,7 +1032,7 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 			CODON : while (not ($found) and ($currentpos-3 > $hypprot->end))
 			{
 				my $codon = uc (substr($seq, $currentpos-3-1, 3));
-				$codon =~ tr/ATUGCatugc/TAACGtTAACG/;
+				$codon =~ tr/ATUGCatugc/TAACGTAACG/;
 				$codon = reverse ($codon);				#	Reverse and complementary
 				
 				if (ValueIsIn($possiblestarts, $codon) == 1)
@@ -1205,6 +1322,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     ####  Now we have the start, we have the end, the strand
     ####  And we would like to know if more than one hit is allowed
     
+    print "\nNOUVELLE ORF $start $end\n";
     
     my @overlapping;
     
@@ -1256,13 +1374,17 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	$frame -> {"end"} = $frameend;
 	#push (@overlapping, 
 	
-	
+	print "________________________________________________\n";
+	print "HIT : $hypprotein, frame, $framestart, $frameend\n";        
+	print "les autres frames : \n";
 	#----  Regarding for overlapping in hits : if it's rigth, only one hit is allowed
 	
 	my $isoverlapping = 0;                          #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
 	           
 	CURRENTFRAME : foreach my $currentframe (@overlapping) {
 	
+	    print $currentframe->{"start"}, " ", $currentframe->{"end"};
+	    
 	
 	    ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
 	    
@@ -1279,15 +1401,15 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	    #         |---------|                   second frame
 	                            
 				    #       Case were we are on the right strand
-	    $isoverlapping = 1 if (($currentframe->{"start"} <  $frame -> {"start"}) && ($currentframe->{"end"} >  $frame -> {"start"}));
-	    $isoverlapping = 1 if (($frame -> {"start"} <  $currentframe->{"start"}) && ($frame -> {"end"} >  $currentframe->{"start"}));
-	    $isoverlapping = 1 if (($frame -> {"start"} <  $currentframe->{"start"}) && ($currentframe -> {"end"} <  $frame->{"end"})); 
-	    $isoverlapping = 1 if (($currentframe -> {"start"} <  $frame->{"start"}) && ($frame -> {"end"} <  $currentframe->{"end"}));  
+	    $isoverlapping = 1 if (($currentframe->{"start"} <=  $frame -> {"start"}) && ($currentframe->{"end"} >=  $frame -> {"start"}));
+	    $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) && ($frame -> {"end"} >=  $currentframe->{"start"}));
+	    $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) && ($currentframe -> {"end"} <=  $frame->{"end"})); 
+	    $isoverlapping = 1 if (($currentframe -> {"start"} <=  $frame->{"start"}) && ($frame -> {"end"} <=  $currentframe->{"end"}));  
 	    
 	    last CURRENTFRAME if $isoverlapping == 1;   #       Go out of the loop if there is a overlapping frame  
 	}
 	
-	
+	print " $isoverlapping\n";  
 	next HIT if ($isoverlapping == 1);              #       If there is an overlapping, the HIT isn't good for annotation
 	push (@overlapping, $frame) if 	($isoverlapping == 0);
     
@@ -1842,22 +1964,27 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			can't open fasta tmp file\n";
 			
 		}
-		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		print "merde on se le fait\n";
+		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
-		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
+		#my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
                                                                 #-o to write the result in a output file	
+		print "Ok ben c fini\n";
 		my $parser = new PirObject::tRNAscanSEparser;					#Open the parser for tRNAscanSE
 		$parser->loadObjectfromFile("$outputtrnascansetmp");				#Parse the file with the file and fill the object
 		
+		print "On rentre ds le parseur\n";
 		my @annotat = $parser->get_annotations;
 		
-		
+		print "C fini le parseur\n";
 		my $table = $parser->get_annotations; #this is a reference to an array
 		
 		
-		foreach (@$table)	#Correspond to the tRNAscanSE annotation 
+		TRNA : foreach (@$table)	#Correspond to the tRNAscanSE annotation 
 		{								
+			print "et un arnt\n";
 			my $start;
 			my $end;
 			my $arrow = ($_->get_begin > $_->get_end ? "<=="   : "==>");
@@ -1874,6 +2001,10 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			my $type = $_->get_type;
 			my $acodon = $_->get_anti_codon;
 			my $score = $_->get_score;
+			if ($score < $TRNACUTOFF) {         # if hte score value is under the tRNA cutoff
+			                                    # go to the next tRNA
+			    next TRNA;
+			}
 			
 			my %CodonTable = Bio::SeqUtils->valid_aa(2);			#get the amino acide code
 			
@@ -1907,8 +2038,12 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 			$acodon =~ tr/UTCGAutcga/uucgauucga/;
 			$arnname .= "($acodon)";
-			$annot->set_startline (";     G-$arnname $arrow start ;; MFFEAT=$tag score=$score");
-			$annot->set_endline (";     G-$arnname $arrow end ;; MFFEAT=$tag");
+			my $startline = ";     G-$arnname $arrow start";
+			$startline .= " ;; MFFEAT=$tag score=$score" if $ADDCOMMENTS;
+			my $endline = ";     G-$arnname $arrow end";
+			$endline .= " ;; MFFEAT=$tag" if $ADDCOMMENTS;
+			$annot->set_startline ($startline);
+			$annot->set_endline ($endline);
 		
         		&AddAnnotToPirMaster($pirmaster,$name,$annot);
 
@@ -1936,7 +2071,6 @@ sub AddAnnotToPirMaster {
     my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name\n";
     my $annotations = $contig->get_annotations;
     
-    
      
     # Here we compare all the annotations, with the one we try to add 
     ANNOTATION : foreach my $annotation (@$annotations){
@@ -1957,6 +2091,7 @@ sub AddAnnotToPirMaster {
 	}
 	
 	##--Second case : No comment, both have same start end, and genename;
+	#print "ca c le name : $annotname ",  $annot->genename, "\n";
 	if (($annottype ne "C") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
 	    return 0;
@@ -2216,9 +2351,12 @@ sub LogInfo {
     }
     push(@report, $rep) if $cnt;
 
+     
     unshift(@$header,
-        ";; Masterfile modified automatically by $BASENAME version $VERSION",
-        ";;    - New annotations labeled with: MFFEAT=$TAGNAME",
+        ";; Masterfile modified automatically by $BASENAME version $VERSION");
+    unshift (@$header,
+        ";;    - New annotations labeled with: MFFEAT=$TAGNAME") if $ADDCOMMENTS;  # we only put this sentence if option addcomments is activated
+    unshift (@$header,    
         @report,
         ";;",
     );
