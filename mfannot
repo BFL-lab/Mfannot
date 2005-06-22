@@ -25,15 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.22 2005/06/21 15:27:54 thomash Exp $
+#    $Id: mfannot,v 1.23 2005/06/22 18:22:23 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.22  2005/06/21 15:27:54  thomash
-#    - Bug fixed on trnas
-#    - Coments put in options
-#    - unallow introns and exons in orfs
-#    - put in option strict masterfile loading
-#    - add a trna cuttof
+#    Revision 1.23  2005/06/22 18:22:23  thomash
+#    New version.
+#    Essentially bug fixed
+#    - add copy number for empty orf
+#    - correct problem with directory of blast report
 #
 #    Revision 1.21  2005/06/15 15:59:54  thomash
 #    ORF size corrected
@@ -145,7 +144,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.22 2005/06/21 15:27:54 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.23 2005/06/22 18:22:23 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -202,6 +201,7 @@ my $RCFILE;                                     #  The rcfile used for loading o
 my $ORFPROCESS;                                 #  Allows ORF appearing in the masterfile as annotations
 my $LOADSTRICT;                                 #  Load strict Masterfile
 my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
+my $ALLEXONS;                                   #  All exons are displayed in the masterfile
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -215,7 +215,7 @@ my $BLASTOUTPUT                   ;             #  The path for blast file resul
 my $BLASTEVALUECUTOFF;	          		#  Cutoff value for the blast
 my $MINLENGTHORF;				#  This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;     		#  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT = "blastout2";                     #  Blastreport 
+$BLASTOUTPUT = $TMPDIR . "/blastout2";          #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
@@ -534,6 +534,7 @@ sub GetOptions {          # this function is here to manipulate options
     $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
     $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
     $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
+    $ALLEXONS = $option->allexons;               #  diplay all exons in the masterfile
     
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
@@ -668,8 +669,6 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 
 	 my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
 	 
-	 # Verification
-	 
 	 # Get the new start codon
 	 my $seq = $contig->sequence;						#	Get the sequence
 	 $seq =~ s/!//g;
@@ -693,7 +692,8 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
 	 
 	
-	  
+	 my $CHECKORF = 0;
+	 if ( $CHECKORF) {
          ANNOT : foreach my $annotation (@$annotations) {
 	     
 	     ## Verifiaction : 
@@ -778,16 +778,36 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	    
 	
 	}  # End of traversing each annotation
+	}
+	
 	
 	 ### Creating an annotation object for storing in the masterfile
 	 my $orfsize = abs($start-$end);
 	 $orfsize = $orfsize / 3;
 	 $orfsize = int ($orfsize);
 	 my $GenenameORF = "orf". $orfsize;
-	 my $startline = ";     G-$GenenameORF $arrow start";
-	 $startline = " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;     # add comments if option is activated
-	 my $endline = ";     G-$GenenameORF $arrow end";
-	 $endline = " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # add comments if option is activated
+		
+	#-------------------------------------------------------------------------------------
+	#  Treatment to add a number after the genename ______________________________________
+	#-------------------------------------------------------------------------------------	
+	 my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
+	 $numberofannotforthisorf ++;
+	 my $startline = "";
+	 my $endline = "";
+	 if ($numberofannotforthisorf >= 2) {
+	     	$startline = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
+	        $startline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;     # add comments if option is activated
+	        $endline = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
+	        $endline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # add comments if option is activated
+	 }
+	 else {
+	       $startline = ";     G-$GenenameORF $arrow start";
+	       $startline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;     # add comments if option is activated
+	       $endline = ";     G-$GenenameORF $arrow end";
+	       $endline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;
+	 }
+	 # ________________________________________________________________________________
+	   
 	 my $orfannot = new PirObject::AnnotPair (
 	                        type      => "G",  
               			genename  => $GenenameORF,
@@ -800,7 +820,9 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
     
 	# Put into the table containing all of the masterfile annotations
 	# So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
-        &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
+       # print "Il a ajoute cette orf vide : $GenenameORF\n";
+	&AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
+	
      
      }  #  END OF FOR EACH EMPTY ORFS
 
@@ -889,6 +911,10 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		if ($name =~ /^orf/) {   # if it's an ORF, then it goes to through, because an ORF must not have  
 		    next HYPPROT;
 		}
+		
+		if (($ALLEXONS == 0) and (scalar (@$exons) <= 1)) {  # if there is only one exon, and if option is not checked, go to the next prot
+		    next HYPPROT;
+		}     
 		
 		# Annotating exons	
 		my $number = 1;
@@ -1322,8 +1348,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     ####  Now we have the start, we have the end, the strand
     ####  And we would like to know if more than one hit is allowed
     
-    print "\nNOUVELLE ORF $start $end\n";
-    
     my @overlapping;
     
     HIT : foreach my $hit (@hits) {
@@ -1374,16 +1398,16 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	$frame -> {"end"} = $frameend;
 	#push (@overlapping, 
 	
-	print "________________________________________________\n";
-	print "HIT : $hypprotein, frame, $framestart, $frameend\n";        
-	print "les autres frames : \n";
+	#print "________________________________________________\n";
+	#print "HIT : $hypprotein, frame, $framestart, $frameend\n";        
+	#print "les autres frames : \n";
 	#----  Regarding for overlapping in hits : if it's rigth, only one hit is allowed
 	
 	my $isoverlapping = 0;                          #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
 	           
 	CURRENTFRAME : foreach my $currentframe (@overlapping) {
 	
-	    print $currentframe->{"start"}, " ", $currentframe->{"end"};
+	    #print $currentframe->{"start"}, " ", $currentframe->{"end"};
 	    
 	
 	    ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
@@ -1409,7 +1433,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	    last CURRENTFRAME if $isoverlapping == 1;   #       Go out of the loop if there is a overlapping frame  
 	}
 	
-	print " $isoverlapping\n";  
 	next HIT if ($isoverlapping == 1);              #       If there is an overlapping, the HIT isn't good for annotation
 	push (@overlapping, $frame) if 	($isoverlapping == 0);
     
@@ -1484,7 +1507,8 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 			}
 			
 			
-			if (IsSameFrame($starthsps) ==- 1) {
+			if (IsSameFrame($starthsps) ==- 1) { # Create an hypoproteine containing only one orf
+			        
 				#-------------------------------------------#
 				#THE PROTEIN HAS INTRON OR THERE IS A SEQUENCING PROBLEM
 				
@@ -1495,6 +1519,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 									 end        => @$orfs[0]->end,
 									 strand     => @$orfs[0]->strand,
 									 exons      => [],
+									 numorfs    => 1,
 									 remark     => "One Reading Frame but HSP not in the same frame. protein seems to have introns, or sequencing problem"
 									 );
 				
@@ -1515,15 +1540,16 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 				push (@$HYPPROTS, $newhypprot);		#	Don't forgett to put the hyp prot. in the array
 			
 			}
-			else {
+			else {              
 				#-------------------------------------------#
 				#THE PROTEIN HAS NO INTRON IN THE SEQUENCE BECAUSE ALL THE HSP ARE IN THE SAME FRAME
-			
+			        #print "On est ici ", $name,"\n";
 				my $newhypprot = new PirObject::HypProt (name       => $name,
 									 contigname => $contigname,
 									 start      => @$orfs[0]->start,
 									 end        => @$orfs[0]->end,
 									 strand     => @$orfs[0]->strand,
+									 numorfs    => 1,
 									 remark     => "One Reading Frame. Protein seems to have no introns, all hsp are on the same frame"
 									 );
 			
@@ -1579,6 +1605,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 									      end        => $orf->end,
 								              strand     => $orf->strand,
 									      exons      => [],
+									      numorfs    => 1,
 									      remark	 => "" 
 									 );
 					my $exons = $newhypprot->exons;
@@ -1631,6 +1658,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 									      end        => $orf->end,
 								              strand     => $orf->strand,
 									      exons      => [],
+									      numorfs    => 1,
 									      remark     => ""	 
 									 );
 					my $exons = $newhypprot->exons;
@@ -1664,6 +1692,10 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 						$newhypprot->set_start ($newstart);
 						$newhypprot->set_end ($newend);
 						$newhypprot->set_remark("Many ORFs. These proteins seems to have introns or sequencing problems");
+						# increase from 1, the number of orf, if we concatenate
+						my $numorfs = $newhypprot->numorfs;
+						$numorfs ++;
+						$newhypprot->set_numorfs($numorfs);
 					
 						my $exons = $newhypprot->exons;
 						my $hsps = $orf->hsps;
@@ -1707,6 +1739,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 									      end        => $orf->end,
 								              strand     => $orf->strand,
 									      exons      => [],
+									      numorfs    => 1,
 									      remark     => ""	 
 									 );
 						my $exons = $newhypprot->exons;
@@ -1728,6 +1761,8 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 				}	
 				else {			#	Opposite strand
 				
+				       #print "test avec ", $newhypprot->name, "\n";
+				
 					if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
 						my $newstart = ($orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
 						my $newend = ($orf->end < $newhypprot->end ? $orf->end : $newhypprot->end); 
@@ -1735,7 +1770,12 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 						$newhypprot->set_start ($newstart);
 						$newhypprot->set_end ($newend);
 						$newhypprot->set_remark("Many ORFs. These proteins seems to have introns or sequencing problems");
-					
+					        
+						# Add 1 to the number of orf if there is concatenation
+						my $numorfs = $newhypprot->numorfs;
+						$numorfs ++;
+						$newhypprot->set_numorfs($numorfs);
+						
 						my $exons = $newhypprot->exons;
 						my $hsps = $orf->hsps;
 						foreach my $hsp_exon (@$hsps)
@@ -1778,6 +1818,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 									      end        => $orf->end,
 								              strand     => $orf->strand,
 									      exons      => [],
+									      numorfs    => 1,
 									      remark     => ""	 
 									 );
 						my $exons = $newhypprot->exons;
@@ -1829,6 +1870,9 @@ sub IsSameFrame {	#	Check if the positions in the array are on the same frame
 
 	my $tab = shift;	#	It's an array reference
 	
+	if (scalar (@$tab) <= 1) { # if there is one or less, it's on the same frame
+	    return 1;
+	}
 	my $frame = @$tab[0] % 3;
 	foreach (@$tab)
 	{
@@ -1964,27 +2008,24 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			can't open fasta tmp file\n";
 			
 		}
-		print "merde on se le fait\n";
-		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
-		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
+
+		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
-		#my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
+		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
                                                                 #-o to write the result in a output file	
-		print "Ok ben c fini\n";
 		my $parser = new PirObject::tRNAscanSEparser;					#Open the parser for tRNAscanSE
 		$parser->loadObjectfromFile("$outputtrnascansetmp");				#Parse the file with the file and fill the object
 		
-		print "On rentre ds le parseur\n";
 		my @annotat = $parser->get_annotations;
 		
-		print "C fini le parseur\n";
 		my $table = $parser->get_annotations; #this is a reference to an array
 		
 		
 		TRNA : foreach (@$table)	#Correspond to the tRNAscanSE annotation 
 		{								
-			print "et un arnt\n";
+
 			my $start;
 			my $end;
 			my $arrow = ($_->get_begin > $_->get_end ? "<=="   : "==>");
