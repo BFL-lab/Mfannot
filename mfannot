@@ -25,14 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.23 2005/06/22 18:22:23 thomash Exp $
+#    $Id: mfannot,v 1.24 2005/06/29 18:55:39 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.23  2005/06/22 18:22:23  thomash
-#    New version.
-#    Essentially bug fixed
-#    - add copy number for empty orf
-#    - correct problem with directory of blast report
+#    Revision 1.24  2005/06/29 18:55:39  thomash
+#    bugs with trna scan solved
+#    (Contig name)
 #
 #    Revision 1.21  2005/06/15 15:59:54  thomash
 #    ORF size corrected
@@ -144,7 +142,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.23 2005/06/22 18:22:23 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.24 2005/06/29 18:55:39 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -202,6 +200,7 @@ my $ORFPROCESS;                                 #  Allows ORF appearing in the m
 my $LOADSTRICT;                                 #  Load strict Masterfile
 my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
 my $ALLEXONS;                                   #  All exons are displayed in the masterfile
+my $CHECKORFS;                                  #  Say if yes or not have to check for orf, if no all orfs appears in mf                                   
 
 #--Specific for finding the closest organism
 my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
@@ -318,7 +317,7 @@ else {
 $options .= "Masterfile used : $MASTERFILE\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
-$options .= "Tag for annotation : $TAGNAME\n";
+$options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
 $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
@@ -437,15 +436,15 @@ if ($SIMILARITYSEARCH) {
   &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
   
   # Just print 
-  foreach (@$FLIPBLASTPROTS){
-      print "Protein name : ", $_->name, "\n";
-      my $orfs = $_->orfs;
-      foreach my $orf (@$orfs) {
-         print "orf start ", $orf->start, " end ", $orf->end, " strand ", $orf->strand, "\n";
-      
-      }
-  
-  }
+  #foreach (@$FLIPBLASTPROTS){
+  #    print "Protein name : ", $_->name, "\n";
+  #    my $orfs = $_->orfs;
+  #    foreach my $orf (@$orfs) {
+  #       print "orf start ", $orf->start, " end ", $orf->end, " strand ", $orf->strand, "\n";
+  #    
+  #    }
+  #
+  #}
   
   print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
   $step += 1; 
@@ -535,6 +534,10 @@ sub GetOptions {          # this function is here to manipulate options
     $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
     $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
     $ALLEXONS = $option->allexons;               #  diplay all exons in the masterfile
+    my $allorfs = $option->allorfs;              #  All orfs will apear and won't be checked if option is checked
+    $CHECKORFS = 0 if ($allorfs == 1);           #  A little calculation 
+    $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
+    
     
     #--Specific for finding the closest organism
     $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
@@ -691,94 +694,90 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
 	 #next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
 	 next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
 	 
-	
-	 my $CHECKORF = 0;
-	 if ( $CHECKORF) {
-         ANNOT : foreach my $annotation (@$annotations) {
+	 if ( $CHECKORFS) { # if option CHECKORF is activate
+             ANNOT : foreach my $annotation (@$annotations) {
 	     
-	     ## Verifiaction : 
-	     ## -doesn't take the annotation if it's something else than a comment
-	     next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
+	         ## Verifiaction : 
+	         ## -doesn't take the annotation if it's something else than a comment
+	         next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
 	     	     
-	     ## Get information from current annotation
-	     my $annotstart;
-	     my $annotend; 
-	     if ( $annotation->startpos <  $annotation->endpos) {
-	         $annotstart = $annotation->startpos;
-	         $annotend = $annotation->endpos;
-             }
-	     else {
-	         $annotstart = $annotation->endpos;
-	         $annotend = $annotation->startpos;
-	     }
+	         ## Get information from current annotation
+	         my $annotstart;
+	         my $annotend; 
+	         if ( $annotation->startpos <  $annotation->endpos) {
+	             $annotstart = $annotation->startpos;
+	             $annotend = $annotation->endpos;
+                 }
+	         else {
+	             $annotstart = $annotation->endpos;
+	             $annotend = $annotation->startpos;
+	         }
 		 
 	
 	     
-	     # OVERLAPPING CHECK
-	     # overlapping is allowed below a given cutoff 
-	     # this cutoff is inside the variable $OVERLAPPINGCUTOFF
+	         # OVERLAPPING CHECK
+	         # overlapping is allowed below a given cutoff 
+	         # this cutoff is inside the variable $OVERLAPPINGCUTOFF
 	     
-	     #### Case were it seems to work
-             next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
+	         #### Case were it seems to work
+                 next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
 		
-             #### Case were it doesn't work
+                 #### Case were it doesn't work
 		
-	     ######## FOUR CASES
+	         ######## FOUR CASES
 						      
-	     ####  1) ORF is inside the gene and longer than the gene
-	     ####         |___________________|      ORF
-	     ####            |______________|        GENE
-		
+	         ####  1) ORF is inside the gene and longer than the gene
+	         ####         |___________________|      ORF
+	         ####            |______________|        GENE
+	 	
 	
-	     if ($start <= $annotstart && $end >= $annotend) {
-		next EMPTYORF;    
-	     }				       
+	         if ($start <= $annotstart && $end >= $annotend) {
+		    next EMPTYORF;    
+	         }				       
 		
 		
-	     ####  2) ORF is inside the gene and smaller than the gene
-	     ####            |_____________|        ORF
-	     ####         |___________________|     GENE
+	         ####  2) ORF is inside the gene and smaller than the gene => that is ok
+	         ####            |_____________|        ORF
+	         ####         |___________________|     GENE
 		
-	     if ($start >= $annotstart && $end <= $annotend) {
-		next EMPTYORF;    
-	     }
+	         #if ($start >= $annotstart && $end <= $annotend) {
+	         #    next EMPTYORF;    
+	         #}
 		
-	     ####  3) ORF is overlapping the gene
-	     ####                        |___________|        ORF
-	     ####         |____________________|              GENE
+	         ####  3) ORF is overlapping the gene
+	         ####                        |___________|        ORF
+	         ####         |____________________|              GENE
 		
-	     if ($start >= $annotstart && $end >= $annotend) {
+	         if ($start >= $annotstart && $end >= $annotend) {
+		     my $overlapping=0;                           #  Overlapping calculation
+		     $overlapping += abs($annotstart-$end);
+		     $overlapping = $overlapping / abs ($end - $start);
 		    
-		    my $overlapping=0;                           #  Overlapping calculation
-		    $overlapping += abs($annotstart-$end);
-		    $overlapping = $overlapping / abs ($end - $start);
-		    
-		    if ($overlapping > $overlappingcutoff) {
-			next EMPTYORF;
-	            }
-		     
-	      }  
+		     if ($overlapping > $overlappingcutoff) {
+		         next EMPTYORF;
+	             }   
+	          }  
 		
-	      ####  4) ORF is overlapping the gene
-	      ####        |__________|              ORF
-	      ####              |________________|  GENE
+	          ####  4) ORF is overlapping the gene
+	          ####        |__________|              ORF
+	          ####              |________________|  GENE
 		
-	      if ($start <= $annotstart && $end <= $annotend) {
-		
-	       	  my $overlapping=0;                        #  Overlapping calculation
-		  $overlapping += abs($start-$annotend);
+	          if ($start <= $annotstart && $end <= $annotend) {
+	       	      
+		      my $overlapping=0;                        #  Overlapping calculation
+		      $overlapping += abs($start-$annotend);
 		    
-		  $overlapping = $overlapping / abs ($end - $start);
+		      $overlapping = $overlapping / abs ($end - $start);
 		    
-		  if ($overlapping > $overlappingcutoff) {
-		     next EMPTYORF;
+		      if ($overlapping > $overlappingcutoff) {
+		         next EMPTYORF;
+	              }
 	          }
-	      }
 		
 	    
 	
-	}  # End of traversing each annotation
-	}
+        	}  # End of traversing each annotation
+	} # end of if ORFCHECK
 	
 	
 	 ### Creating an annotation object for storing in the masterfile
@@ -1360,10 +1359,16 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $score        = $hit->score();		#	Get the blast score
         my $evalue	 = $hit->significance();	#	Get the e-value
         my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
-    
+        
+	print "$desc\n";
+	print "------------------\n";
 	return if ($evalue > $BLASTEVALUECUTOFF);
-    
-    
+        foreach my $hsp (@hsps) {
+	    my (@hih,@aha) = $hsp->matches('hits');
+	    print "@aha\n";
+	    
+	}
+    print "------------------\n";
         if (scalar(@hsps) == 0) {
             return;				#	An ORF that has a good evalue but no HSP => impossible but ...
         }
@@ -1393,6 +1398,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 	foreach (@hsps) {	
 	    $framestart = $_->start if ($_->start < $framestart);
             $frameend = $_->end if ($_->end > $frameend);
+	    
         }
 	$frame -> {"start"} = $framestart;
 	$frame -> {"end"} = $frameend;
@@ -1983,24 +1989,29 @@ sub AddGeneFeatureUsingtRNAscanSE {
 	
 	$contigs = $pirmaster->get_contigs();		#get the masterfiles contigs
 	
-	my $contig=undef;
+	my $contig=undef;                          # An array containing all the contig name
+	my $countcontig = 1;
+	
 	foreach $contig (@$contigs)			#parse all the contig
 	{
 		my $name=$contig->get_name();		#get the name for the contig
 		my $seq=$contig->get_sequence();	#get the sequence for each contig
+		
 		$seq =~ s/[^atcgATCG]//g;
 		
 		#2nd : run tRNAscanSE with the temporary fasta file
 		
 		my $fastatmp = "$TMPDIR/fasta.tmp";	#temporary fasta file
-		my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
+		#my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
+		my $outputtrnascansetmp = "cetRNAnouvscanSEoutputamacr.tmp";	#tRNAscanSE output temporary file
 		
 		 
 		open (FASTATMP, ">$fastatmp")
-		or die "can't open fasta tmp file\n";	#put into a temporary fasta file	
-		print FASTATMP ">$name\n$seq";		#put the sequence into the temporary file with fasta format
-		close FASTATMP;				#close the temporary file	
+		or die "can't open fasta tmp file\n";	      #put into a temporary fasta file	
+		print FASTATMP ">contig$countcontig\n$seq";   #put the sequence into the temporary file with fasta format
+		close FASTATMP;				      #close the temporary file	
 	
+		
 		#2nd : run tRNAscanSE with the temporary fasta file
 		if (! -r "$fastatmp")
 		{
@@ -2009,8 +2020,8 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 		}
 
-		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
-		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
+		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
 		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
@@ -2090,9 +2101,11 @@ sub AddGeneFeatureUsingtRNAscanSE {
 
 			
 			
-		}
+		} # end of each trna
+	
+	$countcontig ++;    
 		
-	}	
+	} # each contig	
 	
 }
 
@@ -2177,157 +2190,6 @@ sub AddAnnotToPirMaster {
     
 }
 
-sub GetRunTimeParameters {
-    my $pirconfig = shift;
-    my $inputs = PirObject::MfAnnotConfig->InputFiles();
-    my $welcomed = 0;
-    for (my $n=0;$n<@$inputs;$n+=3) {
-        my ($switch,$key,$desc) = @$inputs[$n,$n+1,$n+2];
-        my $path = $pirconfig->GetConfigValue($key);
-        if (defined $path) { # Already set on command-line.
-             next if -f $path && -r _;
-             die "Error: file '$path' supplied with option -$switch doesn't exist or is not readable.\n";
-        }
-        if ($AUTOMATIC) {
-            $pirconfig->StoreConfigValue($key,'none');  # means we do not do this processing.
-            next;
-        }
-        # Alright then, let's ask for the value interactively.
-        if (!$welcomed++) {
-            print "\nHello, welcome to $BASENAME $VERSION !\n\n",
-                  "You will be asked to supply some filenames; these can be either\n",
-                  "absolute paths or relative paths, or the keyword 'none' if you\n",
-                  "do not want to perform a particular analysis. Sometimes you will\n",
-                  "also be provided with a choice of values based on previous answers;\n",
-                  "you can select the value by entering its number in the list.\n\n";
-        }
-        my $history = $pirconfig->$key() || [];
-        print "--------------------------------------------------------------------\n";
-        print "\nData file needed: '$desc'\n",
-              "   (hint: this option can be supplied with '-$switch' on the command-line)\n\n";
-        if (@$history > 1) {
-            print "Choices:\n";
-            for (my $n=1;$n<@$history;$n++) {
-                printf "  %2d- %s\n",$n,$history->[$n];
-            }
-            print "\n";
-        }
-        for (;;) {
-            print "Enter filename: ";
-            my $val = scalar(<STDIN>);
-            die "Error: no input?\n" unless defined $val;  # eof ?!?
-            $val =~ s/^\s*//;
-            $val =~ s/\s*$//;
-            next if $val eq "";
-            if ($val =~ m#^(\d+)$#) {
-                my $number = $1;
-                if (@$history < 2) {
-                     print "Error: there are no numbered choices available right now. Try again.\n";
-                     next;
-                }
-                if ($number < 1 || $number >= @$history) {
-                     print "Error: list number out of range. Try again.\n";
-                     next;
-                }
-                $val = $history->[$number];
-            }
-            if ($val eq 'none') {
-                $pirconfig->StoreConfigValue($key,$val);
-                last;
-            }
-            if (! -f $val || ! -r _ ) {
-                print "Error: file '$val' doesn't exist or is not readable. Check and try again.\n";
-                next;
-            }
-            $pirconfig->StoreConfigValue($key,$val);
-            last;
-        }
-    }
-
-    # Other question start here.
-    if (!$AUTOMATIC && (!$GENCODE || !$TAGNAME) && !$welcomed++) {
-        print "\nHello, welcome to $BASENAME $VERSION !\n\n";
-    }
-
-    if ($AUTOMATIC) {
-         $GENCODE=1 if ! $GENCODE;   # default gencode
-         $TAGNAME=$USER . " " . scalar(localtime(time));          # default tagname
-         return;
-    }
-
-    # Ask for genetic code
-    if (! $GENCODE) {
-        print "--------------------------------------------------------------------\n";
-        print "\nGenetic code to use:\n",
-              "   (hint: this option can be supplied with '-g' on the command-line)\n\n";
-
-        # The following table should actually be constructed by reading NCBI's gc.prt...
-        my %HARDCODED_GENCODES = (
-             1 => "Standard",
-             2 => "Vertebrate Mitochondrial",
-             3 => "Yeast Mitochondrial",
-             4 => "Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate Mitochondrial; Mycoplasma; Spiroplasma",
-             5 => "Invertebrate Mitochondrial",
-             6 => "Ciliate Nuclear; Dasycladacean Nuclear; Hexamita Nuclear",
-             9 => "Echinoderm Mitochondrial; Flatworm Mitochondrial",
-            10 => "Euplotid Nuclear",
-            11 => "Bacterial and Plant Plastid",
-            12 => "Alternative Yeast Nuclear",
-            13 => "Ascidian Mitochondrial",
-            14 => "Alternative Flatworm Mitochondrial",
-            15 => "Blepharisma Macronuclear",
-            16 => "Chlorophycean Mitochondrial",
-            21 => "Trematode Mitochondrial",
-            22 => "Scenedesmus Obliquus Mitochondrial",
-            23 => "Thraustochytrium Mitochondrial",
-            99 => "OGMP: TAG-Leu (previously 16)",
-            98 => "OGMP: TGA-Trp with GTG-initiation (previously 17)",
-            97 => "OGMP: TGA-Trp (previously 18)",
-            96 => "OGMP: Tetrahymena Mitochondrial (previously 19)",
-            95 => "OGMP: Basic Mitochondrial (previously 20)",
-            93 => "OGMP: TTA-stop (previously 22)",
-
-        );
-
-        foreach my $num (sort { $a <=> $b } keys %HARDCODED_GENCODES) {
-            printf "  %2s- %s\n",$num,$HARDCODED_GENCODES{$num};
-        }
-        print "\n";
-
-        for (;;) {
-            print "Enter genetic code number: ";
-            my $val = scalar(<STDIN>);
-            die "Error: no input?\n" unless defined $val;  # eof ?!?
-            $val =~ s/^\s*//;
-            $val =~ s/\s*$//;
-            next if $val eq "";
-            if ($val !~ m#^\d+$# || !defined($HARDCODED_GENCODES{$val})) {
-                print "Please enter a number from the list above.\n";
-                next;
-            }
-            $GENCODE=$val;
-            last;
-        }
-    }
-
-    # Ask for tag name
-    if (! $TAGNAME) {
-        print "--------------------------------------------------------------------\n";
-        print "\nEnter a short identifier or reminder, such as 'ABCD' or 'myrun1';\n",
-              "this identifier will be used on all newly inserted annotations in your masterfile.\n",
-              "   (hint: this option can be supplied with '-t' on the command-line)\n\n";
-        print "Enter identifier or reminder: ";
-        $TAGNAME=scalar(<STDIN>) || "";
-        $TAGNAME =~ s/^\s*//;
-        $TAGNAME =~ s/\s*$//;
-        if ($TAGNAME eq "") {
-            $TAGNAME=$USER . " " . scalar(localtime(time));
-            print "Since you did not supply anything, we'll use '$TAGNAME'.\n";
-        }
-    }
-    # Done with questions.
-}
-
 
 sub LogInfo {
     my $pirmaster = shift;
@@ -2393,11 +2255,11 @@ sub LogInfo {
     push(@report, $rep) if $cnt;
 
      
-    unshift(@$header,
+    push(@$header,
         ";; Masterfile modified automatically by $BASENAME version $VERSION");
-    unshift (@$header,
+    push (@$header,
         ";;    - New annotations labeled with: MFFEAT=$TAGNAME") if $ADDCOMMENTS;  # we only put this sentence if option addcomments is activated
-    unshift (@$header,    
+    push (@$header,    
         @report,
         ";;",
     );
@@ -2415,7 +2277,8 @@ END {              # With exit, programm will go here
     #}
     
     print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
-    system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+    system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;           # r for recursive and f for for force
+    system("/bin/rmdir",$TMPDIR) if -d $TMPDIR;              # delete tmp directory
     
 }
 
