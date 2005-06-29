@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.24 2005/06/29 18:55:39 thomash Exp $
+#    $Id: mfannot,v 1.25 2005/06/29 19:24:37 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.25  2005/06/29 19:24:37  thomash
+#    little bug fixed
+#
 #    Revision 1.24  2005/06/29 18:55:39  thomash
 #    bugs with trna scan solved
 #    (Contig name)
@@ -142,7 +145,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.24 2005/06/29 18:55:39 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.25 2005/06/29 19:24:37 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -434,18 +437,7 @@ if ($SIMILARITYSEARCH) {
   print "$step) Parse Information From Blast Results...\n" if $DEBUG;
   $step += 1;
   &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
-  
-  # Just print 
-  #foreach (@$FLIPBLASTPROTS){
-  #    print "Protein name : ", $_->name, "\n";
-  #    my $orfs = $_->orfs;
-  #    foreach my $orf (@$orfs) {
-  #       print "orf start ", $orf->start, " end ", $orf->end, " strand ", $orf->strand, "\n";
-  #    
-  #    }
-  #
-  #}
-  
+   
   print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
   $step += 1; 
   &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
@@ -1350,25 +1342,23 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @overlapping;
     
     HIT : foreach my $hit (@hits) {
-    # my $hit=$hits[0];
-    #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
+       # my $hit=$hits[0];
+       #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
         my $desc         = $hit->description();	#	Get the description of the query sequence
-    #print "description $desc\n"; 
+
+        print "description $desc\n"; 
         my ($hypprotein) = ($desc =~ /\s*([\w]*)\s*;/); 
 	next HIT if (not (defined $hypprotein) or $hypprotein eq "");
         my $score        = $hit->score();		#	Get the blast score
         my $evalue	 = $hit->significance();	#	Get the e-value
         my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
         
-	print "$desc\n";
-	print "------------------\n";
+	#print "------------------\n";
+	#print "$desc\n";
+	#print "------------------\n";
 	return if ($evalue > $BLASTEVALUECUTOFF);
-        foreach my $hsp (@hsps) {
-	    my (@hih,@aha) = $hsp->matches('hits');
-	    print "@aha\n";
-	    
-	}
-    print "------------------\n";
+        
+    
         if (scalar(@hsps) == 0) {
             return;				#	An ORF that has a good evalue but no HSP => impossible but ...
         }
