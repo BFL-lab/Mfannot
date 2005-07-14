@@ -25,14 +25,17 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.26 2005/07/11 15:23:32 thomash Exp $
+#    $Id: mfannot,v 1.27 2005/07/14 14:15:13 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.26  2005/07/11 15:23:32  thomash
-#    last version of mafannot
-#    Use genewise program to make the alignement
-#    and retrieving exons.
-#    some functions have changed
+#    Revision 1.27  2005/07/14 14:15:13  thomash
+#    Variables in the programme update to fit with the new version
+#    - variable matrix, added for genewise
+#    - parameters for finding closest organism, removed
+#    - other parameters such as exon and intron size updated
+#
+#    An function to create a genetic table from the genetic id code
+#    created, to work with genewise
 #
 #    Revision 1.25  2005/06/29 19:24:37  thomash
 #    little bug fixed
@@ -125,8 +128,9 @@ use vars qw( $VERSION $RCS_VERSION );
 use IO::File;                             
 use PirObject;                                        #  Pir module treatment 
 use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
-use Bio::SeqUtils;                          
-use Bio::Tools::Genewise;
+use Bio::SeqUtils;                                    #  Some biological tools
+use Bio::Tools::Genewise;                             #  A tool to parse genewise (no more used)
+use Bio::Tools::CodonTable;                           #  To create a codon table, to be used with genewise 
 
 #---General Objects
 PirObject->LoadDataModel("Masterfile");               #  Masterfile object
@@ -146,12 +150,11 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 
 
 
-
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.26 2005/07/11 15:23:32 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.27 2005/07/14 14:15:13 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -162,17 +165,11 @@ my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
 # Global variables and constants #
 ##################################
 
-# Command-line args
-
-#--No more used
+# Command-line args (first, original program)
 my $AUTOMATIC=0;
 my $TAGNAME=undef;                              #  Tag : is presnt in masterfile within the annotations made with Mfannot
 my $FORCEANNOT=0;
 my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
-my $BLASTALL_DNA_OPTIONS  = "-e 1.0e-15" .      #  e-value
-                            "";
-my $BLASTALL_PROT_OPTIONS = "-e 1.0e-15" .      #  e-value
-                            "";
 my $ANNOT_STATS = {
     'Added'        => {},                       #  It means, never see it before
     'Rediscovered' => {},                       #  Means exist at the same place (not added into the file)
@@ -183,8 +180,13 @@ my $ANNOTSEEN = {};                             #  An array storing annotations 
 my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)	
 my %GENENAMEOCCURENCE;                          #  An hash array, defined only if the gene has been discovered
 
-	
 
+##--- Command line Program's paths    
+my $BLASTPATH = "";
+my $FORMATDBPATH = "";
+my $FLIPPATH = "";
+my $GENEWISEPATH = "";
+my $TRNASCANPATH = "";
 
 #--General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
@@ -208,15 +210,7 @@ my $RCFILE;                                     #  The rcfile used for loading o
 my $ORFPROCESS;                                 #  Allows ORF appearing in the masterfile as annotations
 my $LOADSTRICT;                                 #  Load strict Masterfile
 my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
-my $ALLEXONS;                                   #  All exons are displayed in the masterfile
 my $CHECKORFS;                                  #  Say if yes or not have to check for orf, if no all orfs appears in mf                                   
-
-#--Specific for finding the closest organism
-my $BLASTOUTFORFINDINGCLOSESTORGANISM;          #  The blast output used to find closest organism 
-my $MINLENGTHORFFORFINDINGCLOSESTORGANISM;      #  Minimum ORF size generated with flip
-my $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM; #  Minimum blast e-value thresold
-$BLASTOUTFORFINDINGCLOSESTORGANISM =  $TMPDIR . "/blastout1";
-
 
 #--Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT                   ;             #  The path for blast file results	
@@ -227,6 +221,9 @@ $BLASTOUTPUT = $TMPDIR . "/blastout2";          #  Blastreport
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
+my $MININTRONSIZE;                              #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
+my $MINEXONSIZE;                                #  Minimum exon size for intron. In genewise.
+my $MATRIX;                                     #  The matrix used in genewise alignement
 
 
 #############################
@@ -376,9 +373,12 @@ if ($SIMILARITYSEARCH) {
   $options = "Options : \n";                  # Options & parameters used for the blast
   $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
   $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+  $options .= "Minimum exon size : $MINEXONSIZE\n";
   $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
+  $options .= "Minimum intron size : $MININTRONSIZE\n";
+  $options .= "Matrix : $MATRIX\n";
   $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
-  $options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
+  $options .= "Overlapping cutoff for non corresponding ORFs: " . $OVERLAPPINGCUTOFF*100 . "%\n";
   $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
   
   print $options if $DEBUG;
@@ -494,6 +494,45 @@ exit 0;
 # Parse command-line options #
 ##############################
 
+sub CreateCodonTableWithGeneticId {  # this function create a file
+                                     # Having a codon table.
+				     # ATT F....
+				     # ATG M...
+                                     # Comment will begin with "!"
+				     
+my $geneid = shift;           # the genetic id for codon usage
+my $codontablefile = shift;   # the name of the file where the codon table will be put
+my $comment = shift;          # Comment in the header of file
+my $codontable   = Bio::Tools::CodonTable->new( -id => $geneid );
+
+open (CODONTABLE, ">$codontablefile") || die "Impossible to open Codon Table file : $codontablefile\n";
+
+print CODONTABLE "! Codon table for genetic code $geneid\n";
+my @letter = qw (A T C G);
+
+my $i = 0;
+my $j = 0;
+my $z = 0;
+
+while ($i < scalar(@letter)) {
+    $j = 0;
+    while ($j < scalar(@letter)) {
+        $z = 0;
+        while ($z < scalar(@letter)) {
+            my $codon = $letter[$i].$letter[$j].$letter[$z];
+	     my $aa = $codontable->translate($codon);
+	    print CODONTABLE "$codon $aa\n";
+	    $z++;
+	}
+        $j++;
+    }
+    $i++;
+}
+
+close (CODONTABLE) || die "Impossible to close Codon Table file : $codontablefile\n";
+
+}  
+
 sub FindExonsInHypProtArray {  # the main is to find exons
                                # by making a local alignement
     my $pirmaster = shift;
@@ -502,9 +541,6 @@ sub FindExonsInHypProtArray {  # the main is to find exons
     HYPPROT : foreach my $hypprot (@$HYPPROTS) {
 	
 		#  GET THE HYP PROTS PARAMETERS
-		#print "******************\n";
-		print "prot number $count\n";
-		#print "******************\n";
 		my $name = $hypprot->name;
 		my $start = $hypprot->start;					#	Get the old start position
 		my $end = $hypprot->end;
@@ -576,10 +612,15 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 		
 		# RUN GENE WISE ON EACH GENE 
 		my $locationgenewise = "/share/unsupported/apps/wise_2.2.0/src/bin/";
+		
+		#---create a codon table---#
+		my $condontablle = $TMPDIR . "/codons". $GENCODE . ".table";
+		&CreateCodonTableWithGeneticId ($GENCODE, $condontablle);
+		
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -gap 80 -ext 400 -matrix identity.bla ";
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
-		my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied ";
+		my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix MATRIX -codon $condontablle ";
 		$genewiseoptions .= " -trev" if $strand == -1;
 		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisereport";
 		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2>> $TMPDIR/genewisereport";  
@@ -647,16 +688,17 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
 
      my $genewiseoutput = shift || return;
      my $strand = shift || return;
-     my $minintronsize = 10;
-     my $minexonsize = 10;
+     my $minintronsize = $MININTRONSIZE;
+     my $minexonsize = $MINEXONSIZE;
      
      my @returnexons;
      my @organisedexons;
      
-     #my $hypprot = shift || return;
      
+     #---Parsing genewise output
      open (GENEWISEOUTPUT, $genewiseoutput) || die "Cn not open $genewiseoutput\n";
      
+     #--Look for lines having Exons 1 823 (exemple)
      while (my $line = <GENEWISEOUTPUT>) {
          if ($line =~ /\s*Exon\s+(\d+)\s+(\d+)/) {
 	     my $findexon = {};
@@ -675,13 +717,6 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
      
      
      #-----SORT THE EXONS---------------
-     
-     #print "----------------------\n";
-     #foreach my $exon (@returnexons) {
-     #    print $exon->{"start"}, "avant", $exon->{"end"}, "\n";
-     #} 
-     #print "----------------------\n";
-     
      @returnexons = sort {
          $a->{"start"} <=> $b->{"start"};
 	 } @returnexons;
@@ -714,11 +749,7 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
      }	 
      push (@organisedexons, $currentexon);
      
-     
-     #foreach my $exon (@organisedexons) {
-     #    print $exon->{"start"}, "apres", $exon->{"end"}, "\n";
-     #}
-     
+     #--return exons (an array that reference many hash array)
      return @organisedexons;
      
 
@@ -756,25 +787,20 @@ sub GetOptions {          # this function is here to manipulate options
     $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
     $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
     $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
-    $ALLEXONS = $option->allexons;               #  diplay all exons in the masterfile
     my $allorfs = $option->allorfs;              #  All orfs will apear and won't be checked if option is checked
     $CHECKORFS = 0 if ($allorfs == 1);           #  A little calculation 
     $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
     
-    
-    #--Specific for finding the closest organism
-    $MINLENGTHORFFORFINDINGCLOSESTORGANISM = $option->flip1;       #  Minimum ORF size generated with flip
-    $BLASTEVALUECUTOFFFORFINDINGCLOSESTORGANISM = $option->blast1; #  Minimum blast e-value thresold
-   
-
     #--Specific for the annotation (parameters for flip, blastall and organization)	
     $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
     $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
-    $MAXLENGTHFORGROUPINGORF = $option->intronsize;                        #  Minimum size of a gap between 2 ORf. If 2 same ORF
+    $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;                     #  Minimum size of a gap between 2 ORf. If 2 same ORF
     $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
     $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
     $TRNACUTOFF = $option->trnacutoff;                                     #  tRNAs cutoff 
-
+    $MININTRONSIZE = $option->minintronsize;                               #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
+    $MINEXONSIZE = $option->minexonsize;                                   #  Minimum exon size for intron. In genewise.
+    $MATRIX = $option->matrix;                                             #  The matrix used in genewise alignement
     
 }
 
@@ -1019,7 +1045,6 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 	HYPPROT : foreach my $hyprot (@$HYPPROTS)
 	{
 		my $name = $hyprot->name;
-		print "Ben y en a une $name\n";
 		next HYPPROT if (not (defined $name) or ($name eq ""));    #  go the next protein if name is not defined, 
 		my $contigname = $hyprot->contigname;
 		my $start = $hyprot->start;
@@ -1065,7 +1090,7 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		    next HYPPROT;
 		}
 		
-		if (($ALLEXONS == 0) and (scalar (@$exons) <= 1)) {  # if there is only one exon, and if option is not checked, go to the next prot
+		if (scalar (@$exons) <= 1) {  # if there is only one exon, and if option is not checked, go to the next prot
 		    next HYPPROT;
 		}     
 		
@@ -1176,7 +1201,7 @@ sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start 
 	HYPPROT : foreach my $hyprot (@$HYPPROTS)
 	{
 		my $name = $hyprot->name;
-		print "Ben avant y en a une $name\n";}
+	}
 
 	#################   The first thing is to look for the new start #########################
 	foreach my $hypprot (@$HYPPROTS) {
@@ -1257,14 +1282,20 @@ sub ValueIsIn {		# check if a value is in an array
 
 }
 
-sub RunFlip { # This function run flip with the mf
-	
-    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip2.output";
+sub RunFlip {          # This function run flip with the masterfile
+                       # Flip is a program generating ORF
+
+    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -c -g $GENCODE $MASTERFILE > $TMPDIR/flip2.output";
+    
+    # -s start codon
+    # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
+    # -l minimum length ORF
+    # -c assume the genome is circular (most of the case for mitochondrial genomes
+    # -g genetic codes
+    
     my $resultat = system ($cmdflip);	
     print "$cmdflip\n" if $DEBUG;
-    # print "$resultat\n" if $DEBUG || defined $resultat;
-    # After that flip will create files in the local directory wich are called prot.lst, and prot.src
-
+    
 } 
 
 
@@ -1510,17 +1541,21 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
    
    open (PEPFILE, "$PEPFILE") or die "Could not open $PEPFILE";
    
+   ### USed before
    #my $in  = Bio::SeqIO->new(-file => "$PEPFILE" , '-format' => 'Fasta');
    
    #SEQUENCE : while ( my $seq = $in->next_seq() ) {
-#	my $seqdesc = $seq->desc;
-#	my $seqseq =  $seq->seq;
-#	if ($description =~ /$seqdesc/) { 
-#	    $protein =  $seqseq;
-#	    last SEQUENCE;
-#	}
+   #	my $seqdesc = $seq->desc;
+   #	my $seqseq =  $seq->seq;
+   #	if ($description =~ /$seqdesc/) { 
+   #	    $protein =  $seqseq;
+   #	    last SEQUENCE;
+   #	}
 	
- #   }
+   #   }
+   #----------------------------------------
+   
+   # Parse the file, containing pep sequences
     my $parsebegin = 0;  
  
     SEQUENCE : while (my $line = <PEPFILE>) { #Treat each line
@@ -1529,7 +1564,6 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
 	next SEQUENCE if ($line =~ /^\s*[;]/);  # don't parse line if it beginns with ; 
 	
 	if ($line =~ /$description/ and $line =~ /^\s*\>/ and $parsebegin == 0) {
-            print "On a trouve $line\n";
 	    $protein .=  $line;
 	    $protein .= "\n";
 	    $parsebegin =1;  
@@ -1564,7 +1598,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 
 	#	This is mainly the algorithm given by Franz
 	FLIPBLASTPROT : foreach my $flipblastprot (@$FLIPBLASTPROTS) {		#	For each fliup blast protein
-	        print "youyou on ets dedans\n";
 		my $name = $flipblastprot->name;
 		my $contigname = $flipblastprot->contigname;
 		
@@ -1660,7 +1693,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 					next ORF;
 				}
 				
-				print "On arrive desfois ici \n";
 				
 				#------------	case	 3-4 : Check space between 2 ORFs, including overlapping
 				if ($orf->strand == 1)	#	Two case : right strand or opposite strand
