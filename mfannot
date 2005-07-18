@@ -25,9 +25,15 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.27 2005/07/14 14:15:13 thomash Exp $
+#    $Id: mfannot,v 1.28 2005/07/18 20:57:43 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.28  2005/07/18 20:57:43  thomash
+#    The new mfannot version that allows to run
+#    on many pepfiles, and many libraries.
+#    Make sur you have the collection (directories)
+#    dataorfcollection and datagenecollection,
+#
 #    Revision 1.27  2005/07/14 14:15:13  thomash
 #    Variables in the programme update to fit with the new version
 #    - variable matrix, added for genewise
@@ -154,7 +160,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.27 2005/07/14 14:15:13 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.28 2005/07/18 20:57:43 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -192,6 +198,7 @@ my $TRNASCANPATH = "";
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
 my $GENCODE=undef;                              #  Genetique code
 my $TMPDIR = "/tmp/mfannot.$$";                 #  Temporary directory
+#my $TMPDIR = "TMPDIR/mfannot.$$";                 #  Temporary directory
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE is not empty (0 or 1)
@@ -211,13 +218,17 @@ my $ORFPROCESS;                                 #  Allows ORF appearing in the m
 my $LOADSTRICT;                                 #  Load strict Masterfile
 my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
 my $CHECKORFS;                                  #  Say if yes or not have to check for orf, if no all orfs appears in mf                                   
+my $PEPLIBRARIES;
+my $INPUTPEPFILES;
+my @PEPFILES;
+
 
 #--Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT                   ;             #  The path for blast file results	
 my $BLASTEVALUECUTOFF;	          		#  Cutoff value for the blast
 my $MINLENGTHORF;				#  This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;     		#  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT = $TMPDIR . "/blastout2";          #  Blastreport 
+$BLASTOUTPUT = "";                              #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
@@ -328,13 +339,16 @@ $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
 if ($SIMILARITYSEARCH) {
-  if ($TAKEINPUTFILE == 0) {
-    $options .= "Look in the peptide library $PEPLIBRARY\n";	     
-  }
-  else {
-    $options .= "Peptide file : $PEPFILE\n";
-  }
-}
+     
+     
+     foreach (@$PEPLIBRARIES) {
+         $options .= "Look in the peptide library $_\n";
+     }
+     foreach (@$INPUTPEPFILES) {
+         $options .= "Peptide file $_\n";
+     }
+     
+    }
 else {
    $options .=  "Any search in gene similarity for annotation\n";
 }
@@ -352,24 +366,38 @@ print $options if $DEBUG;                       #Print the options on the screen
   
 mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
 
-#----------Creation of the pepfile---------------#
-if ($TAKEINPUTFILE == 0 && $SIMILARITYSEARCH) {
-  $PEPFILE = &CreatePepfileWithLibrary ($PEPLIBRARY);       # call the function            
-}
+#----------PEPFILES CREATION---------------#
+  #  1) first, create the list of the pepfiles with the libraries
+my $count = 1;  
+
+PEPLIB : foreach my $library (@$PEPLIBRARIES) {
+    next PEPLIB if (not -d $library);
+    #if ($TAKEINPUTFILE == 0 && $SIMILARITYSEARCH) {
+      
+      my $namefile = "$TMPDIR/library_" . $count;
+      $count++;
+      my $tmppepfile = &CreatePepfileWithLibrary ($library, $namefile);       # call the function 
+      push (@PEPFILES ,$namefile);
+    
+}    
+   #  2) second, push the input pepfiles in the pepfile array
+    foreach (@$INPUTPEPFILES) {
+        push (@PEPFILES, $_);
+    }
+
 #------------------------------------------------#  
   
-if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
-  die "Unable to read $PEPFILE\n";
-}
+
 
 print "----------------------------------\n",
-      "           Annotation             \n",
+      "         Gene Annotation          \n",
       "----------------------------------\n" if $DEBUG;
 print LOGFILE "----------------------------------\n",
-              "           Annotation             \n",
+              "         Gene Annotation          \n",
               "----------------------------------\n" if $ISLOGFILE;
 
 if ($SIMILARITYSEARCH) {
+
   $options = "Options : \n";                  # Options & parameters used for the blast
   $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
   $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
@@ -385,9 +413,8 @@ if ($SIMILARITYSEARCH) {
   print LOGFILE $options if $ISLOGFILE;
 }
 
-my $step=1;
-print "$step) Parsing masterfile...\n" if $DEBUG;
-$step += 1; 
+
+print "Parsing masterfile...\n" if $DEBUG;
 my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
 my $contigs = $pirmaster->get_contigs();
 my $numbercontigs = 0;                              # Number of contigs in the masterfile
@@ -397,13 +424,6 @@ $numbercontigs += scalar (@$contigs);
 foreach my $contig ( @$contigs) {
     my $annotations = $contig-> get_annotations();
     $numberannot += scalar (@$annotations);
-    #foreach my $annot ( @$annotations) {
-    #    print "annot : ";
-    #	print  "name ", $annot->get_genename, " ", if defined($annot->get_genename);
-    #	print  "start ", $annot->get_startpos, " ", if defined($annot->get_startpos);
-    #	print  "end ", $annot->get_endpos, if defined($annot->get_endpos);
-    #    print "\n";
-    #}
 }
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
@@ -413,17 +433,47 @@ print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
               "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
       
 &InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes, there is
-	            	      
+	
+print  @PEPFILES, "\n";           	      
 if ($SIMILARITYSEARCH) {
-                                 
+  
+my $step;
+$count = 1;
+  
+
+       #-------------------START THE PROCESS----------------------#
+  
+PEPFILE :   foreach (@PEPFILES) {          # Each pepfile
+                                           # The input pepfiles
+                                           # + the pepfiles created from the libraries
+
+ 
+  undef $FLIPBLASTPROTS;
+  undef $HYPPROTS;
+  $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
+  $HYPPROTS = [];  
+  $step = 1; 
+  
+  ## Print the name ###
+  $PEPFILE = $_;                           
+  my @tabname = split ("/", $PEPFILE);
+  my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
+  print $tringprint, "\n";
+
+  ## check the existenz ##
+  if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
+       print "Unable to read $PEPFILE\n";
+       next PEPFILE;
+  }                          
+        
   # Run the programm step by, to know the right step            
   print "$step) Run Flip...\n" if $DEBUG;
   $step += 1; 
-  &RunFlip;
+  &RunFlip ($count);
 
   print "$step) Run Blast...\n" if $DEBUG;
   $step += 1;  
-  &BlastFlipVSGene;
+  &BlastFlipVSGene ($count);
 
   print "$step) Parse Information From Blast Results...\n" if $DEBUG;
   $step += 1;
@@ -441,12 +491,13 @@ if ($SIMILARITYSEARCH) {
   
   print "$step) Organise Prot Array...\n" if $DEBUG; 
   $step += 1; 
-  &FindExonsInHypProtArray ($pirmaster);
+  &FindExonsInHypProtArray ($pirmaster, $count);
 
   print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
   $step += 1; 
   &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
+  $count++;
  
   
   if ($ORFPROCESS) {
@@ -454,11 +505,12 @@ if ($SIMILARITYSEARCH) {
       $step += 1; 
       &AnnotateEmptyOrfs ($pirmaster);
   }
+  
+  }
 }
   
 if ($USETRNASCANSE) {
-    print "$step) Annotate with tRNAscanSE...\n" if $DEBUG;
-    $step += 1; 
+    print "\nAnnotate with tRNAscanSE...\n" if $DEBUG;
     &AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");
 }    
     
@@ -536,6 +588,7 @@ close (CODONTABLE) || die "Impossible to close Codon Table file : $codontablefil
 sub FindExonsInHypProtArray {  # the main is to find exons
                                # by making a local alignement
     my $pirmaster = shift;
+    my $flag = shift || "";
     my $count = 1;
     
     HYPPROT : foreach my $hypprot (@$HYPPROTS) {
@@ -575,9 +628,9 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 		} 
 
 		# WRITE PROTEIN AND GENE IN FASTA FILES
-		my $fileprot = "$TMPDIR/protforgenewise$count";
-		my $filegene = "$TMPDIR/geneforgenewise$count";
-		my $genewiseout = "$TMPDIR//genewise$count";
+		my $fileprot = "$TMPDIR/protforgenewise$count"."_"."$flag";
+		my $filegene = "$TMPDIR/geneforgenewise$count"."_"."$flag";
+		my $genewiseout = "$TMPDIR//genewise$count"."_"."$flag";
 		#my $genewiseout = "/home/thomash/resultats_genewise/genewise$count";
 		
 		    # check if it exists
@@ -614,16 +667,17 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 		my $locationgenewise = "/share/unsupported/apps/wise_2.2.0/src/bin/";
 		
 		#---create a codon table---#
-		my $condontablle = $TMPDIR . "/codons". $GENCODE . ".table";
+		my $condontablle = $TMPDIR . "/codons". $GENCODE . "_"."$flag".".table";
 		&CreateCodonTableWithGeneticId ($GENCODE, $condontablle);
 		
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -gap 80 -ext 400 -matrix identity.bla ";
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
 		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
-		my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix MATRIX -codon $condontablle ";
+		my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix $MATRIX -codon $condontablle ";
 		$genewiseoptions .= " -trev" if $strand == -1;
 		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisereport";
 		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2>> $TMPDIR/genewisereport";  
+		
 		my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
 		#print LOGFILE "genewise command : $cmd\n" if $ISLOGFILE and $DEBUG;
 		#print "genewise command : $cmd\n" if $DEBUG;    
@@ -772,9 +826,9 @@ sub GetOptions {          # this function is here to manipulate options
     $LOGFILE = $option->logfile;                 #  log file : store all the information about run
     $SIMILARITYSEARCH = $option->similarity;     #  Usefull for running similaritie gene process for annot.
     $ISLOGFILE= $option->islogfile;              #  Just to know if the $LOGFILE is not empty (0 or 1)
-    $PEPLIBRARY = $option->pepdirectory;         #  Path for peplibrary directory
+    $PEPLIBRARIES = $option->pepdirectory;       #  List of Path for peplibrary directory
     $MASTERFILE = $option->masterfile;           #  Path for Masterfile
-    $PEPFILE = $option->inputfile;               #  Path for the peptide file used
+    $INPUTPEPFILES = $option->inputfile;         #  Path for the peptide file used
     $OUTPUTFILE = $option->outputfile;           #  Path for the new
     $USETRNASCANSE = $option->tRNAscanSE;        #  T or F : use of tRNAscanSE in the annotation 
     $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
@@ -790,7 +844,8 @@ sub GetOptions {          # this function is here to manipulate options
     my $allorfs = $option->allorfs;              #  All orfs will apear and won't be checked if option is checked
     $CHECKORFS = 0 if ($allorfs == 1);           #  A little calculation 
     $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
-    
+
+        
     #--Specific for the annotation (parameters for flip, blastall and organization)	
     $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
     $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
@@ -807,12 +862,12 @@ sub GetOptions {          # this function is here to manipulate options
 sub CreatePepfileWithLibrary {
 
     my $library = shift;       #the name of the library
-    my $pepfile = "pepfile";
+    my $pepfile = shift;
     
     opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
     my @files = grep {/\.pep$/ && -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
-    print "List of files used :\n@files\n" if $DEBUG;                # Print the list of the files
-    print LOGFILE "List of files used :\n@files\n" if $ISLOGFILE;    #  ||   ||             in the logfile
+    # print "List of files used :\n@files\n" if $DEBUG;               # Print the list of the files
+    # print LOGFILE "List of files used :\n@files\n" if $ISLOGFILE;   #  ||   ||             in the logfile
     close (DIR);
     
     # delete an hyp. previous same. file
@@ -1285,15 +1340,24 @@ sub ValueIsIn {		# check if a value is in an array
 sub RunFlip {          # This function run flip with the masterfile
                        # Flip is a program generating ORF
 
-    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -c -g $GENCODE $MASTERFILE > $TMPDIR/flip2.output";
+    my $flag = shift || "";    # something to recognize, what is the pepfile treated
     
+    #my $thisdirectory = `pwd`;
+    #chomp $thisdirectory;
+    #`cd` || die "impossible to go in $TMPDIR in fonction RunFlip\n"; 
+    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip_$flag.output";
+    
+    #--------This solution has to be changed----------
+    print "BEN CA C FAIT\n";
+    `mv prot.lst $TMPDIR/prot_$flag.lst`;
+    `mv prot.src $TMPDIR/prot_$flag.src`;
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
     # -l minimum length ORF
-    # -c assume the genome is circular (most of the case for mitochondrial genomes
     # -g genetic codes
     
-    my $resultat = system ($cmdflip);	
+    my $resultat = system ($cmdflip);
+    #`cd $thisdirectory`;
     print "$cmdflip\n" if $DEBUG;
     
 } 
@@ -1303,16 +1367,18 @@ sub RunFlip {          # This function run flip with the masterfile
 sub BlastFlipVSGene {	# it runs blast with the flip results against file containing genes 
 
 
+    my $flag = shift || "";    # something to recognize, what is the pepfile treated
+    $BLASTOUTPUT = $TMPDIR . "/blatstoutput_$flag";
     my $file = $PEPFILE;                                # undef should never happen in fact.
     my $escaped_file = $file;
     $escaped_file =~ s#'#'\\'#g;         
-    my $command = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf -l fdb.log";
+    my $command = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
     print "$command\n" if $DEBUG;
     my $resformatdb = system($command);
     #print "$resformatdb\n" if $DEBUG;
 
     #RUN FOR BLAST : run blast with the db created and the flip results		
-    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf -i prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr.txt";
+    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot_$flag.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
     #print "$resblast\n" if $DEBUG;
@@ -1886,7 +1952,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
 		
 		my $fastatmp = "$TMPDIR/fasta.tmp";	#temporary fasta file
 		#my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
-		my $outputtrnascansetmp = "cetRNAnouvscanSEoutputamacr.tmp";	#tRNAscanSE output temporary file
+		my $outputtrnascansetmp = "$TMPDIR/tRNAnouvscanSEoutputamacr.tmp";	#tRNAscanSE output temporary file
 		
 		 
 		open (FASTATMP, ">$fastatmp")
@@ -1903,8 +1969,8 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 		}
 
-		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
-		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
+		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
 		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
