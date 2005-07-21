@@ -25,9 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.28 2005/07/18 20:57:43 thomash Exp $
+#    $Id: mfannot,v 1.29 2005/07/21 21:07:58 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.29  2005/07/21 21:07:58  thomash
+#    bug fixed about loading many libraries
+#     - memory problems fixed
+#     - some options changed
+#
 #    Revision 1.28  2005/07/18 20:57:43  thomash
 #    The new mfannot version that allows to run
 #    on many pepfiles, and many libraries.
@@ -151,7 +156,6 @@ PirObject->LoadDataModel("HypProt");                  #  Hypothetical protein : 
                                                       #  Organization of the results     
 PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypothetical proteins
 PirObject->LoadDataModel("Option");                   #  A module for options gestion
-
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
 
@@ -160,7 +164,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.28 2005/07/18 20:57:43 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.29 2005/07/21 21:07:58 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -180,7 +184,7 @@ my $ANNOT_STATS = {
     'Added'        => {},                       #  It means, never see it before
     'Rediscovered' => {},                       #  Means exist at the same place (not added into the file)
 };
-my $EMPTYORFS = [];                             #  An array containing, EmptyOrf object. It means ORFs having
+my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
 my $ANNOTSEEN = {};                             #  An array storing annotations that have been seen before
 my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)	
@@ -203,11 +207,11 @@ my $LOGFILE;                                    #  log file : store all the info
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE is not empty (0 or 1)
 my $PEPLIBRARY;                                 #  Path for peplibrary directory
-my $MASTERFILE;                                 #  Path for Masterfile
+my $MASTERFILE = undef;                         #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
-my $TAKEINPUTFILE;
-my $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
-my $HYPPROTS = [];                              #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
+my $TAKEINPUTFILE;                              
+my $FLIPBLASTPROTS;                             #  Array containing the Proteins predicted by Blast and Flip
+my $HYPPROTS;                                   #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $OUTPUTFILE;                                 #  Path for the new
 my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in the annotation 
 my $MULTIORFS;                                  #  0 or 1 allows many gene annotations for 1 ORF 
@@ -218,9 +222,9 @@ my $ORFPROCESS;                                 #  Allows ORF appearing in the m
 my $LOADSTRICT;                                 #  Load strict Masterfile
 my $ADDCOMMENTS;                                #  Add comments into masterfile (0 or 1) as mfeat=.....
 my $CHECKORFS;                                  #  Say if yes or not have to check for orf, if no all orfs appears in mf                                   
-my $PEPLIBRARIES;
-my $INPUTPEPFILES;
-my @PEPFILES;
+my $PEPLIBRARIES;                               #  The libraries, in input, by default datagenescollection and dataorfcollection
+my $INPUTPEPFILES;                              #  the input files
+my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
 
 
 #--Specific for the annotation (parameters for flip, blastall and organization)
@@ -299,16 +303,14 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
-#####################################################
-# Command-Line Arguments Processing and verification#
-#####################################################
 
-##------------------------------------------------##
-&GetOptions ;
+&GetOptions ;     # get the different options and put them into global variables
+
 
 open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
 
 
+#----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
@@ -320,7 +322,8 @@ print $header if $DEBUG;
 print LOGFILE $header if $ISLOGFILE;
 
 
-##--OPTIONS OF THE PROGRAM
+
+##---------------OPTIONS OF THE PROGRAM------------------------------------------------
 my $options ="----------------------------------\n".
              "        General Options	        \n".
              "----------------------------------\n";
@@ -363,10 +366,19 @@ else {
 print LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
 print $options if $DEBUG;                       #Print the options on the screen 
 
-  
+
+
+##---------------CREATE THE TMPDIR---------------------------------------  
 mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
 
-#----------PEPFILES CREATION---------------#
+
+
+
+#-----------------PEPFILES CREATION--------------------------------------
+          #  Fill the variable @PEPFILES
+          #  A list of pepfiles, and run mfannot for each of them
+
+
   #  1) first, create the list of the pepfiles with the libraries
 my $count = 1;  
 
@@ -385,10 +397,12 @@ PEPLIB : foreach my $library (@$PEPLIBRARIES) {
         push (@PEPFILES, $_);
     }
 
-#------------------------------------------------#  
+
   
 
+#-----------ANNOTATION -------------------------------------------
 
+   # - print option of the annotation
 print "----------------------------------\n",
       "         Gene Annotation          \n",
       "----------------------------------\n" if $DEBUG;
@@ -410,10 +424,13 @@ if ($SIMILARITYSEARCH) {
   $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
   
   print $options if $DEBUG;
+  
   print LOGFILE $options if $ISLOGFILE;
 }
 
-
+  # - create a masterfile object
+  #      - load the annotations
+  #      - load the sequence of each contig 
 print "Parsing masterfile...\n" if $DEBUG;
 my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
 my $contigs = $pirmaster->get_contigs();
@@ -432,140 +449,236 @@ print "Number of contigs in Masterfile : $numbercontigs\n",
 print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
               "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
       
-&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes, there is
-	
-print  @PEPFILES, "\n";           	      
+&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes, there is	
+
+
+
+          #-------------------START THE PROCESS----------------------#
+	  
 if ($SIMILARITYSEARCH) {
   
-my $step;
-$count = 1;
+    my $step;
+    $count = 1;
   
-
-       #-------------------START THE PROCESS----------------------#
   
-PEPFILE :   foreach (@PEPFILES) {          # Each pepfile
+    PEPFILE :   foreach (@PEPFILES) {          # Each pepfile
                                            # The input pepfiles
                                            # + the pepfiles created from the libraries
 
- 
-  undef $FLIPBLASTPROTS;
-  undef $HYPPROTS;
-  $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
-  $HYPPROTS = [];  
-  $step = 1; 
   
-  ## Print the name ###
-  $PEPFILE = $_;                           
-  my @tabname = split ("/", $PEPFILE);
-  my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
-  print $tringprint, "\n";
+        # Create a reference for the different general arrays
+        $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
+        $HYPPROTS = [];                              #  Array for the hypothetical proteins  
+        $EMPTYORFS = [];                             #  Array containing the emptys ORF
+        $step = 1; 
+  
+  
+        ## Print the name of each pepfile###
+	##  if it's a library, name begin with libarary....
+        $PEPFILE = $_;                           
+        my @tabname = split ("/", $PEPFILE);
+        my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
+        print $tringprint, "\n";
 
-  ## check the existenz ##
-  if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
-       print "Unable to read $PEPFILE\n";
-       next PEPFILE;
-  }                          
+        ## check the existenz ##
+        if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
+            print "Unable to read $PEPFILE\n";
+            next PEPFILE;
+        }                          
         
-  # Run the programm step by, to know the right step            
-  print "$step) Run Flip...\n" if $DEBUG;
-  $step += 1; 
-  &RunFlip ($count);
+            # --------   HEART --------#
+  
+        # Run the programm step by, to know the right step  
+            
+        # Flip running, generate ORFS
+        print "$step) Run Flip...\n" if $DEBUG;
+        $step += 1; 
+        &RunFlip ($count);
 
-  print "$step) Run Blast...\n" if $DEBUG;
-  $step += 1;  
-  &BlastFlipVSGene ($count);
+        # Blast the flip result with the blast
+        print "$step) Run Blast...\n" if $DEBUG;
+        $step += 1;  
+        &BlastFlipVSGene ($count);
 
-  print "$step) Parse Information From Blast Results...\n" if $DEBUG;
-  $step += 1;
-  &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
-  
-  
-   
-  print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
-  $step += 1; 
-  &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
+        # Parse the blast result, create a flipblastprot object
+        print "$step) Parse Information From Blast Results...\n" if $DEBUG;
+        $step += 1;
+        &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
+     
+        # Create Hypothetical proteins  
+        print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
+        $step += 1; 
+        &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
-  print "$step) Organise Prot Array...\n" if $DEBUG; 
-  $step += 1; 
-  &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
+        # Organise the hypothetical proteins (find the real start)
+        print "$step) Organise Prot Array...\n" if $DEBUG; 
+        $step += 1; 
+        &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
   
-  print "$step) Organise Prot Array...\n" if $DEBUG; 
-  $step += 1; 
-  &FindExonsInHypProtArray ($pirmaster, $count);
+        # Make the alignement and give the exons
+        print "$step) Find Exons...\n" if $DEBUG; 
+        $step += 1; 
+        &FindExonsInHypProtArray ($pirmaster, $count);
 
-  print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
-  $step += 1; 
-  &AnnotateMfFromHYPPROTSArray ($pirmaster);
+        # Annotate -> change hypothetical proteins into an object annotation
+        print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
+        $step += 1; 
+        &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
-  $count++;
- 
+        # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
+        if ($ORFPROCESS) {
+            print "$step) Process Empty ORFs...\n" if $DEBUG; 
+            $step += 1; 
+            &AnnotateEmptyOrfs ($pirmaster);
+        }
   
-  if ($ORFPROCESS) {
-      print "$step) Process Empty ORFs...\n" if $DEBUG; 
-      $step += 1; 
-      &AnnotateEmptyOrfs ($pirmaster);
-  }
   
-  }
+        $count++;  # next pepfile
+
+    }  #  End of each pepfile
+
 }
   
-if ($USETRNASCANSE) {
-    print "\nAnnotate with tRNAscanSE...\n" if $DEBUG;
-    &AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");
+if ($USETRNASCANSE) {                                                # find the trna genes
+    print "\nAnnotate with tRNAscanSE...\n" if $DEBUG;               # by running trnascanSE
+    &AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");       # limited with a score for each case
 }    
+
+
+
+
+#-------------PROGRAMM ENDING---------------
+
     
 print "----------------------------------\n",
       "       End of the Programm        \n",
       "----------------------------------\n" if $DEBUG;  
   
-      
+#  unreferencing 
+undef $FLIPBLASTPROTS;
+undef $HYPPROTS;
+undef $EMPTYORFS;
+
+# Add annotations in the masterfile            
 my $cntigs = $pirmaster->contigs();
 my $annotations = $cntigs->[0]->annotations();
 
-     
-
+# Add informations in the masterfile     
 &LogInfo ($pirmaster);
 print "Dumping new masterfile in $OUTPUTFILE...\n" if  $DEBUG;
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-#print "Generating card\n";
-#&CreateCard ($OUTPUTFILE, "./masterfilecard.png"); 
-
 
 if ($ISLOGFILE == 1) {
-        print "close Logfile : $LOGFILE\n" if $DEBUG;
-	close LOGFILE || print "Logfile not closed\n";
+    print "close Logfile : $LOGFILE\n" if $DEBUG;
+    close LOGFILE || print "Logfile not closed\n";
 }
 exit 0;
+
 
 #############################
 #   S U B R O U T I N E S   #
 #############################
 
-##############################
-# Parse command-line options #
-##############################
+
+sub GetOptions {          # this function is here to manipulate options
+
+    my $option = new PirObject::Option ();   #  buil a new option model
+    $option->FillOption ();                  #  This one buil with the default option and look for a rc file
+    
+    ### Now The object contains all the options
+    
+    
+    #--General options
+    $DEBUG = $option->debug;                     #  Debug mode. If true, display message on the screen
+    $GENCODE = $option->genetic;                 #  Genetique code
+    $LOGFILE = $option->logfile;                 #  log file : store all the information about run
+    $SIMILARITYSEARCH = $option->similarity;     #  Usefull for running similaritie gene process for annot.
+    $ISLOGFILE= $option->islogfile;              #  Just to know if the $LOGFILE is not empty (0 or 1)
+    $PEPLIBRARIES = $option->pepdirectory;       #  List of Path for peplibrary directory
+    $MASTERFILE = $option->masterfile;           #  Path for Masterfile
+    $INPUTPEPFILES = $option->inputfile;         #  Path for the peptide file used
+    $OUTPUTFILE = $option->outputfile;           #  Path for the new
+    $USETRNASCANSE = $option->tRNAscanSE;        #  T or F : use of tRNAscanSE in the annotation 
+    $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
+    $TAGNAME = $option->tagname;                 #  Adds a tag  
+    $FORCEANNOT = $option->force;                #  Force the annotation when 2 annotations have the same name
+    $MULTIORFS = $option->multiorfs;             #  Permit 2 annotations for an ORF
+    $NEWRCFILE = $option->newrcfile;             #  Just used to be printed. Indiquates that a new rcfile will be created
+    $NORCFILE = $option->norcfile;               #  0 or 1, if a rcfile has been used for loading data
+    $RCFILE = $option->rcfile;                   #  The rcfile used for loading options
+    $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
+    $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
+    $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
+    my $allorfs = $option->allorfs;              #  All orfs will apear and won't be checked if option is checked
+    $CHECKORFS = 0 if ($allorfs == 1);           #  A little calculation 
+    $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
+
+        
+    #--Specific for the annotation (parameters for flip, blastall and organization)	
+    $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
+    $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
+    $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;                     #  Minimum size of a gap between 2 ORf. If 2 same ORF
+    $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
+    $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
+    $TRNACUTOFF = $option->trnacutoff;                                     #  tRNAs cutoff 
+    $MININTRONSIZE = $option->minintronsize;                               #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
+    $MINEXONSIZE = $option->minexonsize;                                   #  Minimum exon size for intron. In genewise.
+    $MATRIX = $option->matrix;                                             #  The matrix used in genewise alignement
+    
+}
+
+sub CreatePepfileWithLibrary {
+
+    my $library = shift;         # the name of the library
+    my $pepfile = shift;         # the name of the file wanted.
+                                 # This one contains after the all peptides from the library
+    
+    opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
+    my @files = grep {/\.pep$/ && -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
+    close (DIR);                                                      # Close the directory
+    
+    # delete an hyp. previous same. file
+    if (-f $pepfile) {
+        system ("rm -f $pepfile");
+    }
+    
+    #concatenate all the file from the library
+    foreach (@files) {
+        system ("cat $library/$_ >> $pepfile");                       # Use the cat command to concatenate file in one 
+    }
+    
+    return $pepfile;
+    exit 0;
+}
+
+
 
 sub CreateCodonTableWithGeneticId {  # this function create a file
                                      # Having a codon table.
-				     # ATT F....
-				     # ATG M...
+                                     # ATT F....
+                                     # ATG M...
                                      # Comment will begin with "!"
-				     
+   
+   # declaration 
+   ###############
 my $geneid = shift;           # the genetic id for codon usage
 my $codontablefile = shift;   # the name of the file where the codon table will be put
 my $comment = shift;          # Comment in the header of file
 my $codontable   = Bio::Tools::CodonTable->new( -id => $geneid );
+   ###############
 
-open (CODONTABLE, ">$codontablefile") || die "Impossible to open Codon Table file : $codontablefile\n";
+open (CODONTABLE, ">$codontablefile") || die "Impossible to open Codon Table file : $codontablefile\n";   # open the future file containing the codon table
+print CODONTABLE "! Codon table for genetic code $geneid\n";                                              # print a short header for description 
 
-print CODONTABLE "! Codon table for genetic code $geneid\n";
+   # Process declaration
+   #####################
 my @letter = qw (A T C G);
-
 my $i = 0;
 my $j = 0;
 my $z = 0;
-
+   ######################
+   
 while ($i < scalar(@letter)) {
     $j = 0;
     while ($j < scalar(@letter)) {
@@ -587,158 +700,139 @@ close (CODONTABLE) || die "Impossible to close Codon Table file : $codontablefil
 
 sub FindExonsInHypProtArray {  # the main is to find exons
                                # by making a local alignement
-    my $pirmaster = shift;
-    my $flag = shift || "";
-    my $count = 1;
+
+
     
-    HYPPROT : foreach my $hypprot (@$HYPPROTS) {
-	
-		#  GET THE HYP PROTS PARAMETERS
-		my $name = $hypprot->name;
-		my $start = $hypprot->start;					#	Get the old start position
-		my $end = $hypprot->end;
-		my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);	#	Get the contig
-		my $seq = $contig->sequence;	                                 #	Get sequence
-		$seq =~ s/\!//g;
-		my $strand = $hypprot->strand;
-		
-		#print "start $start end $end\n";
-		
-		# GET PROTEIN AND GENE
-		my $genseq;
-		$genseq = substr ($seq ,$start-1, $end - $start + 1) if $strand ==1;
-		$genseq = substr ($seq, $end-1, $start - $end + 1) if $strand == -1;
-		$genseq = ">$count\n" . $genseq;
-		my $protein = $hypprot->protein;
+    ########################
+    my $pirmaster = shift;      # the masterfile object
+    my $flag = shift || "";     # a flag, assigned to each pepfile
+    my $count = 1;              
+    ########################
+    
+    HYPPROT : foreach my $hypprot (@$HYPPROTS) {        
 
-	        #print "LE nom de l'hypprot : ", $hypprot->name, "\n";
-		#print "---------------\n";
-		#print "gene sequnece : \n$genseq\n";
-		#print "proteine : \n", $hypprot->protein, "\n"; 
-		
-		
-		if (($genseq eq "") or (!defined $genseq)) {
-		    $count++;
-		    next HYPPROT;
-		}   
-		
-		if (($protein eq "") or (!defined $protein)) {
-		    $count++;
-		    next HYPPROT;
-		} 
+        # HYPOTHETICAL PROTEIN FEATURE
+        my $name = $hypprot->name;
+        my $start = $hypprot->start;                                          
+        my $end = $hypprot->end;
+        my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);	
+        my $seq = $contig->sequence;
+        $seq =~ s/\!//g;
+        my $strand = $hypprot->strand;
 
-		# WRITE PROTEIN AND GENE IN FASTA FILES
-		my $fileprot = "$TMPDIR/protforgenewise$count"."_"."$flag";
-		my $filegene = "$TMPDIR/geneforgenewise$count"."_"."$flag";
-		my $genewiseout = "$TMPDIR//genewise$count"."_"."$flag";
-		#my $genewiseout = "/home/thomash/resultats_genewise/genewise$count";
-		
-		    # check if it exists
-		if (-f $fileprot) { # this file already exists
-		    system "rm $fileprot" || die "Impossible to delete $fileprot\n";
-		}
-		
-		if (-f $filegene) { # this file already exists
-		    system "rm $filegene" || die "Impossible to delete $filegene\n";
-		}
-		
-		if (-f $genewiseout) { # this file already exists
-		    system "rm $genewiseout" || die "Impossible to delete $genewiseout\n";
-		}
-		
-		    #  open all the prot files and so on
-		open (FILEPROT, ">$fileprot") || die "Impossible to open $fileprot\n";
-		open (FILEGENE, ">$filegene") || die "Impossible to open $filegene\n";
-		
-		   # write into the files
-		print FILEPROT $protein, "\n" || die "Impossible to paste protein into $fileprot\n";
-		#print FILEGENE ">$count\n" || die "Impossible to paste gene sequence into $filegene\n";
-		print FILEGENE $genseq, "\n" || die "Impossible to paste gene sequence into $filegene\n";
-		
-		#print  $protein, "\n";
-		#print  $genseq, "\n";
-		   # Close the files 
-		close (FILEPROT) || die "Impossible to close $fileprot\n";
-		close (FILEGENE) || die "Impossible to close $filegene\n";
-		
+
+        # PROTEIN AND GENE SEQUENCE
+        my $genseq;
+        $genseq = substr ($seq ,$start-1, $end - $start + 1) if $strand ==1;
+        $genseq = substr ($seq, $end-1, $start - $end + 1) if $strand == -1;
+        $genseq = ">$count\n" . $genseq;
+        my $protein = $hypprot->protein;
+
+
+        # CHECKING
+        if (($genseq eq "") or (!defined $genseq)) {
+            $count++;
+            next HYPPROT;
+        }   
+
+        if (($protein eq "") or (!defined $protein)) {
+            $count++;
+            next HYPPROT;
+        } 
+
+        # WRITE PROTEIN AND GENE IN FASTA FILES
+        my $fileprot = "$TMPDIR/protforgenewise$count"."_"."$flag";
+        my $filegene = "$TMPDIR/geneforgenewise$count"."_"."$flag";
+        my $genewiseout = "$TMPDIR//genewise$count"."_"."$flag";
+
+
+        # check if it exists
+        if (-f $fileprot) { # this file already exists
+            system "rm $fileprot" || die "Impossible to delete $fileprot\n";
+        }
+
+        if (-f $filegene) { # this file already exists
+            system "rm $filegene" || die "Impossible to delete $filegene\n";
+        }
+
+        if (-f $genewiseout) { # this file already exists
+            system "rm $genewiseout" || die "Impossible to delete $genewiseout\n";
+        }
+
+        #  open all the prot files and so on
+        open (FILEPROT, ">$fileprot") || die "Impossible to open $fileprot\n";
+        open (FILEGENE, ">$filegene") || die "Impossible to open $filegene\n";
+
+         # write into the files
+        print FILEPROT $protein, "\n" || die "Impossible to paste protein into $fileprot\n";
+        print FILEGENE $genseq, "\n" || die "Impossible to paste gene sequence into $filegene\n";
+
+        # close the files
+        close (FILEPROT) || die "Impossible to close $fileprot\n";
+        close (FILEGENE) || die "Impossible to close $filegene\n";
+
+
+        # RUN GENE WISE ON EACH GENE 
+        my $locationgenewise = "/share/unsupported/apps/wise_2.2.0/src/bin/";
+
+        #---create a codon table---#
+        my $condontablle = $TMPDIR . "/codons". $GENCODE . "_"."$flag".".table";
+        &CreateCodonTableWithGeneticId ($GENCODE, $condontablle);
+
+        #----create options for genewise
+        my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix $MATRIX -codon $condontablle ";
+        $genewiseoptions .= " -trev" if $strand == -1;
+        
+        # GENEWISE COMMAND
+        my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
+        #  Run the alignement program
+        system $cmd;
+
+
+        # PARSE RESULTS FROM GENEWISE AND GET THE EXONS
+        my @exons = &ParseInformationFromGeneWise ($genewiseout, $strand);
+
+        if (scalar @exons <= 1){
+            $count++;
+            next HYPPROT;
+        } 
+
+        # ANNOTATE EXONS
+        my $hypprotexonarray = $hypprot->exons;
+        foreach my $e (	@exons) {
+    
+            my $exonstart;
+            my $exonend;
+    
+            if ($strand == 1) { 
+                $exonstart = $start + $e->{"start"} -1;
+                $exonend = $start + $e->{"end"} + 2;
+            }
+            else {
+                $exonstart = $start - $e->{"start"} -1;
+                $exonend = $start - $e->{"end"} + 1;
+            }
+    
+            my $hypprotexon = new PirObject::Exon (
+                                                     start  => $exonstart,
+                                                     end    => $exonend,
+                                                     strand => $strand,
+                                                   );
+           push (@$hypprotexonarray, $hypprotexon); 
+     
+        } 
+
+        $count ++;
+
+    }  #  End of each prot		
 	
-		
-		# RUN GENE WISE ON EACH GENE 
-		my $locationgenewise = "/share/unsupported/apps/wise_2.2.0/src/bin/";
-		
-		#---create a codon table---#
-		my $condontablle = $TMPDIR . "/codons". $GENCODE . "_"."$flag".".table";
-		&CreateCodonTableWithGeneticId ($GENCODE, $condontablle);
-		
-		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -gap 80 -ext 400 -matrix identity.bla ";
-		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
-		#my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix idenity.bla ";
-		my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix $MATRIX -codon $condontablle ";
-		$genewiseoptions .= " -trev" if $strand == -1;
-		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisereport";
-		#my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2>> $TMPDIR/genewisereport";  
-		
-		my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
-		#print LOGFILE "genewise command : $cmd\n" if $ISLOGFILE and $DEBUG;
-		#print "genewise command : $cmd\n" if $DEBUG;    
-		
-		
-		#  Run the alignement program
-		system $cmd;
-	
-		#print "Nom de la proteine $name\n";
-		my @exons = &ParseInformationFromGeneWise ($genewiseout, $strand);
-		#next HYPPROT if (not (defined @exons));
-		if (scalar @exons <= 1){
-		    $count++;
-		    next HYPPROT;
-		} 
-		
-		#-----------SORT the exons -----------------------
-		
-		
-		
-		#------------------PROCESS EXONS------------------#
-		           # Change the exons find and put into hypprots.
-			   
-		#print "////////C'est a l'envers///////////// \n" if $strand == - 1;	   
-		#print "Protein number ..... $count $start $end\n";	   
-		my $hypprotexonarray = $hypprot->exons;
-		foreach my $e (	@exons) {
-		    
-		    my $exonstart;
-		    my $exonend;
-		    
-		    if ($strand == 1) { 
-		        $exonstart = $start + $e->{"start"} -1;
-		        $exonend = $start + $e->{"end"} + 2;
-	            }
-		    else {
-		        $exonstart = $start - $e->{"start"} -1;
-		        $exonend = $start - $e->{"end"} + 1;
-		    }
-		    #print "$exonstart et $exonend\n";
-		    
-		    my $hypprotexon = new PirObject::Exon (
-		                          start  => $exonstart,
-					  end    => $exonend,
-					  strand => $strand,
-					);
-		    push (@$hypprotexonarray, $hypprotexon); 
-		    
-                } 
-		
-		$count ++;
-		
-     }  #  End of each prot		
-		
 
 }
 
 sub ParseInformationFromGeneWise {   # parse the genewise output
                                      # and get the exons
-				     # reorganise too the exons
-				                         
+                                     # reorganise too the exons
+                         
 
      my $genewiseoutput = shift || return;
      my $strand = shift || return;
@@ -810,150 +904,74 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
 } 
 
 
-
-
-sub GetOptions {          # this function is here to manipulate options
-
-    my $option = new PirObject::Option ();   #  buil a new option model
-    $option->FillOption ();                  #  This one buil with the default option and look for a rc file
-    
-    ### Now The object contains all the options
-    
-    
-    #--General options
-    $DEBUG = $option->debug;                     #  Debug mode. If true, display message on the screen
-    $GENCODE = $option->genetic;                 #  Genetique code
-    $LOGFILE = $option->logfile;                 #  log file : store all the information about run
-    $SIMILARITYSEARCH = $option->similarity;     #  Usefull for running similaritie gene process for annot.
-    $ISLOGFILE= $option->islogfile;              #  Just to know if the $LOGFILE is not empty (0 or 1)
-    $PEPLIBRARIES = $option->pepdirectory;       #  List of Path for peplibrary directory
-    $MASTERFILE = $option->masterfile;           #  Path for Masterfile
-    $INPUTPEPFILES = $option->inputfile;         #  Path for the peptide file used
-    $OUTPUTFILE = $option->outputfile;           #  Path for the new
-    $USETRNASCANSE = $option->tRNAscanSE;        #  T or F : use of tRNAscanSE in the annotation 
-    $TAKEINPUTFILE = $option->takeinputfile;     #  A boolean saying if programme is taking an input file
-    $TAGNAME = $option->tagname;                 #  Adds a tag  
-    $FORCEANNOT = $option->force;                #  Force the annotation when 2 annotations have the same name
-    $MULTIORFS = $option->multiorfs;             #  Permit 2 annotations for an ORF
-    $NEWRCFILE = $option->newrcfile;             #  Just used to be printed. Indiquates that a new rcfile will be created
-    $NORCFILE = $option->norcfile;               #  0 or 1, if a rcfile has been used for loading data
-    $RCFILE = $option->rcfile;                   #  The rcfile used for loading options
-    $ORFPROCESS = $option->orf;                  #  For Orf process, allowing presence or not in the masterfile
-    $LOADSTRICT = $option->loadstrict;           #  Load strict masterfile
-    $ADDCOMMENTS = $option->addcomments;         #  Add comments in the masterfile
-    my $allorfs = $option->allorfs;              #  All orfs will apear and won't be checked if option is checked
-    $CHECKORFS = 0 if ($allorfs == 1);           #  A little calculation 
-    $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
-
-        
-    #--Specific for the annotation (parameters for flip, blastall and organization)	
-    $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
-    $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
-    $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;                     #  Minimum size of a gap between 2 ORf. If 2 same ORF
-    $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
-    $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
-    $TRNACUTOFF = $option->trnacutoff;                                     #  tRNAs cutoff 
-    $MININTRONSIZE = $option->minintronsize;                               #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
-    $MINEXONSIZE = $option->minexonsize;                                   #  Minimum exon size for intron. In genewise.
-    $MATRIX = $option->matrix;                                             #  The matrix used in genewise alignement
-    
-}
-
-sub CreatePepfileWithLibrary {
-
-    my $library = shift;       #the name of the library
-    my $pepfile = shift;
-    
-    opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
-    my @files = grep {/\.pep$/ && -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
-    # print "List of files used :\n@files\n" if $DEBUG;               # Print the list of the files
-    # print LOGFILE "List of files used :\n@files\n" if $ISLOGFILE;   #  ||   ||             in the logfile
-    close (DIR);
-    
-    # delete an hyp. previous same. file
-    if (-f $pepfile) {
-        system ("rm -f $pepfile");
-    }
-    
-    #concatenate all the file from the library
-    foreach (@files) {
-        system ("cat $library/$_ >> $pepfile")	
-    }	
-    
-    return $pepfile;
-    exit 0;
-}
     
 
 sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and annotate it as ORFs
                           #  It means ORF having non corresponding gene in a pepfile
-			  
-     my $pirmaster = shift;    # get the masterfile object
+  
+    my $pirmaster = shift;    # get the masterfile object
 
-     EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {   #  process each non corresponding orf
+    EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {   #  process each non corresponding orf
      
-         ####  Get informations  about empty ORF
-	 my $contigname = $emptyorf->contigname;       #  Get the contigname corresponding to the empty ORFs
-	 my $strand = $emptyorf->strand;
-	 my $arrow = ($strand == 1 ? '==>' : '<==');
-	 my $start;
-         my $end;
-	 
-	 my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
-	 my $minimumlengthorf = $MINLENEMPTYORF;                     #  minimum Orf size, below this size, the ORF is no more kept
-	 my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        ####  Get informations  about empty ORF
+        my $contigname = $emptyorf->contigname;       #  Get the contigname corresponding to the empty ORFs
+        my $strand = $emptyorf->strand;
+        my $arrow = ($strand == 1 ? '==>' : '<==');
+        my $start;
+        my $end;
+ 
+        my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
+        my $minimumlengthorf = $MINLENEMPTYORF;                     #  minimum Orf size, below this size, the ORF is no more kept
+        my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
          
-	 
-	 my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
-	 
-	 # Get the new start codon
-	 my $seq = $contig->sequence;						#	Get the sequence
-	 $seq =~ s/!//g;
-	 
-	 my $newstart = &FindNewStart ($seq, $emptyorf->start, $emptyorf->end, $strand);
-         
-	 
-	 $emptyorf->set_start ($newstart);
+ 
+        my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
+ 
+        # Get the new start codon
+        my $seq = $contig->sequence;       #   Get the sequence
+        $seq =~ s/!//g;                    #   Remove ! from the sequence
+        my $newstart = &FindNewStart ($seq, $emptyorf->start, $emptyorf->end, $strand);
+        $emptyorf->set_start ($newstart);  
 
-	 if ($emptyorf->start < $emptyorf->end) {
-	     $start = $emptyorf->start;
-	     $end = $emptyorf->end;
-	 }
-	 else {
-	     $start = $emptyorf->end;
-	     $end = $emptyorf->start;
-	 }
+        # Get the start, as the most little position
+        # For a further treatment
+        if ($emptyorf->start < $emptyorf->end) {
+            $start = $emptyorf->start;
+            $end = $emptyorf->end;
+        }
+        else {
+            $start = $emptyorf->end;
+            $end = $emptyorf->start;
+        }
 
-	 
-	 #next EMPTYORF if (int(abs($end - $start)*3) < $minimumlengthorf);  #  Size Verification 
-	 next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
-	 
-	 if ( $CHECKORFS) { # if option CHECKORF is activate
-             ANNOT : foreach my $annotation (@$annotations) {
-	     
-	         ## Verifiaction : 
-	         ## -doesn't take the annotation if it's something else than a comment
-	         next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
-	     	     
-	         ## Get information from current annotation
-	         my $annotstart;
-	         my $annotend; 
-	         if ( $annotation->startpos <  $annotation->endpos) {
-	             $annotstart = $annotation->startpos;
-	             $annotend = $annotation->endpos;
-                 }
-	         else {
-	             $annotstart = $annotation->endpos;
-	             $annotend = $annotation->startpos;
-	         }
-		 
-	
-	     
-	         # OVERLAPPING CHECK
-	         # overlapping is allowed below a given cutoff 
-	         # this cutoff is inside the variable $OVERLAPPINGCUTOFF
-	     
-	         #### Case were it seems to work
+        # SIZE CHECKING
+        next EMPTYORF if (int(abs($end - $start)/3) < $minimumlengthorf);  #  Size Verification 
+
+        # OTHER CHECKING, SUCH AS OVERLAPPING..........
+        if ( $CHECKORFS) {         # if option CHECKORF is activate
+            ANNOT : foreach my $annotation (@$annotations) {
+     
+                ## Verifiaction : 
+                ## -doesn't take the annotation if it's something else than a comment
+                next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
+     
+                ## Get information from current annotation
+                my $annotstart;
+                my $annotend; 
+                if ( $annotation->startpos <  $annotation->endpos) {
+                    $annotstart = $annotation->startpos;
+                    $annotend = $annotation->endpos;
+                }
+                else {
+                    $annotstart = $annotation->endpos;
+                    $annotend = $annotation->startpos;
+                }
+   
+                # OVERLAPPING CHECK
+                # overlapping is allowed below a given cutoff 
+                # this cutoff is inside the variable $OVERLAPPINGCUTOFF
+     
+                #### Case were it seems to work
                  next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
 		
                  #### Case were it doesn't work
@@ -1340,24 +1358,31 @@ sub ValueIsIn {		# check if a value is in an array
 sub RunFlip {          # This function run flip with the masterfile
                        # Flip is a program generating ORF
 
+
     my $flag = shift || "";    # something to recognize, what is the pepfile treated
     
-    #my $thisdirectory = `pwd`;
-    #chomp $thisdirectory;
-    #`cd` || die "impossible to go in $TMPDIR in fonction RunFlip\n"; 
-    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip_$flag.output";
+    #my $directoryhere = `pwd`;
+   # my $filetorun = $directoryhere . "/" . $MASTERFILE;
     
-    #--------This solution has to be changed----------
-    print "BEN CA C FAIT\n";
-    `mv prot.lst $TMPDIR/prot_$flag.lst`;
-    `mv prot.src $TMPDIR/prot_$flag.src`;
+    #chdir ("$TMPDIR");
+    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip_$flag.output";
+    #my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $filetorun";
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
     # -l minimum length ORF
     # -g genetic codes
     
-    my $resultat = system ($cmdflip);
+    `rm -f prot.lst` if (-f "prot.lst");
+    `rm -f prot.src` if (-f "prot.lst");
+    
+    my $resultat = system ("$cmdflip");
+    
+    #chdir ("$directoryhere");
     #`cd $thisdirectory`;
+    
+    `mv prot.lst $TMPDIR/prot_$flag.lst`;
+    `mv prot.src $TMPDIR/prot_$flag.src`;
+    
     print "$cmdflip\n" if $DEBUG;
     
 } 
@@ -1397,6 +1422,7 @@ sub ParseInformationFromBlastResult {
     my $type = 'PROT';
     my $file = $PEPFILE;
     my $blastoutput = $BLASTOUTPUT;
+     
     if (! -r $blastoutput) { # it's supposed to be here at this point.
         die "Error: can't find $type report from blastall ?!?\n";
     }
@@ -1666,9 +1692,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 	FLIPBLASTPROT : foreach my $flipblastprot (@$FLIPBLASTPROTS) {		#	For each fliup blast protein
 		my $name = $flipblastprot->name;
 		my $contigname = $flipblastprot->contigname;
-		
-		
-		
+
 		my $orfs = $flipblastprot->orfs;
 		my $numberorfs = scalar (@$orfs);
 		
@@ -2141,7 +2165,11 @@ sub AddAnnotToPirMaster {
 
 
 
-sub LogInfo {
+sub LogInfo {                      # this function is supposed to add information
+                                   # in the head of the masterfile
+                                   # such as
+                                   #  - the genes added (with exons)
+                                   #  - the rediscovered genes    
     my $pirmaster = shift;
     my $header = $pirmaster->header() || [];
 
@@ -2156,16 +2184,12 @@ sub LogInfo {
         ";;    - Gene Totals: " . scalar(@added) . " added; " . scalar(@redisc) . " rediscovered.",
     );
 
+    # ---------------- genes added -------------------------
+    
     push(@report,
         ";;    - List of genes added:",
     ) if @added;
 
-    #foreach my $genename (@added) {
-    #    my ($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
-    #    push(@report,
-    #    ";;        $genename" . ($e > 1 ? " ($e exons)" : ""),
-    #    );
-    #}
 
     my $COLS=3;
     my $cnt=0;
@@ -2183,6 +2207,11 @@ sub LogInfo {
         }
     }
     push(@report, $rep) if $cnt;
+    
+    
+    
+    # ---------------- genes rediscovered -------------------------
+    
 
     push(@report,
         ";;    - List of genes rediscovered:",
