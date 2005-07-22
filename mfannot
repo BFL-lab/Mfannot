@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.29 2005/07/21 21:07:58 thomash Exp $
+#    $Id: mfannot,v 1.30 2005/07/22 15:22:55 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.30  2005/07/22 15:22:55  thomash
+#    problem fixed with Line appearing  (*** ANnotation...***) without debug mode
+#
 #    Revision 1.29  2005/07/21 21:07:58  thomash
 #    bug fixed about loading many libraries
 #     - memory problems fixed
@@ -164,7 +167,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.29 2005/07/21 21:07:58 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.30 2005/07/22 15:22:55 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -478,7 +481,7 @@ if ($SIMILARITYSEARCH) {
         $PEPFILE = $_;                           
         my @tabname = split ("/", $PEPFILE);
         my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
-        print $tringprint, "\n";
+        print $tringprint, "\n" if $DEBUG;
 
         ## check the existenz ##
         if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
