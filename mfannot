@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.30 2005/07/22 15:22:55 thomash Exp $
+#    $Id: mfannot,v 1.31 2005/07/22 18:21:39 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.31  2005/07/22 18:21:39  dto
+#    Removed commented code that was not required
+#
 #    Revision 1.30  2005/07/22 15:22:55  thomash
 #    problem fixed with Line appearing  (*** ANnotation...***) without debug mode
 #
@@ -167,7 +170,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.30 2005/07/22 15:22:55 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.31 2005/07/22 18:21:39 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -318,7 +321,7 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
              "VERSION $VERSION                                                      \n".
-	     "Programmed by david To, Thomas Hoellinger, Pierre Rioux and Franz Lang\n".
+	     "Programmed by Thomas Hoellinger and Pierre Rioux\n".
 	     "######################################################################\n\n";
 	     
 print $header if $DEBUG;
@@ -387,7 +390,6 @@ my $count = 1;
 
 PEPLIB : foreach my $library (@$PEPLIBRARIES) {
     next PEPLIB if (not -d $library);
-    #if ($TAKEINPUTFILE == 0 && $SIMILARITYSEARCH) {
       
       my $namefile = "$TMPDIR/library_" . $count;
       $count++;
@@ -1129,9 +1131,6 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 		my $tag = $hyprot->remark;
 		
 	
-		#print "----------------------------------\n";
-		#print "Annotation :, $name, $start, $end, $arrow\n";
-		
 		my $numberofthisannot = $ANNOTSEEN->{$name} || 0;               # get the number for each annot  
 		$numberofthisannot += 1;                                        # increase by one, because it's current
 		my $linename = $name;                                           # the name gene in start and endline
@@ -1195,13 +1194,8 @@ sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from 
 			
 			$number++;	
 			my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);	
-		
 		}
-	
-	
 	}
-
-
 }
 
 sub FindNewStart {  # This function is assuming to return the new start codon,  
@@ -1221,7 +1215,6 @@ sub FindNewStart {  # This function is assuming to return the new start codon,
   		  
   my $found = 0;
   
-  
   ####	Two cases
 		if ($strand == 1)						#	Right strand
 		{
@@ -1229,8 +1222,6 @@ sub FindNewStart {  # This function is assuming to return the new start codon,
 			{
 				my $codon = uc (substr($seq, $currentpos-1, 3));
 				$codon =~ tr/ATUGCatugc/ATTGCATTGC/;
-				#print $hypprot->name, " $codon $currentpos\n";
-				#print "codon 
 				
 				if (ValueIsIn($possiblestarts, $codon) == 1)
 				{
@@ -1266,7 +1257,6 @@ sub FindNewStart {  # This function is assuming to return the new start codon,
 		}
   
     return $newstartpos;
-  
 }
 
 sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start and recreating exon if necessary
@@ -1403,13 +1393,11 @@ sub BlastFlipVSGene {	# it runs blast with the flip results against file contain
     my $command = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
     print "$command\n" if $DEBUG;
     my $resformatdb = system($command);
-    #print "$resformatdb\n" if $DEBUG;
 
     #RUN FOR BLAST : run blast with the db created and the flip results		
     my $cmdblast = "blastall -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot_$flag.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
-    #print "$resblast\n" if $DEBUG;
 	
 }
 
@@ -1453,24 +1441,13 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @hits       = $result->hits();# Bio::Search::Hit::HitI		
     my $numhits    = scalar(@hits);  # normally, only one! 
     return if $numhits < 1;
-    #print "description : $rdesc\n";
-    #print "Found result: ID=$contigname DESC=$rdesc DBNAME=$dbname with $numhits hits\n" if $DEBUG;
-    #print "Found result: ID=$contigname DESC=$rdesc DBNAME=$dbname with $numhits hits\n";
-    #my $contigus = $pirmaster->get_contigs();
 
           
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
-    # if ((not (defined $strand)) or (not (defined  $start)) or (not (defined $end)) or (not (defined $rdesc))) {
-    # print "starnd $strand\n, 
-    #      start  $start\n
-    #	  emd $end\n
-    #	  rdesc $rdesc\n";}
-    #print "ligne 376 $strand, $start, $end \n";
     my $debut = ($start < $end ? $start : $end);
     my $fin = ($start < $end ? $end : $start);
     
-    #sort (@hits)
     my $arrow = ($strand eq 'orig' ? '==>' : '<==');
     $strand = ($strand eq 'orig' ? 1 : -1);
     
@@ -1495,8 +1472,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @overlapping;
     
     HIT : foreach my $hit (@hits) {
-       # my $hit=$hits[0];
-       #my $hypprotein   = $hit->name();		#	returns the name of the Hit sequence
         my $desc         = $hit->description();	#	Get the description of the query sequence	
         my ($hypprotein) = ($desc =~ /\s*([\S]*)\s*;/); 
 	next HIT if (not (defined $hypprotein) or $hypprotein eq "");
@@ -1542,19 +1517,10 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         }
 	$frame -> {"start"} = $framestart;
 	$frame -> {"end"} = $frameend;
-	#push (@overlapping, 
-	
-	#print "________________________________________________\n";
-	#print "HIT : $hypprotein, frame, $framestart, $frameend\n";        
-	#print "les autres frames : \n";
-	#----  Regarding for overlapping in hits : if it's rigth, only one hit is allowed
 	
 	my $isoverlapping = 0;                          #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
 	           
 	CURRENTFRAME : foreach my $currentframe (@overlapping) {
-	
-	    #print $currentframe->{"start"}, " ", $currentframe->{"end"};
-	    
 	
 	    ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
 	    
@@ -1632,23 +1598,8 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
    
    
    die "Impossible to read $pepfile" if (not (-f $PEPFILE));
-   #print "$PEPFILE\n";
    
    open (PEPFILE, "$PEPFILE") or die "Could not open $PEPFILE";
-   
-   ### USed before
-   #my $in  = Bio::SeqIO->new(-file => "$PEPFILE" , '-format' => 'Fasta');
-   
-   #SEQUENCE : while ( my $seq = $in->next_seq() ) {
-   #	my $seqdesc = $seq->desc;
-   #	my $seqseq =  $seq->seq;
-   #	if ($description =~ /$seqdesc/) { 
-   #	    $protein =  $seqseq;
-   #	    last SEQUENCE;
-   #	}
-	
-   #   }
-   #----------------------------------------
    
    # Parse the file, containing pep sequences
     my $parsebegin = 0;  
@@ -1673,20 +1624,10 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
 	    $protein .=  $line;
 	    $protein .= "\n";
 	}    
-	    
-	
-	
-	
     }
 
    return $protein;
-   
 }
-
-
-   
-
-
 
 sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS array (array of hypothetical proteins with
 						#	FLIPBLASTPROTS array (array of ORF and hsp)
@@ -1790,9 +1731,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 				#------------	case	 3-4 : Check space between 2 ORFs, including overlapping
 				if ($orf->strand == 1)	#	Two case : right strand or opposite strand
 				{
-					#print "Mais on rentre la qd meme $name\n"; 
 					if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
-						#print "On rentre la dedans un jour $name\n"; 
 						my $newstart = ($orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
 						my $newend = ($orf->end > $newhypprot->end ? $orf->end : $newhypprot->end); 
 					
@@ -1884,10 +1823,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS
 	} # End for each Flip Blast Prot
 											
 }	
-
-
-
-
 sub IsSameFrame {	#	Check if the positions in the array are on the same frame
 
 	my $tab = shift;	#	It's an array reference
@@ -1997,7 +1932,6 @@ sub AddGeneFeatureUsingtRNAscanSE {
 		}
 
 		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
-		#my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
 		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
@@ -2154,7 +2088,6 @@ sub AddAnnotToPirMaster {
 	if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
 	    return 0;
-            #$ANNOTSEEN->{$annot->genename} = 'defined';
 	}
 	else {                                            #  It means, force annot but this annotations doesn't seems to have an other copy    
  	    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
@@ -2274,10 +2207,6 @@ END {              # With exit, programm will go here
                    # Cleanup temp directory when program exits.
 
     return unless defined($TMPDIR) && $TMPDIR =~ m#^/tmp/#;
-    #if (defined($DEBUG) && $DEBUG > 0) {
-    #    print STDERR "Debug mode warning: temporary work directory '$TMPDIR' not cleaned up.\n";
-    #    return;
-    #}
     
     print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
     system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
