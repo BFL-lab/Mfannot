@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.33 2005/07/22 20:29:16 dto Exp $
+#    $Id: mfannot,v 1.34 2005/07/22 21:20:10 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.34  2005/07/22 21:20:10  dto
+#    Fixed up path locations of external cli programmes
+#
 #    Revision 1.33  2005/07/22 20:29:16  dto
 #    Removed "..." at end of output file name (allows selecting of file by double clicking mouse)
 #
@@ -178,7 +181,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.33 2005/07/22 20:29:16 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.34 2005/07/22 21:20:10 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -206,11 +209,11 @@ my %GENENAMEOCCURENCE;                          #  An hash array, defined only i
 
 
 ##--- Command line Program's paths    
-my $BLASTPATH = "";
-my $FORMATDBPATH = "";
-my $FLIPPATH = "";
-my $GENEWISEPATH = "";
-my $TRNASCANPATH = "";
+my $BLASTPATH = "/share/supported/apps/ncbi/bin/blastall";
+my $FORMATDBPATH = "/share/supported/apps/ncbi/bin/formatdb";
+my $FLIPPATH = "/share/supported/apps/ogmp/bin/flip";
+my $GENEWISEPATH = "/share/unsupported/apps/wise_2.2.0/src/bin/genewise";
+my $TRNASCANPATH = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
 
 #--General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
@@ -266,17 +269,16 @@ die "Please make sure the BLASTMAT environment variable is set\n" .
     unless defined($ENV{"BLASTMAT"}) && (-d $ENV{"BLASTMAT"}) &&
            (-f ($ENV{"BLASTMAT"} . "/PAM30"));
 
-die "Please make sure that the 'blastall' executable is in your\n" .
-    "current command search path.\n"
-    unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
+#die "Please make sure that the 'blastall' executable is in your\n" .
+#    "current command search path.\n"
+#    unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
     
-    
-    ############  THINGS TO PUT IN VERIFICATION ########
-     #      - Check if tRNAscanSE is installed
-     #      - Check if flip is installed
-     #      - Check if formatdb is installed
-     
-
+# Check if the programmes exist!
+TestFile($BLASTPATH);
+TestFile($FORMATDBPATH);
+TestFile($FLIPPATH);
+TestFile($GENEWISEPATH);
+TestFile($TRNASCANPATH);
 
 ##################
 # HELP AND USAGE #
@@ -294,9 +296,7 @@ sub Help {
 print "Help for mfannot.pl\n";
 print "-------------------\n";
 #&Usage;
-
 }
-
 
 ################
 # Trap Signals #
@@ -756,7 +756,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
         # WRITE PROTEIN AND GENE IN FASTA FILES
         my $fileprot = "$TMPDIR/protforgenewise$count"."_"."$flag";
         my $filegene = "$TMPDIR/geneforgenewise$count"."_"."$flag";
-        my $genewiseout = "$TMPDIR//genewise$count"."_"."$flag";
+        my $genewiseout = "$TMPDIR/genewise$count"."_"."$flag";
 
 
         # check if it exists
@@ -797,7 +797,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
         $genewiseoptions .= " -trev" if $strand == -1;
         
         # GENEWISE COMMAND
-        my $cmd = "$locationgenewise"."genewise  $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
+        my $cmd = "$GENEWISEPATH $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
         #  Run the alignement program
         system $cmd;
 
@@ -1398,7 +1398,7 @@ sub RunFlip {          # This function run flip with the masterfile
 	    # relative
 	    $tmpMasterfile = "$cwd/$MASTERFILE";
     }
-    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
+    my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
 
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
@@ -1428,7 +1428,7 @@ sub BlastFlipVSGene {	# it runs blast with the flip results against file contain
     my $resformatdb = system($command);
 
     #RUN FOR BLAST : run blast with the db created and the flip results		
-    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast = "$BLASTPATH -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 	
@@ -1964,7 +1964,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
 			
 		}
 
-		my $tRNAscanSEcmd = "tRNAscan-SE -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+		my $tRNAscanSEcmd = "$TRNASCANPATH -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
 		print "$tRNAscanSEcmd\n" if $DEBUG;
 		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
                                                                 #-C for unsing coves
@@ -2235,6 +2235,15 @@ sub CreateCard {   # A sub for creating card
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
 }
+sub TestFile
+{
+  my $file = shift;
+  if (!(-x $file))
+  {
+    die "The file $file could not be found or was not executable. Please notify your administrator\n";
+  }
+}
+
 
 END {              # With exit, programm will go here
                    # Cleanup temp directory when program exits.
