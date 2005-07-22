@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.31 2005/07/22 18:21:39 dto Exp $
+#    $Id: mfannot,v 1.32 2005/07/22 20:27:43 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.32  2005/07/22 20:27:43  dto
+#    Updated flip - now runs in the temporary directory
+#
 #    Revision 1.31  2005/07/22 18:21:39  dto
 #    Removed commented code that was not required
 #
@@ -142,7 +145,9 @@
 require 5.00;
 use strict;
 use vars qw( $VERSION $RCS_VERSION );
-use IO::File;                             
+use IO::File;
+use Cwd;
+use File::Basename;
 use PirObject;                                        #  Pir module treatment 
 use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
 use Bio::SeqUtils;                                    #  Some biological tools
@@ -170,7 +175,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.31 2005/07/22 18:21:39 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.32 2005/07/22 20:27:43 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1351,33 +1356,58 @@ sub ValueIsIn {		# check if a value is in an array
 sub RunFlip {          # This function run flip with the masterfile
                        # Flip is a program generating ORF
 
-
     my $flag = shift || "";    # something to recognize, what is the pepfile treated
+
+    # Let's get the current working directory name    
+    my $cwd = cwd();
     
-    #my $directoryhere = `pwd`;
-   # my $filetorun = $directoryhere . "/" . $MASTERFILE;
-    
-    #chdir ("$TMPDIR");
-    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $MASTERFILE > $TMPDIR/flip_$flag.output";
-    #my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $filetorun";
+    # We need to change to the temporary directory to run flip - just so the flip files are written here.
+    chdir ("$TMPDIR");
+
+    # Just check if Flip outfiles exist here already, if so get rid of them
+
+    if(-e "prot.lst")
+    {
+      unlink("prot.lst");
+    }
+    if(-e "prot.src")
+    {
+      unlink("prot.src");
+    }
+    if(-e "compl")
+    {
+      unlink("compl");
+    }
+    if(-e "uncompl")
+    {
+      unlink("uncompl");
+    }
+
+    # Checking the see if the masterfile path is aboslute or relative
+    my $tmpMasterfile;
+    if($MASTERFILE =~ m!^/!)
+    {
+	    # absolute
+	    $tmpMasterfile = $MASTERFILE;
+    }
+    else
+    {
+	    # relative
+	    $tmpMasterfile = "$cwd/$MASTERFILE";
+    }
+    my $cmdflip = "flip -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
+
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
     # -l minimum length ORF
     # -g genetic codes
-    
-    `rm -f prot.lst` if (-f "prot.lst");
-    `rm -f prot.src` if (-f "prot.lst");
-    
+   
     my $resultat = system ("$cmdflip");
     
-    #chdir ("$directoryhere");
-    #`cd $thisdirectory`;
-    
-    `mv prot.lst $TMPDIR/prot_$flag.lst`;
-    `mv prot.src $TMPDIR/prot_$flag.src`;
-    
     print "$cmdflip\n" if $DEBUG;
-    
+
+    # Changing back to the original directory
+    chdir($cwd);
 } 
 
 
@@ -1395,7 +1425,7 @@ sub BlastFlipVSGene {	# it runs blast with the flip results against file contain
     my $resformatdb = system($command);
 
     #RUN FOR BLAST : run blast with the db created and the flip results		
-    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot_$flag.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast = "blastall -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 	
