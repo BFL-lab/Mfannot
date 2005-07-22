@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.32 2005/07/22 20:27:43 dto Exp $
+#    $Id: mfannot,v 1.33 2005/07/22 20:29:16 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.33  2005/07/22 20:29:16  dto
+#    Removed "..." at end of output file name (allows selecting of file by double clicking mouse)
+#
 #    Revision 1.32  2005/07/22 20:27:43  dto
 #    Updated flip - now runs in the temporary directory
 #
@@ -175,7 +178,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.32 2005/07/22 20:27:43 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.33 2005/07/22 20:29:16 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -575,7 +578,7 @@ my $annotations = $cntigs->[0]->annotations();
 
 # Add informations in the masterfile     
 &LogInfo ($pirmaster);
-print "Dumping new masterfile in $OUTPUTFILE...\n" if  $DEBUG;
+print "Dumping new masterfile in $OUTPUTFILE\n" if  $DEBUG;
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
 
