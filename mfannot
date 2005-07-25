@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.34 2005/07/22 21:20:10 dto Exp $
+#    $Id: mfannot,v 1.35 2005/07/25 20:40:43 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.35  2005/07/25 20:40:43  dto
+#    Fixed style and removed code that was not needed
+#    Added comments for Thomas
+#
 #    Revision 1.34  2005/07/22 21:20:10  dto
 #    Fixed up path locations of external cli programmes
 #
@@ -181,12 +185,12 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.34 2005/07/22 21:20:10 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.35 2005/07/25 20:40:43 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
 # Get login name.
-my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
+my $USER=getpwuid($<) or getlogin or die "Can't find USER from environment!\n";
 
 ##################################
 # Global variables and constants #
@@ -196,7 +200,7 @@ my $USER=getpwuid($<) || getlogin || die "Can't find USER from environment!\n";
 my $AUTOMATIC=0;
 my $TAGNAME=undef;                              #  Tag : is presnt in masterfile within the annotations made with Mfannot
 my $FORCEANNOT=0;
-my $HOMECONFIGFILE = ($ENV{"HOME"} || ".") . "/.mfannotconfig.xml";
+my $HOMECONFIGFILE = ($ENV{"HOME"} or ".") . "/.mfannotconfig.xml";
 my $ANNOT_STATS = {
     'Added'        => {},                       #  It means, never see it before
     'Rediscovered' => {},                       #  Means exist at the same place (not added into the file)
@@ -204,27 +208,27 @@ my $ANNOT_STATS = {
 my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
 my $ANNOTSEEN = {};                             #  An array storing annotations that have been seen before
-my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)	
+my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)
 my %GENENAMEOCCURENCE;                          #  An hash array, defined only if the gene has been discovered
 
 
-##--- Command line Program's paths    
-my $BLASTPATH = "/share/supported/apps/ncbi/bin/blastall";
-my $FORMATDBPATH = "/share/supported/apps/ncbi/bin/formatdb";
-my $FLIPPATH = "/share/supported/apps/ogmp/bin/flip";
-my $GENEWISEPATH = "/share/unsupported/apps/wise_2.2.0/src/bin/genewise";
-my $TRNASCANPATH = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
+# Command line Program's paths    
+my $BLASTPATH        = "/share/supported/apps/ncbi/bin/blastall";
+my $FORMATDBPATH     = "/share/supported/apps/ncbi/bin/formatdb";
+my $FLIPPATH         = "/share/supported/apps/ogmp/bin/flip";
+my $GENEWISEPATH     = "/share/unsupported/apps/wise_2.2.0/src/bin/genewise";
+my $TRNASCANPATH     = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
+my $CGVIEWPATH       = "/home/thomash/programs/cgview";
 
-#--General options
+# General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
-my $GENCODE=undef;                              #  Genetique code
-my $TMPDIR = "/tmp/mfannot.$$";                 #  Temporary directory
-#my $TMPDIR = "TMPDIR/mfannot.$$";                 #  Temporary directory
+my $GENCODE          = undef;                   #  Genetique code
+my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
-my $ISLOGFILE=0;                                #  Just to know if the $LOGFILE is not empty (0 or 1)
+my $ISLOGFILE        = 0;                       #  Just to know if the $LOGFILE is not empty (0 or 1)
 my $PEPLIBRARY;                                 #  Path for peplibrary directory
-my $MASTERFILE = undef;                         #  Path for Masterfile
+my $MASTERFILE       = undef;                   #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
 my $TAKEINPUTFILE;                              
 my $FLIPBLASTPROTS;                             #  Array containing the Proteins predicted by Blast and Flip
@@ -244,12 +248,12 @@ my $INPUTPEPFILES;                              #  the input files
 my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
 
 
-#--Specific for the annotation (parameters for flip, blastall and organization)
-my $BLASTOUTPUT                   ;             #  The path for blast file results	
-my $BLASTEVALUECUTOFF;	          		#  Cutoff value for the blast
-my $MINLENGTHORF;				#  This is the minimum length for creating an ORF with flip
-my $MAXLENGTHFORGROUPINGORF;     		#  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT = "";                              #  Blastreport 
+# Specific for the annotation (parameters for flip, blastall and organization)
+my $BLASTOUTPUT;                                #  The path for blast file results
+my $BLASTEVALUECUTOFF;                          #  Cutoff value for the blast
+my $MINLENGTHORF;                               #  This is the minimum length for creating an ORF with flip
+my $MAXLENGTHFORGROUPINGORF;                    #  Minimum size of a gap between 2 ORf. If 2 same ORF
+$BLASTOUTPUT         = "";                      #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
@@ -266,13 +270,8 @@ $ENV{"BLASTMAT"} = "/share/supported/apps/ncbi/data";
 
 die "Please make sure the BLASTMAT environment variable is set\n" .
     "to point to a directory where the blast matrices are stored.\n"
-    unless defined($ENV{"BLASTMAT"}) && (-d $ENV{"BLASTMAT"}) &&
-           (-f ($ENV{"BLASTMAT"} . "/PAM30"));
+    unless defined($ENV{"BLASTMAT"}) and (-d $ENV{"BLASTMAT"}) and (-f ($ENV{"BLASTMAT"} . "/PAM30"));
 
-#die "Please make sure that the 'blastall' executable is in your\n" .
-#    "current command search path.\n"
-#    unless grep(-x ($_ . "/blastall"),split(/:/,$ENV{"PATH"})) > 0;
-    
 # Check if the programmes exist!
 TestFile($BLASTPATH);
 TestFile($FORMATDBPATH);
@@ -285,17 +284,16 @@ TestFile($TRNASCANPATH);
 ##################
 
 sub GoOut {
-	print "----------------\n";
-	#&Usage;
-	exit 0;
+    print "----------------\n";
+    #&Usage;
+    exit 0;
 
 }
 
 sub Help {
-
-print "Help for mfannot.pl\n";
-print "-------------------\n";
-#&Usage;
+    print "Help for mfannot.pl\n";
+    print "-------------------\n";
+    #&Usage;
 }
 
 ################
@@ -317,31 +315,26 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
-
 &GetOptions ;     # get the different options and put them into global variables
 
-
 open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
-
 
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
              "VERSION $VERSION                                                      \n".
-	     "Programmed by Thomas Hoellinger and Pierre Rioux\n".
-	     "######################################################################\n\n";
-	     
+             "Programmed by Thomas Hoellinger and Pierre Rioux\n".
+             "######################################################################\n\n";
+
 print $header if $DEBUG;
 print LOGFILE $header if $ISLOGFILE;
 
-
-
 ##---------------OPTIONS OF THE PROGRAM------------------------------------------------
 my $options ="----------------------------------\n".
-             "        General Options	        \n".
+             "        General Options           \n".
              "----------------------------------\n";
-	    
+    
 if ($NORCFILE) {
     $options .= "No rcfile used for options\n";
 }
@@ -356,66 +349,56 @@ $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
 if ($SIMILARITYSEARCH) {
-     
-     
-     foreach (@$PEPLIBRARIES) {
-         $options .= "Look in the peptide library $_\n";
-     }
-     foreach (@$INPUTPEPFILES) {
-         $options .= "Peptide file $_\n";
-     }
-     
+    foreach (@$PEPLIBRARIES) {
+        $options .= "Look in the peptide library $_\n";
     }
+    foreach (@$INPUTPEPFILES) {
+        $options .= "Peptide file $_\n";
+    }
+}
 else {
-   $options .=  "Any search in gene similarity for annotation\n";
+    $options .=  "Any search in gene similarity for annotation\n";
 }
 
 if ($USETRNASCANSE == 0) {
-  $options .= "No usage of tRNAscanSE\n";
+    $options .= "No usage of tRNAscanSE\n";
 }
 else {
-  $options .= "Usage of tRNAscanSE\n";
+    $options .= "Usage of tRNAscanSE\n";
 }
 
 print LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
 print $options if $DEBUG;                       #Print the options on the screen 
 
 
-
 ##---------------CREATE THE TMPDIR---------------------------------------  
-mkdir($TMPDIR,0700) || die "Error: can't create work directory '$TMPDIR': $!\n";
-
-
+mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
 
 
 #-----------------PEPFILES CREATION--------------------------------------
           #  Fill the variable @PEPFILES
           #  A list of pepfiles, and run mfannot for each of them
 
-
-  #  1) first, create the list of the pepfiles with the libraries
+#  1) first, create the list of the pepfiles with the libraries
 my $count = 1;  
 
 PEPLIB : foreach my $library (@$PEPLIBRARIES) {
     next PEPLIB if (not -d $library);
       
-      my $namefile = "$TMPDIR/library_" . $count;
-      $count++;
-      my $tmppepfile = &CreatePepfileWithLibrary ($library, $namefile);       # call the function 
-      push (@PEPFILES ,$namefile);
+    my $namefile = "$TMPDIR/library_" . $count;
+    $count++;
+    my $tmppepfile = &CreatePepfileWithLibrary ($library, $namefile);       # call the function 
+    push (@PEPFILES ,$namefile);
     
 }    
-   #  2) second, push the input pepfiles in the pepfile array
+#  2) second, push the input pepfiles in the pepfile array
     foreach (@$INPUTPEPFILES) {
         push (@PEPFILES, $_);
     }
 
-
-  
-
 #-----------ANNOTATION -------------------------------------------
 
-   # - print option of the annotation
+# - print option of the annotation
 print "----------------------------------\n",
       "         Gene Annotation          \n",
       "----------------------------------\n" if $DEBUG;
@@ -424,31 +407,31 @@ print LOGFILE "----------------------------------\n",
               "----------------------------------\n" if $ISLOGFILE;
 
 if ($SIMILARITYSEARCH) {
-
-  $options = "Options : \n";                  # Options & parameters used for the blast
-  $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
-  $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
-  $options .= "Minimum exon size : $MINEXONSIZE\n";
-  $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
-  $options .= "Minimum intron size : $MININTRONSIZE\n";
-  $options .= "Matrix : $MATRIX\n";
-  $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
-  $options .= "Overlapping cutoff for non corresponding ORFs: " . $OVERLAPPINGCUTOFF*100 . "%\n";
-  $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
+    $options  = "Options : \n";                  # Options & parameters used for the blast
+    $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
+    $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+    $options .= "Minimum exon size : $MINEXONSIZE\n";
+    $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
+    $options .= "Minimum intron size : $MININTRONSIZE\n";
+    $options .= "Matrix : $MATRIX\n";
+    $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
+    $options .= "Overlapping cutoff for non corresponding ORFs: " . $OVERLAPPINGCUTOFF*100 . "%\n";
+    $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
   
-  print $options if $DEBUG;
+    print $options if $DEBUG;
   
-  print LOGFILE $options if $ISLOGFILE;
+    print LOGFILE $options if $ISLOGFILE;
 }
 
-  # - create a masterfile object
-  #      - load the annotations
-  #      - load the sequence of each contig 
+# - create a masterfile object
+#      - load the annotations
+#      - load the sequence of each contig 
+
 print "Parsing masterfile...\n" if $DEBUG;
-my $pirmaster = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
-my $contigs = $pirmaster->get_contigs();
-my $numbercontigs = 0;                              # Number of contigs in the masterfile
-my $numberannot = 0;                                # Number of annotations detected in the program
+my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
+my $contigs       = $pirmaster->get_contigs();
+my $numbercontigs = 0;                         # Number of contigs in the masterfile
+my $numberannot   = 0;                         # Number of annotations detected in the program
 
 $numbercontigs += scalar (@$contigs);
 foreach my $contig ( @$contigs) {
@@ -462,22 +445,17 @@ print "Number of contigs in Masterfile : $numbercontigs\n",
 print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
               "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
       
-&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes, there is	
+&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes there are
 
-
-
-          #-------------------START THE PROCESS----------------------#
-	  
-if ($SIMILARITYSEARCH) {
+#-------------------START THE PROCESS----------------------#
   
+if ($SIMILARITYSEARCH) {
     my $step;
     $count = 1;
   
-  
-    PEPFILE :   foreach (@PEPFILES) {          # Each pepfile
-                                           # The input pepfiles
-                                           # + the pepfiles created from the libraries
-
+    PEPFILE :   foreach (@PEPFILES) { # Each pepfile
+                                      # The input pepfiles
+                                      # + the pepfiles created from the libraries
   
         # Create a reference for the different general arrays
         $FLIPBLASTPROTS = [];                        #  Array containing the Proteins predicted by Blast and Flip
@@ -487,19 +465,19 @@ if ($SIMILARITYSEARCH) {
   
   
         ## Print the name of each pepfile###
-	##  if it's a library, name begin with libarary....
+        ##  if it's a library, name begin with libarary....
         $PEPFILE = $_;                           
         my @tabname = split ("/", $PEPFILE);
         my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
         print $tringprint, "\n" if $DEBUG;
 
         ## check the existenz ##
-        if ((not -r  $PEPFILE) && $SIMILARITYSEARCH) {
+        if ((not -r  $PEPFILE) and $SIMILARITYSEARCH) {
             print "Unable to read $PEPFILE\n";
             next PEPFILE;
         }                          
         
-            # --------   HEART --------#
+        # --------   HEART --------#
   
         # Run the programm step by, to know the right step  
             
@@ -573,7 +551,7 @@ undef $HYPPROTS;
 undef $EMPTYORFS;
 
 # Add annotations in the masterfile            
-my $cntigs = $pirmaster->contigs();
+my $cntigs      = $pirmaster->contigs();
 my $annotations = $cntigs->[0]->annotations();
 
 # Add informations in the masterfile     
@@ -584,18 +562,15 @@ $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
 if ($ISLOGFILE == 1) {
     print "close Logfile : $LOGFILE\n" if $DEBUG;
-    close LOGFILE || print "Logfile not closed\n";
+    close LOGFILE or print "Logfile not closed\n";
 }
 exit 0;
-
 
 #############################
 #   S U B R O U T I N E S   #
 #############################
 
-
 sub GetOptions {          # this function is here to manipulate options
-
     my $option = new PirObject::Option ();   #  buil a new option model
     $option->FillOption ();                  #  This one buil with the default option and look for a rc file
     
@@ -628,27 +603,26 @@ sub GetOptions {          # this function is here to manipulate options
     $CHECKORFS = 1 if ($allorfs == 0);           #  to find the opposite
 
         
-    #--Specific for the annotation (parameters for flip, blastall and organization)	
-    $BLASTEVALUECUTOFF = $option->blast2;                                  #  Cutoff value for the blast
-    $MINLENGTHORF = $option->flip2;                                        #  This is the minimum length for creating an ORF with flip
-    $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;                     #  Minimum size of a gap between 2 ORf. If 2 same ORF
-    $MINLENEMPTYORF = $option->minlenemptyorf;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
-    $OVERLAPPINGCUTOFF = $option->overlappingcutoff;                       #  Overlapping cutoff for ORFs 
-    $TRNACUTOFF = $option->trnacutoff;                                     #  tRNAs cutoff 
-    $MININTRONSIZE = $option->minintronsize;                               #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
-    $MINEXONSIZE = $option->minexonsize;                                   #  Minimum exon size for intron. In genewise.
-    $MATRIX = $option->matrix;                                             #  The matrix used in genewise alignement
+    #--Specific for the annotation (parameters for flip, blastall and organization)
+    $BLASTEVALUECUTOFF = $option->blast2;                #  Cutoff value for the blast
+    $MINLENGTHORF = $option->flip2;                      #  This is the minimum length for creating an ORF with flip
+    $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;   #  Minimum size of a gap between 2 ORf. If 2 same ORF
+    $MINLENEMPTYORF = $option->minlenemptyorf;           #  Minimum length for ORF empty orfs (non corresponding orfs)
+    $OVERLAPPINGCUTOFF = $option->overlappingcutoff;     #  Overlapping cutoff for ORFs 
+    $TRNACUTOFF = $option->trnacutoff;                   #  tRNAs cutoff 
+    $MININTRONSIZE = $option->minintronsize;             #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
+    $MINEXONSIZE = $option->minexonsize;                 #  Minimum exon size for intron. In genewise.
+    $MATRIX = $option->matrix;                           #  The matrix used in genewise alignement
     
 }
 
 sub CreatePepfileWithLibrary {
-
     my $library = shift;         # the name of the library
     my $pepfile = shift;         # the name of the file wanted.
                                  # This one contains after the all peptides from the library
     
     opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
-    my @files = grep {/\.pep$/ && -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
+    my @files = grep {/\.pep$/ and -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
     close (DIR);                                                      # Close the directory
     
     # delete an hyp. previous same. file
@@ -665,49 +639,48 @@ sub CreatePepfileWithLibrary {
     exit 0;
 }
 
-
-
 sub CreateCodonTableWithGeneticId {  # this function create a file
                                      # Having a codon table.
                                      # ATT F....
                                      # ATG M...
                                      # Comment will begin with "!"
    
-   # declaration 
-   ###############
-my $geneid = shift;           # the genetic id for codon usage
-my $codontablefile = shift;   # the name of the file where the codon table will be put
-my $comment = shift;          # Comment in the header of file
-my $codontable   = Bio::Tools::CodonTable->new( -id => $geneid );
-   ###############
+    # declaration 
+    ###############
+    my $geneid         = shift;   # the genetic id for codon usage
+    my $codontablefile = shift;   # the name of the file where the codon table will be put
+    my $comment        = shift;   # Comment in the header of file
+    my $codontable     = Bio::Tools::CodonTable->new( -id => $geneid );
+    ###############
 
-open (CODONTABLE, ">$codontablefile") || die "Impossible to open Codon Table file : $codontablefile\n";   # open the future file containing the codon table
-print CODONTABLE "! Codon table for genetic code $geneid\n";                                              # print a short header for description 
+    # open the future file containing the codon table
+    open (CODONTABLE, ">$codontablefile") or die "Impossible to open Codon Table file : $codontablefile\n"; 
+    print CODONTABLE "! Codon table for genetic code $geneid\n";     # print a short header for description 
 
-   # Process declaration
-   #####################
-my @letter = qw (A T C G);
-my $i = 0;
-my $j = 0;
-my $z = 0;
-   ######################
+    # Process declaration
+    #####################
+    my @letter = qw (A T C G);
+    my $i      = 0;
+    my $j      = 0;
+    my $z      = 0;
+    ######################
    
-while ($i < scalar(@letter)) {
-    $j = 0;
-    while ($j < scalar(@letter)) {
-        $z = 0;
-        while ($z < scalar(@letter)) {
-            my $codon = $letter[$i].$letter[$j].$letter[$z];
-	     my $aa = $codontable->translate($codon);
-	    print CODONTABLE "$codon $aa\n";
-	    $z++;
-	}
-        $j++;
+    while ($i < scalar(@letter)) {
+        $j = 0;
+        while ($j < scalar(@letter)) {
+            $z = 0;
+            while ($z < scalar(@letter)) {
+                my $codon = $letter[$i].$letter[$j].$letter[$z];
+                my $aa    = $codontable->translate($codon);
+                print CODONTABLE "$codon $aa\n";
+                $z++;
+            }
+            $j++;
+        }
+        $i++;
     }
-    $i++;
-}
 
-close (CODONTABLE) || die "Impossible to close Codon Table file : $codontablefile\n";
+    close (CODONTABLE) or die "Impossible to close Codon Table file : $codontablefile\n";
 
 }  
 
@@ -717,28 +690,27 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
     
     ########################
-    my $pirmaster = shift;      # the masterfile object
-    my $flag = shift || "";     # a flag, assigned to each pepfile
-    my $count = 1;              
+    my $pirmaster = shift;        # the masterfile object
+    my $flag      = shift || "";  # a flag, assigned to each pepfile
+    my $count     = 1;              
     ########################
     
     HYPPROT : foreach my $hypprot (@$HYPPROTS) {        
 
         # HYPOTHETICAL PROTEIN FEATURE
-        my $name = $hypprot->name;
-        my $start = $hypprot->start;                                          
-        my $end = $hypprot->end;
-        my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);	
-        my $seq = $contig->sequence;
-        $seq =~ s/\!//g;
+        my $name   = $hypprot->name;
+        my $start  = $hypprot->start;                                          
+        my $end    = $hypprot->end;
+        my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);    
+        my $seq    = $contig->sequence;
+        $seq       =~ s/\!//g;
         my $strand = $hypprot->strand;
 
 
         # PROTEIN AND GENE SEQUENCE
-        my $genseq;
-        $genseq = substr ($seq ,$start-1, $end - $start + 1) if $strand ==1;
-        $genseq = substr ($seq, $end-1, $start - $end + 1) if $strand == -1;
-        $genseq = ">$count\n" . $genseq;
+        my $genseq  = substr ($seq ,$start-1, $end - $start + 1) if $strand == 1;
+        $genseq     = substr ($seq, $end-1, $start - $end + 1) if $strand == -1;
+        $genseq     = ">$count\n" . $genseq;
         my $protein = $hypprot->protein;
 
 
@@ -761,40 +733,38 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
         # check if it exists
         if (-f $fileprot) { # this file already exists
-            system "rm $fileprot" || die "Impossible to delete $fileprot\n";
+            system "rm $fileprot" or die "Impossible to delete $fileprot\n";
         }
 
         if (-f $filegene) { # this file already exists
-            system "rm $filegene" || die "Impossible to delete $filegene\n";
+            system "rm $filegene" or die "Impossible to delete $filegene\n";
         }
 
         if (-f $genewiseout) { # this file already exists
-            system "rm $genewiseout" || die "Impossible to delete $genewiseout\n";
+            system "rm $genewiseout" or die "Impossible to delete $genewiseout\n";
         }
 
         #  open all the prot files and so on
-        open (FILEPROT, ">$fileprot") || die "Impossible to open $fileprot\n";
-        open (FILEGENE, ">$filegene") || die "Impossible to open $filegene\n";
+        open (FILEPROT, ">$fileprot") or die "Impossible to open $fileprot\n";
+        open (FILEGENE, ">$filegene") or die "Impossible to open $filegene\n";
 
          # write into the files
-        print FILEPROT $protein, "\n" || die "Impossible to paste protein into $fileprot\n";
-        print FILEGENE $genseq, "\n" || die "Impossible to paste gene sequence into $filegene\n";
+        print FILEPROT $protein, "\n" or die "Impossible to paste protein into $fileprot\n";
+        print FILEGENE $genseq,  "\n" or die "Impossible to paste gene sequence into $filegene\n";
 
         # close the files
-        close (FILEPROT) || die "Impossible to close $fileprot\n";
-        close (FILEGENE) || die "Impossible to close $filegene\n";
+        close (FILEPROT) or die "Impossible to close $fileprot\n";
+        close (FILEGENE) or die "Impossible to close $filegene\n";
 
 
         # RUN GENE WISE ON EACH GENE 
-        my $locationgenewise = "/share/unsupported/apps/wise_2.2.0/src/bin/";
-
         #---create a codon table---#
         my $condontablle = $TMPDIR . "/codons". $GENCODE . "_"."$flag".".table";
         &CreateCodonTableWithGeneticId ($GENCODE, $condontablle);
 
         #----create options for genewise
         my $genewiseoptions = " -pretty -para -genes  -splice flat -intron tied -matrix $MATRIX -codon $condontablle ";
-        $genewiseoptions .= " -trev" if $strand == -1;
+        $genewiseoptions   .= " -trev" if $strand == -1;
         
         # GENEWISE COMMAND
         my $cmd = "$GENEWISEPATH $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
@@ -812,149 +782,135 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
         # ANNOTATE EXONS
         my $hypprotexonarray = $hypprot->exons;
-        foreach my $e (	@exons) {
-    
+        foreach my $e (    @exons) {
             my $exonstart;
             my $exonend;
     
             if ($strand == 1) { 
-                $exonstart = $start + $e->{"start"} -1;
-                $exonend = $start + $e->{"end"} + 2;
+                $exonstart  = $start + $e->{"start"} -1;
+                $exonend    = $start + $e->{"end"} + 2;
             }
             else {
-                $exonstart = $start - $e->{"start"} -1;
-                $exonend = $start - $e->{"end"} + 1;
+                $exonstart  = $start - $e->{"start"} -1;
+                $exonend    = $start - $e->{"end"} + 1;
             }
     
             my $hypprotexon = new PirObject::Exon (
                                                      start  => $exonstart,
                                                      end    => $exonend,
                                                      strand => $strand,
-                                                   );
-           push (@$hypprotexonarray, $hypprotexon); 
-     
+                                                  );
+            push (@$hypprotexonarray, $hypprotexon); 
         } 
-
         $count ++;
-
-    }  #  End of each prot		
-	
-
+    }  #  End of each prot        
 }
 
 sub ParseInformationFromGeneWise {   # parse the genewise output
                                      # and get the exons
                                      # reorganise too the exons
-                         
 
-     my $genewiseoutput = shift || return;
-     my $strand = shift || return;
-     my $minintronsize = $MININTRONSIZE;
-     my $minexonsize = $MINEXONSIZE;
+    my $genewiseoutput = shift || return;
+    my $strand         = shift || return;
+    my $minintronsize  = $MININTRONSIZE;
+    my $minexonsize    = $MINEXONSIZE;
+
+    my @returnexons;
+    my @organisedexons;
      
-     my @returnexons;
-     my @organisedexons;
+    #---Parsing genewise output
+    open (GENEWISEOUTPUT, $genewiseoutput) or die "Cn not open $genewiseoutput\n";
      
-     
-     #---Parsing genewise output
-     open (GENEWISEOUTPUT, $genewiseoutput) || die "Cn not open $genewiseoutput\n";
-     
-     #--Look for lines having Exons 1 823 (exemple)
-     while (my $line = <GENEWISEOUTPUT>) {
-         if ($line =~ /\s*Exon\s+(\d+)\s+(\d+)/) {
-	     my $findexon = {};
-	     if ($strand ==  1) {
-	         $findexon->{"start"} = $1;
-	         $findexon->{"end"} = $2;
-	     }
-	     else {
-	         $findexon->{"end"} = $1;
-	         $findexon->{"start"} = $2;
-	     }
-	     push (@returnexons, $findexon);
-	 }
-     }
-     
-     
-     
-     #-----SORT THE EXONS---------------
-     @returnexons = sort {
-         $a->{"start"} <=> $b->{"start"};
-	 } @returnexons;
-     
-     
-	 
-     #-----ORGANISE EXONS---------------	 
-     my $currentexon;  # a reference to a hash 
-     EXON : foreach my $exon (@returnexons) {
-         # ---- Looking for the minimum exon size
-         if (!defined $currentexon) { 
-	     $currentexon->{"start"} = $exon->{"start"};
-	     $currentexon->{"end"} = $exon->{"end"};
-	     next EXON;
-	 }     
-     
-	 if ($exon->{"end"} - $exon->{"start"} <=  $minexonsize) {
-	     next EXON;
-	 }
-	 
-	 if ($exon->{"start"} - $currentexon->{"end"} <=  $minintronsize) {
-	     $currentexon->{"end"} = $exon->{"end"};
-	     next EXON;
-	 }
-     
-	 push (@organisedexons, $currentexon);
-	 undef $currentexon;
-	 $currentexon->{"start"} = $exon->{"start"};
-	 $currentexon->{"end"} = $exon->{"end"};
-     }	 
-     push (@organisedexons, $currentexon);
-     
-     #--return exons (an array that reference many hash array)
-     return @organisedexons;
+    #--Look for lines having Exons 1 823 (exemple)
+    while (my $line = <GENEWISEOUTPUT>) {
+        if ($line =~ /\s*Exon\s+(\d+)\s+(\d+)/) {
+            my $findexon = {};
+            if ($strand ==  1) {
+                $findexon->{"start"} = $1;
+                $findexon->{"end"}   = $2;
+            }
+            else {
+                $findexon->{"end"}   = $1;
+                $findexon->{"start"} = $2;
+            }
+            push (@returnexons, $findexon);
+        }
+    }
+
+    #-----SORT THE EXONS---------------
+    @returnexons = sort {
+        $a->{"start"} <=> $b->{"start"};
+    } @returnexons;
+
      
 
+    #-----ORGANISE EXONS---------------
+    my $currentexon;  # a reference to a hash 
+    EXON : foreach my $exon (@returnexons) {
+
+            # ---- Looking for the minimum exon size
+            if (!defined $currentexon) { 
+                $currentexon->{"start"} = $exon->{"start"};
+                $currentexon->{"end"} = $exon->{"end"};
+                next EXON;
+            }     
+     
+            if ($exon->{"end"} - $exon->{"start"} <=  $minexonsize) {
+                next EXON;
+            }
+
+            if ($exon->{"start"} - $currentexon->{"end"} <=  $minintronsize) {
+                $currentexon->{"end"} = $exon->{"end"};
+                next EXON;
+            }
+
+            push (@organisedexons, $currentexon);
+            undef $currentexon;
+            $currentexon->{"start"} = $exon->{"start"};
+            $currentexon->{"end"} = $exon->{"end"};
+    }
+    push (@organisedexons, $currentexon);
+     
+    #--return exons (an array that reference many hash array)
+    return @organisedexons;
 } 
 
-
-    
-
-sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and annotate it as ORFs
-                          #  It means ORF having non corresponding gene in a pepfile
+sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and annotate it as ORFs
+                           # It means ORF having non corresponding gene in a pepfile
   
-    my $pirmaster = shift;    # get the masterfile object
+    my $pirmaster = shift; # get the masterfile object
 
-    EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {   #  process each non corresponding orf
+    EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {             # process each non corresponding orf
      
         ####  Get informations  about empty ORF
-        my $contigname = $emptyorf->contigname;       #  Get the contigname corresponding to the empty ORFs
-        my $strand = $emptyorf->strand;
-        my $arrow = ($strand == 1 ? '==>' : '<==');
+        my $contigname        = $emptyorf->contigname;          # Get the contigname corresponding to the empty ORFs
+        my $strand            = $emptyorf->strand;
+        my $arrow             = ($strand == 1 ? '==>' : '<==');
         my $start;
         my $end;
  
-        my $overlappingcutoff = $OVERLAPPINGCUTOFF;                 #  authorized overlapping  
-        my $minimumlengthorf = $MINLENEMPTYORF;                     #  minimum Orf size, below this size, the ORF is no more kept
-        my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        my $overlappingcutoff = $OVERLAPPINGCUTOFF;             # authorized overlapping  
+        my $minimumlengthorf  = $MINLENEMPTYORF;                # minimum Orf size, below this size, the ORF is no more kept
+        my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
          
  
-        my $annotations = $contig->get_annotations;                 #  Get the annotations, for the same contig belonging to empty ORF
+        my $annotations       = $contig->get_annotations;       # Get the annotations, for the same contig belonging to empty ORF
  
         # Get the new start codon
-        my $seq = $contig->sequence;       #   Get the sequence
-        $seq =~ s/!//g;                    #   Remove ! from the sequence
-        my $newstart = &FindNewStart ($seq, $emptyorf->start, $emptyorf->end, $strand);
+        my $seq               = $contig->sequence;              # Get the sequence
+        $seq                  =~ s/!//g;                        # Remove ! from the sequence
+        my $newstart          = &FindNewStart ($seq, $emptyorf->start, $emptyorf->end, $strand);
         $emptyorf->set_start ($newstart);  
 
         # Get the start, as the most little position
         # For a further treatment
         if ($emptyorf->start < $emptyorf->end) {
             $start = $emptyorf->start;
-            $end = $emptyorf->end;
+            $end   = $emptyorf->end;
         }
         else {
             $start = $emptyorf->end;
-            $end = $emptyorf->start;
+            $end   = $emptyorf->start;
         }
 
         # SIZE CHECKING
@@ -965,19 +921,19 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
             ANNOT : foreach my $annotation (@$annotations) {
      
                 ## Verifiaction : 
-                ## -doesn't take the annotation if it's something else than a comment
+                ## Doesn't take the annotation if it's something else than a comment
                 next ANNOT if ((not defined($annotation->type)) or ($annotation->type ne 'G'));       
-     
+
                 ## Get information from current annotation
                 my $annotstart;
                 my $annotend; 
                 if ( $annotation->startpos <  $annotation->endpos) {
                     $annotstart = $annotation->startpos;
-                    $annotend = $annotation->endpos;
+                    $annotend   = $annotation->endpos;
                 }
                 else {
                     $annotstart = $annotation->endpos;
-                    $annotend = $annotation->startpos;
+                    $annotend   = $annotation->startpos;
                 }
    
                 # OVERLAPPING CHECK
@@ -985,418 +941,351 @@ sub AnnotateEmptyOrfs {   #  This function takes the empty array of ORF and anno
                 # this cutoff is inside the variable $OVERLAPPINGCUTOFF
      
                 #### Case were it seems to work
-                 next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
-		
-                 #### Case were it doesn't work
-		
-	         ######## FOUR CASES
-						      
-	         ####  1) ORF is inside the gene and longer than the gene
-	         ####         |___________________|      ORF
-	         ####            |______________|        GENE
-	 	
-	
-	         if ($start <= $annotstart && $end >= $annotend) {
-		    next EMPTYORF;    
-	         }				       
-		
-		
-	         ####  2) ORF is inside the gene and smaller than the gene => that is ok
-	         ####            |_____________|        ORF
-	         ####         |___________________|     GENE
-		
-	         #if ($start >= $annotstart && $end <= $annotend) {
-	         #    next EMPTYORF;    
-	         #}
-		
-	         ####  3) ORF is overlapping the gene
-	         ####                        |___________|        ORF
-	         ####         |____________________|              GENE
-		
-	         if ($start >= $annotstart && $end >= $annotend) {
-		     my $overlapping=0;                           #  Overlapping calculation
-		     $overlapping += abs($annotstart-$end);
-		     $overlapping = $overlapping / abs ($end - $start);
-		    
-		     if ($overlapping > $overlappingcutoff) {
-		         next EMPTYORF;
-	             }   
-	          }  
-		
-	          ####  4) ORF is overlapping the gene
-	          ####        |__________|              ORF
-	          ####              |________________|  GENE
-		
-	          if ($start <= $annotstart && $end <= $annotend) {
-	       	      
-		      my $overlapping=0;                        #  Overlapping calculation
-		      $overlapping += abs($start-$annotend);
-		    
-		      $overlapping = $overlapping / abs ($end - $start);
-		    
-		      if ($overlapping > $overlappingcutoff) {
-		         next EMPTYORF;
-	              }
-	          }
-		
-	    
-	
-        	}  # End of traversing each annotation
-	} # end of if ORFCHECK
-	
-	
-	 ### Creating an annotation object for storing in the masterfile
-	 my $orfsize = abs($start-$end);
-	 $orfsize = $orfsize / 3;
-	 $orfsize = int ($orfsize);
-	 my $GenenameORF = "orf". $orfsize;
-		
-	#-------------------------------------------------------------------------------------
-	#  Treatment to add a number after the genename ______________________________________
-	#-------------------------------------------------------------------------------------	
-	 my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
-	 $numberofannotforthisorf ++;
-	 my $startline = "";
-	 my $endline = "";
-	 if ($numberofannotforthisorf >= 2) {
-	     	$startline = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
-	        $startline .= " ;; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-	        $endline = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
-	        $endline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
-	 }
-	 else {
-	       $startline = ";     G-$GenenameORF $arrow start";
-	       $startline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-	       $endline = ";     G-$GenenameORF $arrow end";
-	       $endline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
-	 }
-	 # ________________________________________________________________________________
-	   
-	 my $orfannot = new PirObject::AnnotPair (
-	                        type      => "G",  
-              			genename  => $GenenameORF,
-                        	startpos  => $emptyorf->start,
-                        	endpos    => $emptyorf->end,
-                        	direction => $arrow,
-                        	startline => $startline,
-                        	endline   => $endline,
-                    	);
+                next ANNOT if ((($start >= $annotend) or ($end <= $annotstart)));
+
+                #### Case were it doesn't work
+
+                ######## FOUR CASES
+
+                ####  1) ORF is inside the gene and longer than the gene
+                ####         |___________________|      ORF
+                ####            |______________|        GENE
+
+                if ($start <= $annotstart and $end >= $annotend) {
+                    next EMPTYORF;    
+                }
+
+                ####  2) ORF is inside the gene and smaller than the gene => that is ok
+                ####            |_____________|        ORF
+                ####         |___________________|     GENE
+
+                if ($start >= $annotstart and $end >= $annotend) {
+                    my $overlapping = 0;                           #  Overlapping calculation
+                    $overlapping   += abs($annotstart-$end);
+                    $overlapping    = $overlapping / abs ($end - $start);
+   
+                    if ($overlapping > $overlappingcutoff) {
+                        next EMPTYORF;
+                    }   
+                }  
+
+                ####  4) ORF is overlapping the gene
+                ####        |__________|              ORF
+                ####              |________________|  GENE
+
+                if ($start <= $annotstart and $end <= $annotend) {
+                    my $overlapping=0;                        #  Overlapping calculation
+                    $overlapping += abs($start-$annotend);
+                    $overlapping  = $overlapping / abs ($end - $start);
     
-	# Put into the table containing all of the masterfile annotations
-	# So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
-       # print "Il a ajoute cette orf vide : $GenenameORF\n";
-	&AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
-	
+                    if ($overlapping > $overlappingcutoff) {
+                        next EMPTYORF;
+                    }
+                }
+           }  # End of traversing each annotation
+      } # end of if ORFCHECK
+
+
+      ### Creating an annotation object for storing in the masterfile
+      my $orfsize     = int((abs($start-$end))/3);
+      my $GenenameORF = "orf". $orfsize;
+
+      #-------------------------------------------------------------------------------------
+      #  Treatment to add a number after the genename ______________________________________
+      #-------------------------------------------------------------------------------------
+      my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
+      $numberofannotforthisorf ++;
+      my $startline = "";
+      my $endline = "";
+      if ($numberofannotforthisorf >= 2) {
+          $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start ";
+          $startline  .= ";; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+          $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end ";
+          $endline    .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
+      }
+      else {
+           $startline  = ";     G-$GenenameORF $arrow start ";
+           $startline .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+           $endline    = ";     G-$GenenameORF $arrow end ";
+           $endline   .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
+      }
+      #________________________________________________________________________________
+   
+      my $orfannot = new PirObject::AnnotPair(
+                                               type      => "G",  
+                                               genename  => $GenenameORF,
+                                               startpos  => $emptyorf->start,
+                                               endpos    => $emptyorf->end,
+                                               direction => $arrow,
+                                               startline => $startline,
+                                               endline   => $endline,
+                                             );
+    
+      # Put into the table containing all of the masterfile annotations
+      # So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
+      # print "Il a ajoute cette orf vide : $GenenameORF\n";
+      &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
      
-     }  #  END OF FOR EACH EMPTY ORFS
+      } # END OF FOR EACH EMPTY ORFS
 
-
-}  # End function AnnotateEmptyOrfs
-
-sub NextLetter {                        #       A function that gives you the next letter
-
-    my $letter = shift;
-    my $newletter = ord ($letter);
-    $newletter ++;
-    $newletter = chr $newletter;
-    return $newletter;
-    
-}
+} # End function AnnotateEmptyOrfs
 
 sub InitializeANNOTSEEN {   # this function initilaise the hash array
                             # After the masterfile has been opened
-			    # This one contain how many annotation per genname
-			    
+                            # This one contain how many annotation per genname
 
-my $pirmaster = shift;
-my $contigs = $pirmaster->get_contigs;
-foreach my $contig (@$contigs) {
-    my $annotations = $contig->get_annotations;
-    foreach my $annotation (@$annotations){
-        if ($annotation->type eq "G") {
-	    $ANNOTSEEN->{$annotation->genename} += 1; 
-	} # end if
-    } # next annotation	
-	
- } # next contig 
-	    
-
+    my $pirmaster = shift;
+    my $contigs   = $pirmaster->get_contigs;
+    foreach my $contig (@$contigs) {
+        my $annotations = $contig->get_annotations;
+        foreach my $annotation (@$annotations) {
+            if ($annotation->type eq "G") {
+                 $ANNOTSEEN->{$annotation->genename} += 1; 
+            } 
+        } # next annotation
+    } # next contig 
 }
 
-sub AnnotateMfFromHYPPROTSArray {	#	This function annotates the masterfile from the blast results
+sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from the blast results
 
+    my $pirmaster = shift;
 
-	my $pirmaster = shift;
+    HYPPROT : foreach my $hyprot (@$HYPPROTS)
+    {
+                  my $name = $hyprot->name;
+                  # go the next protein if name is not defined
+                  next HYPPROT if (not (defined $name) or ($name eq ""));
+                  my $contigname        = $hyprot->contigname;
+                  my $start             = $hyprot->start;
+                  my $end               = $hyprot->end;
+                  my $arrow             = ($hyprot->strand == -1 ? '<==' : '==>');
+                  my $tag               = $hyprot->remark;
 
-	HYPPROT : foreach my $hyprot (@$HYPPROTS)
-	{
-		my $name = $hyprot->name;
-		next HYPPROT if (not (defined $name) or ($name eq ""));    #  go the next protein if name is not defined, 
-		my $contigname = $hyprot->contigname;
-		my $start = $hyprot->start;
-		my $end = $hyprot->end;
-		my $arrow = ($hyprot->strand == -1 ? '<==' : '==>');
-		my $tag = $hyprot->remark;
-		
-	
-		my $numberofthisannot = $ANNOTSEEN->{$name} || 0;               # get the number for each annot  
-		$numberofthisannot += 1;                                        # increase by one, because it's current
-		my $linename = $name;                                           # the name gene in start and endline
-		$linename .= "_$numberofthisannot" if ($numberofthisannot >= 2); # If there is more than one, add this at the end
-		
-		my $startline = ";     G-$linename $arrow start"; 
-		$startline .=  " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS;   # add comments if option is checked
-		my $endline = ";     G-$linename $arrow end";
-		$endline .= " ;; MFFEAT=$TAGNAME ;;$tag" if $ADDCOMMENTS;       # add comments if option is checked
-		
-		my $protannot = new PirObject::AnnotPair (
-		                type      => "G", 
-              			genename  => "$name",
-                        	startpos  => $start,
-                        	endpos    => $end,
-                        	direction => $arrow,
-                        	startline => $startline,
-                        	endline   => $endline,
-                    	);
-        	my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
-	        
-	        my $exons =  $hyprot->exons;
-		
-		if (!defined ($res) or $res == 0)  # go out of the function if the protein has not been added
-	        {
-		    	$ANNOT_STATS->{'Rediscovered'}->{$protannot->genename}->{'E'} += scalar (@$exons) if (scalar (@$exons) > 0);
-			next HYPPROT;
-		} 
-			
-	       
-		if ($name =~ /^orf/) {   # if it's an ORF, then it goes to through, because an ORF must not have  
-		    next HYPPROT;
-		}
-		
-		if (scalar (@$exons) <= 1) {  # if there is only one exon, and if option is not checked, go to the next prot
-		    next HYPPROT;
-		}     
-		
-		# Annotating exons	
-		my $number = 1;
-		foreach my $exon (@$exons) {
-			
-			my $exonstart = $exon->start;
-			my $exonend = $exon->end;
-			my $exonstrand = $exon->strand;
-		
-			my $startline = ";     G-$linename-E$number $arrow start";
-			$startline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;           # option checked, add comments
-			my $endline = ";     G-$linename-E$number $arrow end";
-			$endline .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;             # option checked, add comments
-			
-			my $exonannot = new PirObject::AnnotPair (
-			        type      => "E",
-              			genename  => "$name",
-                        	startpos  => $exonstart,
-				endpos    => $exonend,
-                        	direction => $arrow,
-                        	startline => $startline,
-				endline   => $endline,
-			);
-			
-			$number++;	
-			my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);	
-		}
-	}
+                  my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
+                  $numberofthisannot   += 1;                         # increase by one, because it's current
+                  my $linename          = $name;                     # the name gene in start and endline
+                  # If there is more than one, add this at the end
+                  $linename            .= "_$numberofthisannot" if ($numberofthisannot >= 2);
+
+                  my $startline         = ";     G-$linename $arrow start "; 
+                  $startline           .= ";; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # add comments if option is checked
+                  my $endline           = ";     G-$linename $arrow end ";
+                  $endline             .= ";; MFFEAT=$TAGNAME ;;$tag" if $ADDCOMMENTS;  # add comments if option is checked
+
+                  my $protannot = new PirObject::AnnotPair (
+                                                             type      => "G", 
+                                                             genename  => "$name",
+                                                             startpos  => $start,
+                                                             endpos    => $end,
+                                                             direction => $arrow,
+                                                             startline => $startline,
+                                                             endline   => $endline,
+                                                           );
+                  my $res               = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
+        
+                  my $exons             =  $hyprot->exons;
+
+                  # go out of the function if the protein has not been added
+                  if (!defined ($res) or $res == 0) {
+                      $ANNOT_STATS->{'Rediscovered'}->{$protannot->genename}->{'E'} += scalar (@$exons) if (scalar (@$exons) > 0);
+                      next HYPPROT;
+                  } 
+      
+                  if ($name =~ /^orf/) {   # if it's an ORF, then it goes to through, because an ORF must not have  
+                      next HYPPROT;
+                  }
+
+                  if (scalar (@$exons) <= 1) {  # if there is only one exon, and if option is not checked, go to the next prot
+                      next HYPPROT;
+                  }     
+
+                  # Annotating exons
+                  my $number = 1;
+                  foreach my $exon (@$exons) {
+                      my $exonstart  = $exon->start;
+                      my $exonend    = $exon->end;
+                      my $exonstrand = $exon->strand;
+
+                      my $startline  = ";     G-$linename-E$number $arrow start ";
+                      $startline    .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+                      my $endline    = ";     G-$linename-E$number $arrow end ";
+                      $endline      .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+
+                      my $exonannot = new PirObject::AnnotPair (
+                                                                 type      => "E",
+                                                                 genename  => "$name",
+                                                                 startpos  => $exonstart,
+                                                                 endpos    => $exonend,
+                                                                 direction => $arrow,
+                                                                 startline => $startline,
+                                                                 endline   => $endline,
+                                                               );
+
+                      $number++;
+                      my $res       = &AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);
+                  }
+              }
 }
 
 sub FindNewStart {  # This function is assuming to return the new start codon,  
 
-  # arg1, sequence
-  # arg2, start,
-  # arg3, end
-  # arg4, strand
+    # arg1, sequence
+    # arg2, start,
+    # arg3, end
+    # arg4, strand
 
-  my $possiblestarts = ['ATG', 'AUG'];
-  my $seq = shift;                                # the sequence where to look
-  my $oldstartpos = shift;                        # Get the old start position
-  my $newstartpos = $oldstartpos;             
-  my $currentpos  = $oldstartpos;
-  my $end = shift;                                # the end of the gene
-  my $strand = shift;                             # the strand of the gene
-  		  
-  my $found = 0;
+    my $possiblestarts = ['ATG', 'AUG'];
+    my $seq            = shift;          # the sequence where to look
+    my $oldstartpos    = shift;          # Get the old start position
+    my $newstartpos    = $oldstartpos;             
+    my $currentpos     = $oldstartpos;
+    my $end            = shift;          # the end of the gene
+    my $strand         = shift;          # the strand of the gene
+    my $found          = 0;
   
-  ####	Two cases
-		if ($strand == 1)						#	Right strand
-		{
-			CODON : while (not ($found) and ($currentpos < $end))
-			{
-				my $codon = uc (substr($seq, $currentpos-1, 3));
-				$codon =~ tr/ATUGCatugc/ATTGCATTGC/;
-				
-				if (ValueIsIn($possiblestarts, $codon) == 1)
-				{
-					$found = 1;
-					$newstartpos = $currentpos;
-					next CODON;
-				}
-				else {
-					$currentpos += 1;
-					next CODON;
-				}
-			}		
-		}
-		else 									#	Complementary strand
-		{
-			CODON : while (not ($found) and ($currentpos-3 > $end))
-			{
-				my $codon = uc (substr($seq, $currentpos-3-1, 3));
-				$codon =~ tr/ATUGCatugc/TAACGTAACG/;
-				$codon = reverse ($codon);				#	Reverse and complementary
-				
-				if (ValueIsIn($possiblestarts, $codon) == 1)
-				{
-					$found = 1;
-					$newstartpos = $currentpos-1;
-					next CODON;
-				}
-				else {
-					$currentpos -= 1;
-					next CODON;
-				}
-			}
-		}
-  
+    #### Two cases
+    if ($strand == 1) { # Right strand
+        CODON : while (not ($found) and ($currentpos < $end)) {
+                    my $codon = uc (substr($seq, $currentpos-1, 3));
+                    $codon =~ tr/ATUGCatugc/ATTGCATTGC/;
+                    if (ValueIsIn($possiblestarts, $codon) == 1) {
+                        $found       = 1;
+                        $newstartpos = $currentpos;
+                        next CODON;
+                    }
+                    else {
+                        $currentpos += 1;
+                        next CODON;
+                    }
+                }
+    }
+    else { #Complementary strand
+        CODON : while (not ($found) and ($currentpos-3 > $end)) {
+                    my $codon = uc (substr($seq, $currentpos-3-1, 3));
+                    $codon    =~ tr/ATUGCatugc/TAACGTAACG/;
+                    $codon    = reverse ($codon);#Reverse and complementary
+                    
+                    if (ValueIsIn($possiblestarts, $codon) == 1) {
+                        $found       = 1;
+                        $newstartpos = $currentpos-1;
+                        next CODON;
+                    }
+                    else {
+                        $currentpos -= 1;
+                        next CODON;
+                    }
+                }
+    }
     return $newstartpos;
 }
 
-sub OrganiseHYPPROTSArray {	#	this function is supposing to find the real start and recreating exon if necessary
+sub OrganiseHYPPROTSArray { # This function is supposing to find the real start and recreating exon if necessary
 
-	my $pirmaster = shift;
-	my $possiblestarts = ['ATG', 'AUG'];
-	
-	HYPPROT : foreach my $hyprot (@$HYPPROTS)
-	{
-		my $name = $hyprot->name;
-	}
+    my $pirmaster      = shift;
+    my $possiblestarts = ['ATG', 'AUG'];
 
-	#################   The first thing is to look for the new start #########################
-	foreach my $hypprot (@$HYPPROTS) {
-	
-		my $oldstartpos = $hypprot->start;					#	Get the old start position
-		my $newstartpos = $hypprot->start;
-		my $currentpos  = $hypprot->start; 
-		my $found = 0;
-		my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);	#	Get the contig
-		my $seq = $contig->sequence;						#	Get sequence
-		$seq =~ s/!//g;
-		my $end = $hypprot->end;
-		
-		####	Two cases
-		if ($hypprot->strand == 1)						#	Right strand
-		{
-			CODON : while (not ($found) and ($currentpos < $hypprot->end))
-			{
-				my $codon = uc (substr($seq, $currentpos-1, 3));
-				$codon =~ tr/ATUGCatugc/ATTGCATTGC/;
-				#print $hypprot->name, " $codon $currentpos\n";
-				
-				if (ValueIsIn($possiblestarts, $codon) == 1)
-				{
-					$found = 1;
-					$newstartpos = $currentpos;
-					next CODON;
-				}
-				else {
-					$currentpos += 1;
-					next CODON;
-				}
-			}		
-		}
-		else 									#	Complementary strand
-		{
-			CODON : while (not ($found) and ($currentpos-3 > $hypprot->end))
-			{
-				my $codon = uc (substr($seq, $currentpos-3-1, 3));
-				$codon =~ tr/ATUGCatugc/TAACGTAACG/;
-				$codon = reverse ($codon);				#	Reverse and complementary
-				
-				if (ValueIsIn($possiblestarts, $codon) == 1)
-				{
-					$found = 1;
-					$newstartpos = $currentpos-1;
-					next CODON;
-				}
-				else {
-					$currentpos -= 1;
-					next CODON;
-				}
-			}
-		}
-		
-		$hypprot->set_start ($newstartpos);  # set the new start to the protein
-	}	
-	
+    HYPPROT : foreach my $hyprot (@$HYPPROTS) {
+                  my $name = $hyprot->name;
+              }
 
-}	#	End function
+#################   The first thing is to look for the new start #########################
+    foreach my $hypprot (@$HYPPROTS) {
+        my $oldstartpos = $hypprot->start; # Get the old start position
+        my $newstartpos = $hypprot->start;
+        my $currentpos  = $hypprot->start; 
+        my $found       = 0;
+        my $contig      = $pirmaster->GetContigByName ($hypprot->contigname); # Get the contig
+        my $seq         = $contig->sequence; # Get sequence
+        $seq            =~ s/!//g;
+        my $end         = $hypprot->end;
 
+        #### Two cases
+        if ($hypprot->strand == 1) { # Right strand
+            CODON : while (not ($found) and ($currentpos < $hypprot->end)) {
+                        my $codon = uc (substr($seq, $currentpos-1, 3));
+                        $codon =~ tr/ATUGCatugc/ATTGCATTGC/;
 
+                        if (ValueIsIn($possiblestarts, $codon) == 1)
+                        {
+                            $found       = 1;
+                            $newstartpos = $currentpos;
+                            next CODON;
+                        }
+                        else {
+                            $currentpos += 1;
+                            next CODON;
+                        }
+                    }
+        }
+        else { #Complementary strand
+            CODON : while (not ($found) and ($currentpos-3 > $hypprot->end)) {
+                        my $codon = uc (substr($seq, $currentpos-3-1, 3));
+                        $codon =~ tr/ATUGCatugc/TAACGTAACG/;
+                        $codon = reverse ($codon); # Reverse and complementary
 
-sub ValueIsIn {		# check if a value is in an array
+                        if (ValueIsIn($possiblestarts, $codon) == 1) {
+                            $found       = 1;
+                            $newstartpos = $currentpos-1;
+                            next CODON;
+                        }
+                        else {
+                            $currentpos -= 1;
+                            next CODON;
+                        }
+                    }
+        }
 
-	my $array = shift;
-	my $value = shift;
-	
-	foreach (@$array)
-	{
-		if ($value eq $_)
-		{
-			return 1;
-		}
-	}
-	
-	return -1;
+        $hypprot->set_start ($newstartpos);  # set the new start to the protein
+    }
+} # End function
 
+sub ValueIsIn {  # check if a value is in an array
+
+    my $array = shift;
+    my $value = shift;
+    
+    foreach (@$array) {
+        if ($value eq $_) {
+            return 1;
+        }
+    }
+    
+    return -1;
 }
 
-sub RunFlip {          # This function run flip with the masterfile
-                       # Flip is a program generating ORF
+sub RunFlip { # This function run flip with the masterfile
+              # Flip is a program generating ORF
 
     my $flag = shift || "";    # something to recognize, what is the pepfile treated
-
-    # Let's get the current working directory name    
-    my $cwd = cwd();
-    
+    my $cwd  = cwd();          # Let's get the current working directory name
+ 
     # We need to change to the temporary directory to run flip - just so the flip files are written here.
     chdir ("$TMPDIR");
 
     # Just check if Flip outfiles exist here already, if so get rid of them
 
-    if(-e "prot.lst")
-    {
+    if (-e "prot.lst") {
       unlink("prot.lst");
     }
-    if(-e "prot.src")
-    {
+    if (-e "prot.src") {
       unlink("prot.src");
     }
-    if(-e "compl")
-    {
+    if (-e "compl") {
       unlink("compl");
     }
-    if(-e "uncompl")
-    {
+    if (-e "uncompl") {
       unlink("uncompl");
     }
 
     # Checking the see if the masterfile path is aboslute or relative
     my $tmpMasterfile;
-    if($MASTERFILE =~ m!^/!)
-    {
-	    # absolute
-	    $tmpMasterfile = $MASTERFILE;
+    if ($MASTERFILE =~ m!^/!) {
+        # absolute
+        $tmpMasterfile = $MASTERFILE;
     }
-    else
-    {
-	    # relative
-	    $tmpMasterfile = "$cwd/$MASTERFILE";
+    else {
+        # relative
+        $tmpMasterfile = "$cwd/$MASTERFILE";
     }
     my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
 
@@ -1413,25 +1302,21 @@ sub RunFlip {          # This function run flip with the masterfile
     chdir($cwd);
 } 
 
+sub BlastFlipVSGene {    # it runs blast with the flip results against file containing genes 
 
-
-sub BlastFlipVSGene {	# it runs blast with the flip results against file containing genes 
-
-
-    my $flag = shift || "";    # something to recognize, what is the pepfile treated
-    $BLASTOUTPUT = $TMPDIR . "/blatstoutput_$flag";
-    my $file = $PEPFILE;                                # undef should never happen in fact.
+    my $flag         = shift || "";    # something to recognize, what is the pepfile treated
+    $BLASTOUTPUT     = $TMPDIR . "/blatstoutput_$flag";
+    my $file         = $PEPFILE;                                # undef should never happen in fact.
     my $escaped_file = $file;
-    $escaped_file =~ s#'#'\\'#g;         
-    my $command = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
+    $escaped_file    =~ s#'#'\\'#g;         
+    my $command      = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
     print "$command\n" if $DEBUG;
-    my $resformatdb = system($command);
+    my $resformatdb  = system($command);
 
-    #RUN FOR BLAST : run blast with the db created and the flip results		
-    my $cmdblast = "$BLASTPATH -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
+    #RUN FOR BLAST : run blast with the db created and the flip results        
+    my $cmdblast     = "$BLASTPATH -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
-	
 }
 
 sub ParseInformationFromBlastResult {
@@ -1442,9 +1327,8 @@ sub ParseInformationFromBlastResult {
     # This loop goes through the different fasta input files that
     # are currently defined in MfAnnotConfig.pir
    
-        
-    my $type = 'PROT';
-    my $file = $PEPFILE;
+    my $type        = 'PROT';
+    my $file        = $PEPFILE;
     my $blastoutput = $BLASTOUTPUT;
      
     if (! -r $blastoutput) { # it's supposed to be here at this point.
@@ -1460,42 +1344,43 @@ sub ParseInformationFromBlastResult {
 }
 
 sub FillFLIPBLASTPROTArrayFromBlastResult {
-    my $pirmaster = shift;	#	Pirmaster Object
-    my $type      = shift;  	# 	'DNA' or 'PROT'
-    my $result    = shift; 	# 	an object implementing Bio::SearchIO::Result::ResultI
+    my $pirmaster = shift; #    Pirmaster Object
+    my $type      = shift; #     'DNA' or 'PROT'
+    my $result    = shift; #     an object implementing Bio::SearchIO::Result::ResultI
     my $tag       = shift || "bVwXyZ";
     
     if (!$result) {return;}
 
     my $contigname = $result->query_name()        || "Unknown ID";
-    $contigname =~ s/\;//g;	#	Delete false caracter			
+    $contigname =~ s/\;//g;                         # Delete false caracter            
     my $rdesc      = $result->query_description() || "Unknown Query Description";
     my $dbname     = $result->database_name()     || "Unknown DB name";
-    my @hits       = $result->hits();# Bio::Search::Hit::HitI		
-    my $numhits    = scalar(@hits);  # normally, only one! 
+    my @hits       = $result->hits();               # Bio::Search::Hit::HitI        
+    my $numhits    = scalar(@hits);                 # normally, only one! 
     return if $numhits < 1;
 
-          
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
-    my $debut = ($start < $end ? $start : $end);
-    my $fin = ($start < $end ? $end : $start);
+    my $debut                  = ($start < $end ? $start : $end);
+    my $fin                    = ($start < $end ? $end : $start);
     
-    my $arrow = ($strand eq 'orig' ? '==>' : '<==');
-    $strand = ($strand eq 'orig' ? 1 : -1);
+    my $arrow                  = ($strand eq 'orig' ? '==>' : '<==');
+    $strand                    = ($strand eq 'orig' ? 1 : -1);
     
-    my $hit=$hits[0];    
+    my $hit                    = $hits[0];    
+
     ###--------------------QUIT THE FUNCTION IF EVALUE IS TOO  WEAK-----------------------------#
-    if ($hit->significance > $BLASTEVALUECUTOFF) {	        # If the e-value is not enough for these ORF you can
-                                                # It creates an Empty ORF 
-    	my $newemptyorf = new PirObject::EmptyOrf (start   => $start,
-                                                   end    => $end,
-				                   strand => $strand,
-				                   score  => $hit->significance,
-						   contigname => $contigname,
-				                   );
-	push (@$EMPTYORFS, $newemptyorf);       #  Put into the array, to be processed after   
-	return;                                 #  Exit the function, because there is no significant ORF 
+    if ($hit->significance > $BLASTEVALUECUTOFF) { # If the e-value is not enough for these ORF you can
+                                                   # It creates an Empty ORF 
+        my $newemptyorf = new PirObject::EmptyOrf (
+                                                    start  => $start,
+                                                    end    => $end,
+                                                    strand => $strand,
+                                                    score  => $hit->significance,
+                                                    contigname => $contigname,
+                                                  );
+        push (@$EMPTYORFS, $newemptyorf);          #  Put into the array, to be processed after   
+        return;                                    #  Exit the function, because there is no significant ORF 
     }
     ###-----------------------------------------------------------------------------------------#
     
@@ -1505,556 +1390,448 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @overlapping;
     
     HIT : foreach my $hit (@hits) {
-        my $desc         = $hit->description();	#	Get the description of the query sequence	
-        my ($hypprotein) = ($desc =~ /\s*([\S]*)\s*;/); 
-	next HIT if (not (defined $hypprotein) or $hypprotein eq "");
-        my $score        = $hit->score();		#	Get the blast score
-        my $evalue	 = $hit->significance();	#	Get the e-value
-        my @hsps = $hit->hsps;			# 	High Scoring pairs : Bio::Search::HSP::BlastHSP
+              my $desc         = $hit->description();  # Get the description of the query sequence    
+              my ($hypprotein) = ($desc =~ /\s*([\S]*)\s*;/); 
+              next HIT if (not (defined $hypprotein) or $hypprotein eq "");
+              my $score        = $hit->score();        # Get the blast score
+              my $evalue       = $hit->significance(); # Get the e-value
+              my @hsps         = $hit->hsps;           # High Scoring pairs : Bio::Search::HSP::BlastHSP
         
-	return if ($evalue > $BLASTEVALUECUTOFF);
-	
-	my $prot = &TakeProteinFromPepfile ($desc, $PEPFILE);   # Take the protein corresponding to the hit
+              return if ($evalue > $BLASTEVALUECUTOFF);
+    
+              my $prot = &TakeProteinFromPepfile ($desc, $PEPFILE);   # Take the protein corresponding to the hit
         
+              if (scalar(@hsps) == 0) {
+                  return; # An ORF that has a good evalue but no HSP => impossible but ...
+              }
     
-        if (scalar(@hsps) == 0) {
-            return;				#	An ORF that has a good evalue but no HSP => impossible but ...
-        }
-        elsif (scalar(@hsps) == 1) {
-    		
-        }
-	
-	#------- Calculate a sort of frame to see what's the region covered by this ORF
-	#  Story : You can have, for some case, more than one protein per gen.
-	#  It's a sort of fusion protein.
-	#  Each of both have a functional part
-	
-	#-----------------------------------------------------------------------------#
-	# To make distinction between a protein fusion and a protein annotated as twice
-	# We have to check the High Scoring Pair frame. If there is no overllapping between 
-	# HSP frames, it means you have many proteins on the same frame
-	# If there is, it's probably because many similar proteins corresponds to the same gene
-	
-	
-	my $frame = {};
-	my $framestart = $hsps[0]->start;
-	my $frameend = $hsps[0]->end;
-	#my $framestrand = $strand;
-	
-	#  We don't need to check for strand because HSP are sorted as if there were on the right strand
+              #------- Calculate a sort of frame to see what's the region covered by this ORF
+              #  Story : You can have, for some case, more than one protein per gen.
+              #  It's a sort of fusion protein.
+              #  Each of both have a functional part
+    
+              #-----------------------------------------------------------------------------#
+              # To make distinction between a protein fusion and a protein annotated as twice
+              # We have to check the High Scoring Pair frame. If there is no overllapping between 
+              # HSP frames, it means you have many proteins on the same frame
+              # If there is, it's probably because many similar proteins corresponds to the same gene
+    
+              my $frame           = {};
+              my $framestart      = $hsps[0]->start;
+              my $frameend        = $hsps[0]->end;
+    
+              #  We don't need to check for strand because HSP are sorted as if there were on the right strand
+              foreach (@hsps) {    
+                  $framestart     = $_->start if ($_->start < $framestart);
+                  $frameend       = $_->end if ($_->end > $frameend);
+              }
 
-	foreach (@hsps) {	
-	    $framestart = $_->start if ($_->start < $framestart);
-            $frameend = $_->end if ($_->end > $frameend);
-	    
-        }
-	$frame -> {"start"} = $framestart;
-	$frame -> {"end"} = $frameend;
-	
-	my $isoverlapping = 0;                          #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
-	           
-	CURRENTFRAME : foreach my $currentframe (@overlapping) {
-	
-	    ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
-	    
-	    # 1)     |----------------|             first frame
-	    #               |-----------------|     second frame
-	    
-	    # 2)            |----------------|      first frame
-	    #        |-----------------|            second frame
-	    
-	    # 2)          |---------|               first frame
-	    #        |-----------------|            second frame
-	    
-	    # 4)    |-----------------|             first frame
-	    #         |---------|                   second frame
-	                            
-				    #       Case were we are on the right strand
-	    $isoverlapping = 1 if (($currentframe->{"start"} <=  $frame -> {"start"}) && ($currentframe->{"end"} >=  $frame -> {"start"}));
-	    $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) && ($frame -> {"end"} >=  $currentframe->{"start"}));
-	    $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) && ($currentframe -> {"end"} <=  $frame->{"end"})); 
-	    $isoverlapping = 1 if (($currentframe -> {"start"} <=  $frame->{"start"}) && ($frame -> {"end"} <=  $currentframe->{"end"}));  
-	    
-	    last CURRENTFRAME if $isoverlapping == 1;   #       Go out of the loop if there is a overlapping frame  
-	}
-	
-	next HIT if ($isoverlapping == 1);              #       If there is an overlapping, the HIT isn't good for annotation
-	push (@overlapping, $frame) if 	($isoverlapping == 0);
+              $frame -> {"start"} = $framestart;
+              $frame -> {"end"}   = $frameend;
     
-	
-        #----	Creating a new ORF object	---
-        my $neworf = new PirObject::Orf (start   => $start,
-                                      end     => $end,
-				      strand  => $strand,
-				      score   => $evalue,
-				      protein => $prot,         # assign the protein to the ORF 
-				      hsps    => []);
-        my $refhsparray = $neworf->hsps;	       #	An array reference,					      
-        foreach (@hsps) {
-    	    my $newhsp = new PirObject::Hsp (start  => $_->start,
-		                             end    => $_->end,
-					     strand => $_->strand);
-	    push (@$refhsparray, $newhsp);
-	}
-
-		      			      
-        my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
-        #	Two case
-        if (defined $newflipblastprot) {	#	Wether the prot is already defined
-    	    my $reforfarray = $newflipblastprot->orfs;
-	    push (@$reforfarray, $neworf);	#	Annd we just add a new orf
-        }
-        else {
-    	    my $newflipblastprot = new PirObject::FlipBlastProt (name        => $hypprotein,	#	First we create the flipblast prot
-							     contigname => $contigname,
-							     orfs       => []);
-	    my $reforfarray = $newflipblastprot->orfs;
-	    push (@$reforfarray, $neworf);	#	Annd we just add a new orf
-	    push (@$FLIPBLASTPROTS, $newflipblastprot);
-        }	
-    
-	return if (! $MULTIORFS);                 #       Exit the function after the first hit if multi ORFS not allowed
-    
-    }
-
-	
+              my $isoverlapping = 0; #       Indiquate if wheter or not, accept the hit as annotation of the ORF 
+               
+              CURRENTFRAME : foreach my $currentframe (@overlapping) {
+              ##################   FOR EACH STRAND THERE IS 4 CASES WHEN FRAME are OVerlapping
         
+              # 1)     |----------------|             first frame
+              #               |-----------------|     second frame
+        
+              # 2)            |----------------|      first frame
+              #        |-----------------|            second frame
+        
+              # 2)          |---------|               first frame
+              #        |-----------------|            second frame
+        
+              # 4)    |-----------------|             first frame
+              #         |---------|                   second frame
+                                
+              #       Case were we are on the right strand
+        $isoverlapping = 1 if (($currentframe->{"start"} <=  $frame -> {"start"}) and ($currentframe->{"end"} >=  $frame -> {"start"}));
+        $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) and ($frame -> {"end"} >=  $currentframe->{"start"}));
+        $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) and ($currentframe -> {"end"} <=  $frame->{"end"})); 
+        $isoverlapping = 1 if (($currentframe -> {"start"} <=  $frame->{"start"}) and ($frame -> {"end"} <=  $currentframe->{"end"}));  
+        
+                                 last CURRENTFRAME if $isoverlapping == 1; # Go out of the loop if there is a overlapping frame  
+                             }
+    
+              next HIT if ($isoverlapping == 1); #  If there is an overlapping, the HIT isn't good for annotation
+              push (@overlapping, $frame) if ($isoverlapping == 0);
+
+              #----    Creating a new ORF object    ---
+              my $neworf = new PirObject::Orf (
+                                                start   => $start,
+                                                end     => $end,
+                                                strand  => $strand,
+                                                score   => $evalue,
+                                                protein => $prot, # assign the protein to the ORF 
+                                                hsps    => []
+                                              );
+              my $refhsparray = $neworf->hsps;           #    An array reference,                          
+              foreach my $hsp (@hsps) {
+                  my $newhsp = new PirObject::Hsp (
+                                                    start  => $hsp->start,
+                                                    end    => $hsp->end,
+                                                    strand => $hsp->strand);
+                  push (@$refhsparray, $newhsp);
+              }
+                                
+              my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
+              # Two case
+              if (defined $newflipblastprot) {    #    Wether the prot is already defined
+                  my $reforfarray = $newflipblastprot->orfs;
+                  push (@$reforfarray, $neworf);    #    Annd we just add a new orf
+              }
+              else {
+                  my $newflipblastprot = new PirObject::FlipBlastProt (
+                                                                        name       => $hypprotein, # First we create the flipblast prot
+                                                                        contigname => $contigname,
+                                                                        orfs       => []
+                                                                      );
+                  my $reforfarray = $newflipblastprot->orfs;
+                  push (@$reforfarray, $neworf);    #    Annd we just add a new orf
+                  push (@$FLIPBLASTPROTS, $newflipblastprot);
+              }    
+              return if (! $MULTIORFS);                 #       Exit the function after the first hit if multi ORFS not allowed
+          }
 }
 
 sub TakeProteinFromPepfile {  # this function takes a protein from the blast result with a descritpion line
                               # A kind of pareser of fasta file
 
-   my $description = shift;
-   my $pepfile = shift;
-
-   my $protein = "";
+    my $description = shift;
+    my $pepfile     = shift;
+    my $protein     = "";
    
+    die "Impossible to read $pepfile" if (not (-f $PEPFILE));
    
-   die "Impossible to read $pepfile" if (not (-f $PEPFILE));
+    open (PEPFILE, "$PEPFILE") or die "Could not open $PEPFILE";
    
-   open (PEPFILE, "$PEPFILE") or die "Could not open $PEPFILE";
-   
-   # Parse the file, containing pep sequences
+    # Parse the file, containing pep sequences
     my $parsebegin = 0;  
  
     SEQUENCE : while (my $line = <PEPFILE>) { #Treat each line
-        chomp $line;
+                   chomp $line;
         
-	next SEQUENCE if ($line =~ /^\s*[;]/);  # don't parse line if it beginns with ; 
-	
-	if ($line =~ /$description/ and $line =~ /^\s*\>/ and $parsebegin == 0) {
-	    $protein .=  $line;
-	    $protein .= "\n";
-	    $parsebegin =1;  
-            next SEQUENCE;
+                   next SEQUENCE if ($line =~ /^\s*[;]/);  # don't parse line if it beginns with ; 
+                   if ($line =~ /$description/ and $line =~ /^\s*\>/ and $parsebegin == 0) {
+                       $protein .=  $line;
+                       $protein .= "\n";
+                       $parsebegin =1;  
+                       next SEQUENCE;
+                   }
+    
+                   if ($parsebegin ==1  and $line =~ /^\s*\>/) { # finish if meet an other protein
+                       last SEQUENCE;
+                   }
+                   if ($parsebegin ==1) {    # Get the line.
+                       $protein .=  $line;
+                       $protein .= "\n";
+                   }    
+               }
+    return $protein;
+}
+
+sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HYPPROTS array (array of hypothetical proteins with
+                        #    FLIPBLASTPROTS array (array of ORF and hsp)
+
+    #    This is mainly the algorithm given by Franz
+    foreach my $flipblastprot (@$FLIPBLASTPROTS) {        #    For each fliup blast protein
+        my $name       = $flipblastprot->name;
+        my $contigname = $flipblastprot->contigname;
+
+        my $orfs       = $flipblastprot->orfs;
+        my $numberorfs = scalar (@$orfs);
+        
+        
+        if ($numberorfs < 1) { 
+            next; # impossible but ..........
         }
-	
-	if ($parsebegin ==1  and $line =~ /^\s*\>/) { # finish if meet an other protein
-	    last SEQUENCE;
-	}
-	
-	if ($parsebegin ==1) {    # Get the line.
-	    $protein .=  $line;
-	    $protein .= "\n";
-	}    
+        
+        else {  # if there is more than one orf
+            my $neworfs = [];
+    
+            #---------------SORT THE ORF-------------------------#
+            @$orfs = sort {        #    The ORFs are classified and sorted by starnd and start, stop positions
+                         my $stranda = $a->strand;
+                         my $strandb = $b->strand;
+                         if ($stranda != $strandb) {
+                             $a->strand <=> $b->strand;
+                         }
+                         elsif ($stranda == 1) {
+                             $a->start  <=> $b->start;
+                         }
+                         else {
+                             $a->end    <=> $b->end;
+                         }    
+                         
+            } @$orfs;    
+         
+            my $newhypprot = undef;
+            
+             foreach my $orf(@$orfs) {
+                #    Now the thing is to create a new hyp prot if the conditions are not required
+                #    First : if the $currentprot is not defined
+                #------------    case     1 : first ORF
+                if (not defined($newhypprot)) {
+                #    Here we create a new protein
+                $newhypprot = new PirObject::HypProt (
+                                                       name       => $name,
+                                                       contigname => $contigname,
+                                                       start      => $orf->start,
+                                                       end        => $orf->end,
+                                                       strand     => $orf->strand,
+                                                       numorfs    => 1,
+                                                       remark     => "",
+                                                       protein    => $orf->protein,
+                                                       score      => $orf->score, 
+                                                       exons      => [],
+                                                     );
+                                     
+                    next; 
+                }
+                
+                #------------    case     2 : not the same strand
+                if ($newhypprot->strand !=  $orf->strand) {
+                    push (@$HYPPROTS,  $newhypprot);
+                    #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+                    $newhypprot = new PirObject::HypProt (
+                                                           name       => $name,
+                                                           contigname => $contigname,
+                                                           start      => $orf->start,
+                                                           end        => $orf->end,
+                                                           strand     => $orf->strand,
+                                                           numorfs    => 1,
+                                                           remark     => "",
+                                                           protein    => $orf->protein,
+                                                           score      => $orf->score,  
+                                                           exons      => [],
+                                                         );                 
+                                     
+                    next;
+                }
+                
+                #------------    case     3-4 : Check space between 2 ORFs, including overlapping
+                if ($orf->strand == 1) { # Two case : right strand or opposite strand
+                    if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
+# BEGIN: THOMAS PLEASE FIX
+                        my $newstart = ($orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
+                        my $newend   = ($orf->end   > $newhypprot->end   ? $orf->end   : $newhypprot->end); 
+# END 
+                        $newhypprot->set_start ($newstart);
+                        $newhypprot->set_end ($newend);
+                        
+                        # Check which protein is the best
+                        if ($orf->score < $newhypprot->score) {
+                            $newhypprot->set_protein ($orf->protein);
+                            $newhypprot->set_score ($orf->score);
+                        }
+
+                        # increase from 1, the number of orf, if we concatenate
+                        my $numorfs = $newhypprot->numorfs;
+                        $numorfs++;
+                        $newhypprot->set_numorfs($numorfs);
+                        next;
+                    }
+                    else {
+                                            #    ++    
+                        push (@$HYPPROTS,  $newhypprot);            #    ++
+                        #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+                        $newhypprot = new PirObject::HypProt (
+                                                               name       => $name,
+                                                               contigname => $contigname,
+                                                               start      => $orf->start,
+                                                               end        => $orf->end,
+                                                               strand     => $orf->strand,
+                                                               numorfs    => 1,
+                                                               remark     => "",
+                                                               protein    => $orf->protein,
+                                                               score      => $orf->score, 
+                                                               exons      => [],
+                                                             );         
+                                        
+                        next;    
+                    }
+                }    
+                else {            #    Opposite strand
+                    if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
+# BEGIN: THOMAS PLEASE FIX
+                        my $newstart = ($orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
+                        my $newend   = ($orf->end   < $newhypprot->end   ? $orf->end   : $newhypprot->end); 
+# END
+                    
+                        $newhypprot->set_start ($newstart);
+                        $newhypprot->set_end ($newend);
+                        
+                        # Check which protein is the best
+                        if ($orf->score < $newhypprot->score) {
+                            $newhypprot->set_protein ($orf->protein);
+                            $newhypprot->set_score ($orf->score);
+                        }
+                            
+                        # Add 1 to the number of orf if there is concatenation
+                        my $numorfs = $newhypprot->numorfs;
+                        $numorfs++;
+                        $newhypprot->set_numorfs($numorfs);
+                        next;
+                    }
+                    else {
+                                                #    ++    
+                        push (@$HYPPROTS,  $newhypprot);            #    ++
+                        #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+                        $newhypprot = new PirObject::HypProt (
+                                                               name       => $name,
+                                                               contigname => $contigname,
+                                                               start      => $orf->start,
+                                                               end        => $orf->end,
+                                                               strand     => $orf->strand,
+                                                               numorfs    => 1,
+                                                               remark     => "", 
+                                                               protein    => $orf->protein,
+                                                               score      => $orf->score, 
+                                                               exons      => [],
+                                                             );
+                        next;    
+                    }
+                }
+            }  # end for each ORF
+            push (@$HYPPROTS,  $newhypprot);
+        } # end if there is more than one ORF
+    } # End for each Flip Blast Prot
+}    
+
+sub GetFlipBlastProtByNAmeAndContigName {    
+    #     this function gives a FlipBlastProt with his name and contig name
+    my $name = shift;    #    This the name of the GetFlipBlastProt
+    my $contigname = shift;    #    This is the contigname of the FlipBlastProt
+    
+    foreach my $result (@$FLIPBLASTPROTS) {
+        if ($result->name eq $name and $result->contigname eq $contigname) {
+            return $result;
+        }
     }
-
-   return $protein;
+    return undef; # in the case where any object has been found
+    
 }
-
-sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {	#	This function fill the HYPPROTS array (array of hypothetical proteins with
-						#	FLIPBLASTPROTS array (array of ORF and hsp)
-
-	#	This is mainly the algorithm given by Franz
-	FLIPBLASTPROT : foreach my $flipblastprot (@$FLIPBLASTPROTS) {		#	For each fliup blast protein
-		my $name = $flipblastprot->name;
-		my $contigname = $flipblastprot->contigname;
-
-		my $orfs = $flipblastprot->orfs;
-		my $numberorfs = scalar (@$orfs);
-		
-		
-		if ($numberorfs < 1) { 
-		    next FLIPBLASTPROT; # impossible but ..........
-		}
-		
-		else {  # if there is more than one orf
-		
-		    my $neworfs = [];
-	
-		    #---------------SORT THE ORF-------------------------#
-		    @$orfs = sort {		#	The ORFs are classified and sorted by starnd and start, stop positions
-				my $stranda = $a->strand;
-				my $strandb = $b->strand;
-				if ($stranda != $strandb) {
-				
-					$a->strand <=> $b->strand;
-				}
-				else {
-				 
-					if ($stranda == 1) {
-						$a->start <=> $b->start;
-					}
-					else {
-						$a->end <=> $b->end;
-					}	
-				}
-				} @$orfs;    
-				
-		 
-		 
-		 my $newhypprot = undef;
-		
-		 
-				
-				
-		     ORF : foreach my $orf(@$orfs)
-		     {
-				
-			
-				#	Now the thing is to create a new hyp prot if the conditions are not required
-				#	First : if the $currentprot is not defined
-				
-				#------------	case	 1 : first ORF
-				if (not defined($newhypprot)) {
-				#	Here we create a new protein
-				
-					$newhypprot = new PirObject::HypProt (name       => $name,
-									      contigname => $contigname,
-									      start      => $orf->start,
-									      end        => $orf->end,
-								              strand     => $orf->strand,
-									      numorfs    => 1,
-									      remark	 => "",
-									      protein    => $orf->protein,
-									      score      => $orf->score, 
-									      exons      => [],
-									 );
-									 
-					next ORF; 
-					
-				}
-				
-				
-				
-				#------------	case	 2 : not the same strand
-				if ($newhypprot->strand !=  $orf->strand)
-				{
-					
-					push (@$HYPPROTS,  $newhypprot);
-					#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-					
-			
-					$newhypprot = new PirObject::HypProt (name       => $name,
-									      contigname => $contigname,
-									      start      => $orf->start,
-									      end        => $orf->end,
-								              strand     => $orf->strand,
-									      numorfs    => 1,
-									      remark     => "",
-									      protein    => $orf->protein,
-									      score      => $orf->score,  
-									      exons      => [],
-									 );				 
-									 
-					next ORF;
-				}
-				
-				
-				#------------	case	 3-4 : Check space between 2 ORFs, including overlapping
-				if ($orf->strand == 1)	#	Two case : right strand or opposite strand
-				{
-					if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
-						my $newstart = ($orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
-						my $newend = ($orf->end > $newhypprot->end ? $orf->end : $newhypprot->end); 
-					
-						$newhypprot->set_start ($newstart);
-						$newhypprot->set_end ($newend);
-						
-						# Check which protein is the best
-						if ($orf->score < $newhypprot->score) {
-						    $newhypprot->set_protein ($orf->protein);
-						    $newhypprot->set_score ($orf->score);
-						}
-
-						# increase from 1, the number of orf, if we concatenate
-						my $numorfs = $newhypprot->numorfs;
-						$numorfs ++;
-						$newhypprot->set_numorfs($numorfs);
-								 
-										
-						next;
-					}
-					else {
-											#	++	
-						push (@$HYPPROTS,  $newhypprot);			#	++
-						#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-						$newhypprot = new PirObject::HypProt (name       => $name,
-									      contigname => $contigname,
-									      start      => $orf->start,
-									      end        => $orf->end,
-								              strand     => $orf->strand,
-									      numorfs    => 1,
-									      remark     => "",
-									      protein    => $orf->protein,
-									      score      => $orf->score, 
-									      exons      => [],
-									 );		 
-										
-						next;	
-					}
-				}	
-				else {			#	Opposite strand
-				
-				       #print "test avec ", $newhypprot->name, "\n";
-				
-					if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
-						my $newstart = ($orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
-						my $newend = ($orf->end < $newhypprot->end ? $orf->end : $newhypprot->end); 
-					
-						$newhypprot->set_start ($newstart);
-						$newhypprot->set_end ($newend);
-						
-						# Check which protein is the best
-						if ($orf->score < $newhypprot->score) {
-						    $newhypprot->set_protein ($orf->protein);
-						    $newhypprot->set_score ($orf->score);
-						}
-					        
-						# Add 1 to the number of orf if there is concatenation
-						my $numorfs = $newhypprot->numorfs;
-						$numorfs ++;
-						$newhypprot->set_numorfs($numorfs);
-						
-			
-						next;
-					}
-					else {
-												#	++	
-						push (@$HYPPROTS,  $newhypprot);			#	++
-						#+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-						$newhypprot = new PirObject::HypProt (name       => $name,
-									      contigname => $contigname,
-									      start      => $orf->start,
-									      end        => $orf->end,
-								              strand     => $orf->strand,
-									      numorfs    => 1,
-									      remark     => "", 
-									      protein    => $orf->protein,
-									      score      => $orf->score, 
-									      exons      => [],
-									 );
-								
-						next;	
-					}
-				
-				
-				}
-		        }  # end for each ORF
-			push (@$HYPPROTS,  $newhypprot);
-		} # end if there is more than one ORF
-	} # End for each Flip Blast Prot
-											
-}	
-sub IsSameFrame {	#	Check if the positions in the array are on the same frame
-
-	my $tab = shift;	#	It's an array reference
-	
-	if (scalar (@$tab) <= 1) { # if there is one or less, it's on the same frame
-	    return 1;
-	}
-	my $frame = @$tab[0] % 3;
-	foreach (@$tab)
-	{
-		if (($_ % 3) ==  $frame) {
-			next;	#	If it's still the same frame continue
-		}
-		else {
-			return -1;	
-		}
-	}
-	
-	return 1;
-}
-
-sub IsSameStrand {	#	Check if the data in the array are on the same strand
-
-	my $tab = shift;	#	It's an array reference
-	
-	my $strand = @$tab[0];
-	foreach (@$tab)
-	{
-		if ($ ==  $strand) {
-			next;	#	If it's still the same frame continue
-		}
-		else {
-			return -1;	
-		}
-	}
-	
-	return 1;
-}
-		
-
-sub GetFlipBlastProtByNAmeAndContigName {	
-				# 	this function gives a FlipBlastProt with his name and contig name
-	my $name = shift;	#	This the name of the GetFlipBlastProt
-	my $contigname = shift;	#	This is the contigname of the FlipBlastProt
-	
-	foreach (@$FLIPBLASTPROTS) {
-		if ($_->name eq $name and $_->contigname eq $contigname) {
-			return $_;
-		}
-	}
-	
-	return undef;		# 	in the case where any object has been found
-	
-}
-
-
-
-
-
-
 
 sub AddGeneFeatureUsingtRNAscanSE {
 
-	#Description of the sub
-	#1st : put the dna sequence into a temporary fastafile
-	#2nd : run tRNAscanSE with the temporary fasta file  
-	#3rd : parse the blast output
-	#4th : annotate with the output
-	
-	#1st : put the dna sequence into a temporary fastafile
-	
-	my $pirmaster   = shift;			#get the masterfile object
-	my $contigs = [];				#create a reference to a config file
-	my $tag = shift;		
-	
-	$contigs = $pirmaster->get_contigs();		#get the masterfiles contigs
-	
-	my $contig=undef;                          # An array containing all the contig name
-	my $countcontig = 1;
-	
-	foreach $contig (@$contigs)			#parse all the contig
-	{
-		my $name=$contig->get_name();		#get the name for the contig
-		my $seq=$contig->get_sequence();	#get the sequence for each contig
-		
-		$seq =~ s/[^atcgATCG]//g;
-		
-		#2nd : run tRNAscanSE with the temporary fasta file
-		
-		my $fastatmp = "$TMPDIR/fasta.tmp";	#temporary fasta file
-		#my $outputtrnascansetmp = "$TMPDIR/tRNAscanSEoutput.tmp";	#tRNAscanSE output temporary file
-		my $outputtrnascansetmp = "$TMPDIR/tRNAnouvscanSEoutputamacr.tmp";	#tRNAscanSE output temporary file
-		
-		 
-		open (FASTATMP, ">$fastatmp")
-		or die "can't open fasta tmp file\n";	      #put into a temporary fasta file	
-		print FASTATMP ">contig$countcontig\n$seq";   #put the sequence into the temporary file with fasta format
-		close FASTATMP;				      #close the temporary file	
-	
-		
-		#2nd : run tRNAscanSE with the temporary fasta file
-		if (! -r "$fastatmp")
-		{
-			die "
-			can't open fasta tmp file\n";
-			
-		}
+    #Description of the sub
+    #1st : put the dna sequence into a temporary fastafile
+    #2nd : run tRNAscanSE with the temporary fasta file  
+    #3rd : parse the tRNAscanSE output
+    #4th : annotate with the output
+    
+    #1st : put the dna sequence into a temporary fastafile
+    
+    my $pirmaster   = shift;                     # get the masterfile object
+    my $contigs     = [];                        # create a reference to a config file
+    my $tag         = shift;        
+    
+    $contigs        = $pirmaster->get_contigs(); # get the masterfiles contigs
+    
+    my $contig      = undef;                     # An array containing all the contig name
+    my $countcontig = 1;
+    
+    foreach $contig (@$contigs) {                # parse all the contig
+        my $name    = $contig->get_name();       # get the name for the contig
+        my $seq     = $contig->get_sequence();   # get the sequence for each contig
+        $seq        =~ s/[^atcgATCG]//g;
+        
+        #2nd : run tRNAscanSE with the temporary fasta file
+        
+        my $fastatmp = "$TMPDIR/fasta.tmp";      # temporary fasta file
+        my $outputtrnascansetmp = "$TMPDIR/tRNAnouvscanSEoutputamacr.tmp";  # tRNAscanSE output temporary file
+        
+        open (FASTATMP, ">$fastatmp") or die "can't open fasta tmp file\n"; # put into a temporary fasta file    
+        print FASTATMP ">contig$countcontig\n$seq";   #put the sequence into the temporary file with fasta format
+        close FASTATMP; #close the temporary file    
+    
+        if (! -r "$fastatmp") {
+            die "can't open fasta tmp file\n";
+        }
 
-		my $tRNAscanSEcmd = "$TRNASCANPATH -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
-		print "$tRNAscanSEcmd\n" if $DEBUG;
-		my $restRNAscanSE = system ($tRNAscanSEcmd);	#-O for searching tRNA in organellar
-                                                                #-C for unsing coves
-                                                                #-o to write the result in a output file	
-		my $parser = new PirObject::tRNAscanSEparser;					#Open the parser for tRNAscanSE
-		$parser->loadObjectfromFile("$outputtrnascansetmp");				#Parse the file with the file and fill the object
-		
-		my @annotat = $parser->get_annotations;
-		
-		my $table = $parser->get_annotations; #this is a reference to an array
-		
-		
-		TRNA : foreach (@$table)	#Correspond to the tRNAscanSE annotation 
-		{								
+        my $tRNAscanSEcmd = "$TRNASCANPATH -O -o $outputtrnascansetmp $fastatmp  > $TMPDIR/tRNAscanSE.output 2>&1";
+        print "$tRNAscanSEcmd\n" if $DEBUG;
+        my $restRNAscanSE = system ($tRNAscanSEcmd);         # -O for searching tRNA in organellar
+                                                             # -C for unsing coves
+                                                             # -o to write the result in a output file    
 
-			my $start;
-			my $end;
-			my $arrow = ($_->get_begin > $_->get_end ? "<=="   : "==>");
-			
-			if ($arrow eq "==>") {			
-				$start = ($_->get_begin > $_->get_end ? $_->get_end   : $_->get_begin);
-				$end =   ($_->get_begin > $_->get_end ? $_->get_begin : $_->get_end);
-			}
-			else {			
-				$start = ($_->get_begin > $_->get_end ? $_->get_begin : $_->get_end);
-				$end =   ($_->get_begin > $_->get_end ? $_->get_end : $_->get_begin);
-			}		
-			
-			my $type = $_->get_type;
-			my $acodon = $_->get_anti_codon;
-			my $score = $_->get_score;
-			if ($score < $TRNACUTOFF) {         # if hte score value is under the tRNA cutoff
-			                                    # go to the next tRNA
-			    next TRNA;
-			}
-			
-			my %CodonTable = Bio::SeqUtils->valid_aa(2);			#get the amino acide code
-			
-			my $aaSymbol= uc(substr($type, 0, 1)).lc(substr($type, 1, 2));	#case treatment
-			if ($aaSymbol = $CodonTable{$type})				#change the amino acid in one to 3 letter
-			{}
-			else {$aaSymbol=$type;}
-			
-			
-			#----- Create annotation -----#
-			chomp ($aaSymbol) if (defined $aaSymbol);
-			my $genename = "trn$aaSymbol";
-										
-			my $annot = new PirObject::AnnotPair (
-              			type      => "G", 
-				genename  => "$genename",                     # Before : genename  => "tRNA-$type($acodon)",
-                        	startpos  => $start,
-                        	endpos    => $end,
-                        	direction => $arrow,
-               
-                    	);
-			
-			my $number = $ANNOTSEEN->{$annot->genename} || 0;
-			my $arnname = $genename;
-			
-			$number += 1;
-			if ($number > 1)
-			{ 
-			    $arnname .= "_$number";
-			}
-			
-			$acodon =~ tr/UTCGAutcga/uucgauucga/;
-			$arnname .= "($acodon)";
-			my $startline = ";     G-$arnname $arrow start";
-			$startline .= " ;; MFFEAT=$tag score=$score" if $ADDCOMMENTS;
-			my $endline = ";     G-$arnname $arrow end";
-			$endline .= " ;; MFFEAT=$tag" if $ADDCOMMENTS;
-			$annot->set_startline ($startline);
-			$annot->set_endline ($endline);
-		
-        		&AddAnnotToPirMaster($pirmaster,$name,$annot);
+        #3rd Parsing tRNAscan output
+        my $parser  = new PirObject::tRNAscanSEparser;       # Open the parser for tRNAscanSE
+        $parser->loadObjectfromFile("$outputtrnascansetmp"); # Parse the file with the file and fill the object
+        
+        my @annotat = $parser->get_annotations;
+        my $table   = $parser->get_annotations;              #this is a reference to an array
+        
+        TRNA : foreach my $result (@$table) { # Correspond to the tRNAscanSE annotation 
+                   my $start;
+                   my $end;
+                   my $arrow  = ($result->get_begin > $result->get_end ? "<=="   : "==>");
+            
+                   if ($arrow eq "==>") {            
+                       $start = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
+                       $end   = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
+                   }
+                   else {            
+                       $start = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
+                       $end   = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
+                   }        
 
-			
-			
-		} # end of each trna
-	
-	$countcontig ++;    
-		
-	} # each contig	
-	
+                   my $type   = $_->get_type;
+                   my $acodon = $_->get_anti_codon;
+                   my $score  = $_->get_score;
+                   if ($score < $TRNACUTOFF) { # if the score value is under the tRNA cutoff
+                                               # go to the next tRNA
+                       next TRNA;
+                   }
+            
+                   my %CodonTable = Bio::SeqUtils->valid_aa(2); # get the amino acide code
+            
+                   my $aaSymbol   = uc(substr($type, 0, 1)).lc(substr($type, 1, 2)); # case treatment
+                   $aaSymbol      = $CodonTable{$type};         # change the amino acid in one to 3 letter
+                   
+                   if (!defined($CodonTable{$type})) {
+                       $aaSymbol  = $type;
+               }
+           else {
+                       $aaSymbol  = $CodonTable{$type};         # change the amino acid in one to 3 letter
+                   }
+                   
+                   # 4th ----- Create annotation -----#
+                   chomp ($aaSymbol) if (defined $aaSymbol);
+                   my $genename = "trn$aaSymbol";
+                   my $annot    = new PirObject::AnnotPair (
+                                                             type      => "G", 
+                                                             genename  => "$genename", # Before : genename  => "tRNA-$type($acodon)",
+                                                             startpos  => $start,
+                                                             endpos    => $end,
+                                                             direction => $arrow,
+                                                           );
+            
+                   my $number    = $ANNOTSEEN->{$annot->genename} || 0;
+                   my $arnname   = $genename;
+            
+                   $number      += 1;
+                   if ($number > 1) { 
+                       $arnname .= "_$number";
+                   }
+            
+                   $acodon       =~ tr/UTCGAutcga/uucgauucga/;
+                   $arnname     .= "($acodon)";
+                   my $startline = ";     G-$arnname $arrow start ";
+                   $startline   .= ";; MFFEAT=$tag score=$score" if $ADDCOMMENTS;
+                   my $endline   = ";     G-$arnname $arrow end ";
+                   $endline     .= ";;MFFEAT=$tag" if $ADDCOMMENTS;
+                   $annot->set_startline ($startline);
+                   $annot->set_endline ($endline);
+        
+                   &AddAnnotToPirMaster($pirmaster,$name,$annot);
+               } # end of each trna
+    
+               $countcontig ++;    
+           } # each contig    
 }
-
-
-
-my $GeneNameToAnnot_Cache = undef;  # just a hash used for efficiency
 
 sub AddAnnotToPirMaster {
 
@@ -2062,197 +1839,182 @@ sub AddAnnotToPirMaster {
     #### return 1 means ok, it has been added
     #### return 0 means function quit before the end, => rediscovered 
    
-    my $pirmaster  = shift;
-    my $contigname = shift;
-    my $annot      = shift;
-    my $contig = $pirmaster->GetContigByName($contigname) || die "Can't get contig by name\n";
+    my $pirmaster   = shift;
+    my $contigname  = shift;
+    my $annot       = shift;
+    my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name\n";
     my $annotations = $contig->get_annotations;
     
      
     # Here we compare all the annotations, with the one we try to add 
-    ANNOTATION : foreach my $annotation (@$annotations){
+    foreach my $annotation (@$annotations) {
         my $annotname = $annotation->genename;
-	my $annottype = $annotation->type || "C";
-	my $annotstart = $annotation->startpos;
-	my $annotend = $annotation->endpos;
-	$annotname = "comment" if (!defined  $annotname);
-	$annotstart = -1 if (!defined  $annotstart);
-	$annotend = -1 if (!defined  $annotend);
-	
-	
-	##--First case : if both are same comment on the same line 
-	if (($annottype eq "C") && ($annot->type eq "C") && ($annot->startpos == $annotstart) && $annot->startline eq $annotation->startline) {
-	    #Nothing is done in this case,
-	    #print "On est bien dans ce cas\n";
-	    return 0;
-	}
-	
-	##--Second case : No comment, both have same start end, and genename;
-	#print "ca c le name : $annotname ",  $annot->genename, "\n";
-	if (($annottype ne "C") && ($annotname eq $annot->genename) && ($annotstart == $annot->startpos) && ($annotend == $annot->endpos)) {
+        my $annottype = $annotation->type || "C";
+        my $annotstart = $annotation->startpos;
+        my $annotend = $annotation->endpos;
+        $annotname = "comment" if (!defined  $annotname);
+        $annotstart = -1 if (!defined  $annotstart);
+        $annotend = -1 if (!defined  $annotend);
+    
+    
+        ##--First case : if both are same comment on the same line 
+        if (($annottype eq "C") and ($annot->type eq "C") and
+            ($annot->startpos == $annotstart) and
+            ($annot->startline eq $annotation->startline)) {
+
+            #Nothing is done in this case,
+            return 0;
+        }
+    
+        ##--Second case : No comment, both have same start end, and genename;
+        if (($annottype ne "C") and ($annotname eq $annot->genename) and
+            ($annotstart == $annot->startpos) and
+            ($annotend == $annot->endpos)) {
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
-	    return 0;
-	}
-	
-	##--Third case : Exons
-	if ($annot->type eq "E") { # it's an exon. The protein has normally already been added
-	    if (defined ($annot->genename)) {
-	        $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++;
-	    }
-	    push (@$annotations, $annot);
-	    return 1;
-	}	
-		
+            return 0;
+        }
+    
+        ##--Third case : Exons
+        if ($annot->type eq "E") { # it's an exon. The protein has normally already been added
+            if (defined ($annot->genename)) {
+                $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++;
+            }
+            push (@$annotations, $annot);
+            return 1;
+        }    
     }
     
-    if ($FORCEANNOT) {       #   If Force annot, you can add a new one 
+    if ($FORCEANNOT) { # If Force annot, you can add a new one 
         $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
         push (@$annotations, $annot);
-	$ANNOTSEEN->{$annot->genename} += 1;
-	return 1;
+        $ANNOTSEEN->{$annot->genename} += 1;
+        return 1;
     }
-    else {                       #   If force annot does not exist
-    
+    else { # If force annot does not exist
         if ($annot->type eq "C") {
-	    push (@$annotations, $annot);
-	    return 1;
-	}
-    
-	if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
+            push (@$annotations, $annot);
+            return 1;
+        }
+        if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
-	    return 0;
-	}
-	else {                                            #  It means, force annot but this annotations doesn't seems to have an other copy    
- 	    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+            return 0;
+        }
+        else { #  It means, force annot but this annotations doesn't seems to have an other copy    
+            $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
             $ANNOTSEEN->{$annot->genename} += 1;    
-	    push (@$annotations, $annot);
-	    return 1;
-	}
+            push (@$annotations, $annot);
+            return 1;
+        }
     }    #    end of if forceannot .......
-    
 }
 
+sub LogInfo { # this function is supposed to add information
+              # in the head of the masterfile
+              # such as
+              #  - the genes added (with exons)
+              #  - the rediscovered genes    
 
-
-sub LogInfo {                      # this function is supposed to add information
-                                   # in the head of the masterfile
-                                   # such as
-                                   #  - the genes added (with exons)
-                                   #  - the rediscovered genes    
     my $pirmaster = shift;
-    my $header = $pirmaster->header() || [];
+    my $header    = $pirmaster->header() || [];
 
-    my @report = ();
-    my $added  = $ANNOT_STATS->{'Added'};
-    my $redisc = $ANNOT_STATS->{'Rediscovered'};
+    my @report    = ();
+    my $added     = $ANNOT_STATS->{'Added'};
+    my $redisc    = $ANNOT_STATS->{'Rediscovered'};
 
-    my @added  = sort keys %$added;
-    my @redisc = sort keys %$redisc;
+    my @added     = sort keys %$added;
+    my @redisc    = sort keys %$redisc;
 
-    push(@report,
-        ";;    - Gene Totals: " . scalar(@added) . " added; " . scalar(@redisc) . " rediscovered.",
-    );
+    push(@report, ";;    - Gene Totals: " . scalar(@added) . " added; " . scalar(@redisc) . " rediscovered.",);
 
     # ---------------- genes added -------------------------
     
-    push(@report,
-        ";;    - List of genes added:",
-    ) if @added;
+    push(@report, ";;    - List of genes added:",) if @added;
 
+    my $COLS      = 3;
+    my $cnt       = 0;
+    my $rep       = "";
 
-    my $COLS=3;
-    my $cnt=0;
-    my $rep = "";
     print "Added : ", scalar(@added), "\n" if $DEBUG;
     print LOGFILE "Added : ", scalar(@added), "\n" if $ISLOGFILE;
+
     foreach my $genename (@added) {
-        my ($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
-        $rep = ";;     " if !$cnt;
-        $rep .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+        my($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
+        $rep      = ";;     " if !$cnt;
+# BEGIN: THOMAS PLEASE FIX
+        $rep     .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+# END
         $cnt++;
         if ($cnt >= $COLS) {
             push(@report, $rep);
-            $cnt=0;
+            $cnt  = 0;
         }
     }
     push(@report, $rep) if $cnt;
     
-    
-    
     # ---------------- genes rediscovered -------------------------
-    
 
-    push(@report,
-        ";;    - List of genes rediscovered:",
-    ) if @redisc;
+    push(@report, ";;    - List of genes rediscovered:",) if @redisc;
 
-    $cnt=0;
+    $cnt = 0;
     $rep = "";
     print "Rediscovered : ", scalar(@redisc), "\n" if $DEBUG;
     print LOGFILE "Rediscovered : ", scalar(@redisc), "\n" if $ISLOGFILE;
     foreach my $genename (@redisc) {
         my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
-        $rep = ";;     " if !$cnt;
-        $rep .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+        $rep       = ";;     " if !$cnt;
+# BEGIN: THOMAS PLEASE FIX
+        $rep      .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
+# END
         $cnt++;
         if ($cnt >= $COLS) {
             push(@report, $rep);
-            $cnt=0;
+            $cnt = 0;
         }
     }
     push(@report, $rep) if $cnt;
-
      
-    push(@$header,
-        ";; Masterfile modified automatically by $BASENAME version $VERSION");
-    push (@$header,
-        ";;    - New annotations labeled with: MFFEAT=$TAGNAME") if $ADDCOMMENTS;  # we only put this sentence if option addcomments is activated
-    push (@$header,    
-        @report,
-        ";;",
-    );
+    push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
+    push (@$header, ";;    - New annotations labeled with: MFFEAT=$TAGNAME") 
+        if $ADDCOMMENTS;  # we only put this sentence if option addcomments is activated
+    push (@$header, @report, ";;",);
 
     $pirmaster->set_header($header);
 }
 
 sub CreateCard {   # A sub for creating card
 
-    my $masterfile = shift;     # the masterfile annotated
-    my $cardfile = shift;       # the place where the card will go  
-
-    # other parameters
-    my $cgviewlocation = "/home/thomash/programs/cgview";
+    my $masterfile     = shift;     # the masterfile annotated
+    my $cardfile       = shift;       # the place where the card will go  
 
     # generate the xml file 
-    my $xmlcmd = "java -jar  $cgviewlocation/IO.jar $OUTPUTFILE map.xml 2> $TMPDIR/warningscgview";
+    my $xmlcmd         = "java -jar $CGVIEWPATH/IO.jar $OUTPUTFILE map.xml 2> $TMPDIR/warningscgview";
     print "$xmlcmd\n" if $DEBUG;
     print LOGFILE "$xmlcmd\n" if $ISLOGFILE;
     system $xmlcmd;
     
     # generate the map
-    my $mapcmd = "java -jar  $cgviewlocation/cgview.jar -i map.xml -o $cardfile";
+    my $mapcmd         = "java -jar  $CGVIEWPATH/cgview.jar -i map.xml -o $cardfile";
     print "$mapcmd\n" if $DEBUG;
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
 }
+
 sub TestFile
 {
   my $file = shift;
-  if (!(-x $file))
-  {
-    die "The file $file could not be found or was not executable. Please notify your administrator\n";
+  if (!(-x $file)) {
+      die "The file $file could not be found or was not executable. Please notify your administrator\n";
   }
 }
 
 
-END {              # With exit, programm will go here
-                   # Cleanup temp directory when program exits.
+END { # With exit, programme will go here
+      # Cleanup temp directory when program exits.
 
-    return unless defined($TMPDIR) && $TMPDIR =~ m#^/tmp/#;
+    return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     
     print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
     system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
-    
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
