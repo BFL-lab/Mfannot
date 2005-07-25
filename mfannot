@@ -25,9 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.35 2005/07/25 20:40:43 dto Exp $
+#    $Id: mfannot,v 1.36 2005/07/25 20:59:54 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.36  2005/07/25 20:59:54  dto
+#    Added tags for Thomas to fix
+#    Fixed style
+#    Fixed system commands - used Perl commands if possible
+#
 #    Revision 1.35  2005/07/25 20:40:43  dto
 #    Fixed style and removed code that was not needed
 #    Added comments for Thomas
@@ -158,6 +163,7 @@ use vars qw( $VERSION $RCS_VERSION );
 use IO::File;
 use Cwd;
 use File::Basename;
+use File::Path;
 use PirObject;                                        #  Pir module treatment 
 use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
 use Bio::SeqUtils;                                    #  Some biological tools
@@ -185,7 +191,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.35 2005/07/25 20:40:43 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.36 2005/07/25 20:59:54 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -349,11 +355,11 @@ $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
 if ($SIMILARITYSEARCH) {
-    foreach (@$PEPLIBRARIES) {
-        $options .= "Look in the peptide library $_\n";
+    foreach my $pep (@$PEPLIBRARIES) {
+        $options .= "Look in the peptide library $pep\n";
     }
-    foreach (@$INPUTPEPFILES) {
-        $options .= "Peptide file $_\n";
+    foreach my $pep (@$INPUTPEPFILES) {
+        $options .= "Peptide file $pep\n";
     }
 }
 else {
@@ -392,8 +398,8 @@ PEPLIB : foreach my $library (@$PEPLIBRARIES) {
     
 }    
 #  2) second, push the input pepfiles in the pepfile array
-    foreach (@$INPUTPEPFILES) {
-        push (@PEPFILES, $_);
+    foreach my $file (@$INPUTPEPFILES) {
+        push (@PEPFILES, $file);
     }
 
 #-----------ANNOTATION -------------------------------------------
@@ -453,7 +459,7 @@ if ($SIMILARITYSEARCH) {
     my $step;
     $count = 1;
   
-    PEPFILE :   foreach (@PEPFILES) { # Each pepfile
+    PEPFILE :   foreach my $file (@PEPFILES) { # Each pepfile
                                       # The input pepfiles
                                       # + the pepfiles created from the libraries
   
@@ -466,7 +472,7 @@ if ($SIMILARITYSEARCH) {
   
         ## Print the name of each pepfile###
         ##  if it's a library, name begin with libarary....
-        $PEPFILE = $_;                           
+        $PEPFILE = $file;                           
         my @tabname = split ("/", $PEPFILE);
         my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
         print $tringprint, "\n" if $DEBUG;
@@ -542,7 +548,7 @@ if ($USETRNASCANSE) {                                                # find the 
 
     
 print "----------------------------------\n",
-      "       End of the Programm        \n",
+      "       End of the Programme       \n",
       "----------------------------------\n" if $DEBUG;  
   
 #  unreferencing 
@@ -622,19 +628,19 @@ sub CreatePepfileWithLibrary {
                                  # This one contains after the all peptides from the library
     
     opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
-    my @files = grep {/\.pep$/ and -f "$library/$_"} readdir (DIR);    # Keep the existing *.pep files
+    my @files = grep {/\.pep$/ and -f "$library/$_"} readdir (DIR);   # Keep the existing *.pep files
     close (DIR);                                                      # Close the directory
     
     # delete an hyp. previous same. file
     if (-f $pepfile) {
-        system ("rm -f $pepfile");
+        #system ("rm -f $pepfile");
+        unlink($pepfile);
     }
     
     #concatenate all the file from the library
-    foreach (@files) {
-        system ("cat $library/$_ >> $pepfile");                       # Use the cat command to concatenate file in one 
+    foreach my $file (@files) {
+        system ("cat $library/$file >> $pepfile"); # Use the cat command to concatenate file in one 
     }
-    
     return $pepfile;
     exit 0;
 }
@@ -733,15 +739,18 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
         # check if it exists
         if (-f $fileprot) { # this file already exists
-            system "rm $fileprot" or die "Impossible to delete $fileprot\n";
+            #system "rm $fileprot" or die "Impossible to delete $fileprot\n";
+            unlink($fileprot) or die "Impossible to delete $fileprot\n";
         }
 
         if (-f $filegene) { # this file already exists
-            system "rm $filegene" or die "Impossible to delete $filegene\n";
+            #system "rm $filegene" or die "Impossible to delete $filegene\n";
+            unlink($filegene) or die "Impossible to delete $filegene\n";
         }
 
         if (-f $genewiseout) { # this file already exists
-            system "rm $genewiseout" or die "Impossible to delete $genewiseout\n";
+            #system "rm $genewiseout" or die "Impossible to delete $genewiseout\n";
+            unlink($genewiseout) or die "Impossible to delete $genewiseout\n";
         }
 
         #  open all the prot files and so on
@@ -885,7 +894,9 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         ####  Get informations  about empty ORF
         my $contigname        = $emptyorf->contigname;          # Get the contigname corresponding to the empty ORFs
         my $strand            = $emptyorf->strand;
+# BEGIN: THOMAS PLEASE FIX
         my $arrow             = ($strand == 1 ? '==>' : '<==');
+# END
         my $start;
         my $end;
  
@@ -1058,7 +1069,9 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
                   my $contigname        = $hyprot->contigname;
                   my $start             = $hyprot->start;
                   my $end               = $hyprot->end;
+# BEGIN: THOMAS PLEASE FIX		  
                   my $arrow             = ($hyprot->strand == -1 ? '<==' : '==>');
+# END
                   my $tag               = $hyprot->remark;
 
                   my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
@@ -1244,8 +1257,8 @@ sub ValueIsIn {  # check if a value is in an array
     my $array = shift;
     my $value = shift;
     
-    foreach (@$array) {
-        if ($value eq $_) {
+    foreach my $result (@$array) {
+        if ($value eq $result) {
             return 1;
         }
     }
@@ -1361,11 +1374,12 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
+# BEGIN: THOMAS PLEASE FIX - also change variables to English please
     my $debut                  = ($start < $end ? $start : $end);
     my $fin                    = ($start < $end ? $end : $start);
-    
     my $arrow                  = ($strand eq 'orig' ? '==>' : '<==');
     $strand                    = ($strand eq 'orig' ? 1 : -1);
+# END
     
     my $hit                    = $hits[0];    
 
@@ -1421,9 +1435,9 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
               my $frameend        = $hsps[0]->end;
     
               #  We don't need to check for strand because HSP are sorted as if there were on the right strand
-              foreach (@hsps) {    
-                  $framestart     = $_->start if ($_->start < $framestart);
-                  $frameend       = $_->end if ($_->end > $frameend);
+              foreach my $hsp (@hsps) {    
+                  $framestart     = $hsp->start if ($hsp->start < $framestart);
+                  $frameend       = $hsp->end   if ($hsp->end   > $frameend);
               }
 
               $frame -> {"start"} = $framestart;
@@ -1767,20 +1781,25 @@ sub AddGeneFeatureUsingtRNAscanSE {
         TRNA : foreach my $result (@$table) { # Correspond to the tRNAscanSE annotation 
                    my $start;
                    my $end;
+# BEGIN: THOMAS PLEASE FIX
                    my $arrow  = ($result->get_begin > $result->get_end ? "<=="   : "==>");
-            
+# END 
                    if ($arrow eq "==>") {            
+# BEGIN: THOMAS PLEASE FIX
                        $start = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
                        $end   = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
+# END
                    }
-                   else {            
+                   else {
+# BEGIN: THOMAS PLEASE FIX
                        $start = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
                        $end   = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
+# END
                    }        
 
-                   my $type   = $_->get_type;
-                   my $acodon = $_->get_anti_codon;
-                   my $score  = $_->get_score;
+                   my $type   = $result->get_type;
+                   my $acodon = $result->get_anti_codon;
+                   my $score  = $result->get_score;
                    if ($score < $TRNACUTOFF) { # if the score value is under the tRNA cutoff
                                                # go to the next tRNA
                        next TRNA;
@@ -2014,7 +2033,8 @@ END { # With exit, programme will go here
     return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     
     print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
-    system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+    rmtree($TMPDIR);
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
