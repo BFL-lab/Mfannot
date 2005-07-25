@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.37 2005/07/25 21:18:47 dto Exp $
+#    $Id: mfannot,v 1.38 2005/07/25 23:16:15 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.38  2005/07/25 23:16:15  dto
+#    Added more tags for Thomas
+#
 #    Revision 1.37  2005/07/25 21:18:47  dto
 #    Removed non-required loop tags
 #
@@ -194,7 +197,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.37 2005/07/25 21:18:47 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.38 2005/07/25 23:16:15 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -292,6 +295,7 @@ TestFile($TRNASCANPATH);
 # HELP AND USAGE #
 ##################
 
+# BEGIN: THOMAS, is this used?
 sub GoOut {
     print "----------------\n";
     #&Usage;
@@ -304,6 +308,9 @@ sub Help {
     print "-------------------\n";
     #&Usage;
 }
+
+# END
+
 
 ################
 # Trap Signals #
@@ -1983,6 +1990,7 @@ sub LogInfo { # this function is supposed to add information
     $pirmaster->set_header($header);
 }
 
+# BEGIN: THOMAS, Is this used?
 sub CreateCard {   # A sub for creating card
 
     my $masterfile     = shift;     # the masterfile annotated
@@ -2000,6 +2008,7 @@ sub CreateCard {   # A sub for creating card
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
 }
+# END
 
 sub TestFile
 {
