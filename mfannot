@@ -25,9 +25,15 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.39 2005/07/26 12:49:39 dto Exp $
+#    $Id: mfannot,v 1.40 2005/07/26 19:32:34 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.40  2005/07/26 19:32:34  thomash
+#    # If syntax changed
+#    # Unused parts removed
+#    # Formatdb put as a global variable in command line
+#    # Print Steps on screen during application runnning
+#
 #    Revision 1.39  2005/07/26 12:49:39  dto
 #    Added more tags for Thomas to fix
 #    Fix BLASTOUTPUT line
@@ -199,7 +205,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.39 2005/07/26 12:49:39 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.40 2005/07/26 19:32:34 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -211,14 +217,9 @@ my $USER=getpwuid($<) or getlogin or die "Can't find USER from environment!\n";
 ##################################
 
 # Command-line args (first, original program)
-# BEGIN: THOMAS, is this variable used?
-my $AUTOMATIC        = 0;
-# END
+
 my $TAGNAME          = undef;                   #  Tag : is presnt in masterfile within the annotations made with Mfannot
 my $FORCEANNOT       = 0;
-# BEGIN: THOMAS, is this variable used?
-my $HOMECONFIGFILE   = ($ENV{"HOME"} or ".") . "/.mfannotconfig.xml";
-# END
 my $ANNOT_STATS      = {
                          'Added'        => {},  #  It means, never see it before
                          'Rediscovered' => {},  #  Means exist at the same place (not added into the file)
@@ -226,12 +227,7 @@ my $ANNOT_STATS      = {
 my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
 my $ANNOTSEEN        = {};                      #  An array storing annotations that have been seen before
-# BEGIN: THOMAS, is this varibable used?
-my $FIRSTTIME        = 1;                       #  A global variable for annotation process (used in AddAnnotFrompirmaster)
-# END
-# BEGIN: THOMAS, is this varibable used?
-my %GENENAMEOCCURENCE;                          #  An hash array, defined only if the gene has been discovered
-# END
+
 
 # Command line Program's paths    
 my $BLASTPATH        = "/share/supported/apps/ncbi/bin/blastall";
@@ -245,12 +241,10 @@ my $CGVIEWPATH       = "/home/thomash/programs/cgview";
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
 my $GENCODE          = undef;                   #  Genetique code
 my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
+#my $TMPDIR           = "/home/thomash/unix-utils/mfannot/TMPDIR/mfannot.$$";
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE        = 0;                       #  Just to know if the $LOGFILE is not empty (0 or 1)
-# BEGIN: THOMAS, is this varibable used?
-my $PEPLIBRARY;                                 #  Path for peplibrary directory
-
 my $MASTERFILE       = undef;                   #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
 my $TAKEINPUTFILE;                              
@@ -305,13 +299,6 @@ TestFile($TRNASCANPATH);
 # HELP AND USAGE #
 ##################
 
-# BEGIN: THOMAS, is this used?
-sub GoOut {
-    print "----------------\n";
-    #&Usage;
-    exit 0;
-
-}
 
 sub Help {
     print "Help for mfannot.pl\n";
@@ -353,7 +340,7 @@ my $header = "\n".
              "Programmed by Thomas Hoellinger and Pierre Rioux\n".
              "######################################################################\n\n";
 
-print $header if $DEBUG;
+print $header;
 print LOGFILE $header if $ISLOGFILE;
 
 ##---------------OPTIONS OF THE PROGRAM------------------------------------------------
@@ -427,7 +414,7 @@ foreach my $library (@$PEPLIBRARIES) {
 # - print option of the annotation
 print "----------------------------------\n",
       "         Gene Annotation          \n",
-      "----------------------------------\n" if $DEBUG;
+      "----------------------------------\n";
 print LOGFILE "----------------------------------\n",
               "         Gene Annotation          \n",
               "----------------------------------\n" if $ISLOGFILE;
@@ -453,7 +440,7 @@ if ($SIMILARITYSEARCH) {
 #      - load the annotations
 #      - load the sequence of each contig 
 
-print "Parsing masterfile...\n" if $DEBUG;
+print "Parsing masterfile...\n";
 my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = 0;                         # Number of contigs in the masterfile
@@ -495,7 +482,7 @@ if ($SIMILARITYSEARCH) {
         $PEPFILE = $file;                           
         my @tabname = split ("/", $PEPFILE);
         my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
-        print $tringprint, "\n" if $DEBUG;
+        print $tringprint, "\n";
 
         ## check the existenz ##
         if ((not -r  $PEPFILE) and $SIMILARITYSEARCH) {
@@ -508,43 +495,43 @@ if ($SIMILARITYSEARCH) {
         # Run the programm step by, to know the right step  
             
         # Flip running, generate ORFS
-        print "$step) Run Flip...\n" if $DEBUG;
+        print "$step) Run Flip...\n";
         $step += 1; 
         &RunFlip ($count);
 
         # Blast the flip result with the blast
-        print "$step) Run Blast...\n" if $DEBUG;
+        print "$step) Run Blast...\n";
         $step += 1;  
         &BlastFlipVSGene ($count);
 
         # Parse the blast result, create a flipblastprot object
-        print "$step) Parse Information From Blast Results...\n" if $DEBUG;
+        print "$step) Parse Information From Blast Results...\n";
         $step += 1;
         &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
      
         # Create Hypothetical proteins  
-        print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n" if $DEBUG;
+        print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n";
         $step += 1; 
         &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
         # Organise the hypothetical proteins (find the real start)
-        print "$step) Organise Prot Array...\n" if $DEBUG; 
+        print "$step) Organise Prot Array...\n"; 
         $step += 1; 
         &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
   
         # Make the alignement and give the exons
-        print "$step) Find Exons...\n" if $DEBUG; 
+        print "$step) Find Exons...\n"; 
         $step += 1; 
         &FindExonsInHypProtArray ($pirmaster, $count);
 
         # Annotate -> change hypothetical proteins into an object annotation
-        print "$step) Annotate from Hyp Prots Array...\n" if $DEBUG;
+        print "$step) Annotate from Hyp Prots Array...\n";
         $step += 1; 
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
         # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
         if ($ORFPROCESS) {
-            print "$step) Process Empty ORFs...\n" if $DEBUG; 
+            print "$step) Process Empty ORFs...\n"; 
             $step += 1; 
             &AnnotateEmptyOrfs ($pirmaster);
         }
@@ -556,7 +543,7 @@ if ($SIMILARITYSEARCH) {
 }
   
 if ($USETRNASCANSE) {                                                # find the trna genes
-    print "\nAnnotate with tRNAscanSE...\n" if $DEBUG;               # by running trnascanSE
+    print "\nAnnotate with tRNAscanSE...\n";               # by running trnascanSE
     &AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");       # limited with a score for each case
 }    
 
@@ -565,7 +552,7 @@ if ($USETRNASCANSE) {                                                # find the 
     
 print "----------------------------------\n",
       "       End of the Programme       \n",
-      "----------------------------------\n" if $DEBUG;  
+      "----------------------------------\n";  
   
 #  unreferencing 
 undef $FLIPBLASTPROTS;
@@ -578,7 +565,7 @@ my $annotations = $cntigs->[0]->annotations();
 
 # Add informations in the masterfile     
 &LogInfo ($pirmaster);
-print "Dumping new masterfile in $OUTPUTFILE\n" if  $DEBUG;
+print "Dumping new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
 
@@ -733,12 +720,12 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
 
         # CHECKING
-        if (($genseq eq "") or (!defined $genseq)) {
+        if (($genseq eq "") or (!defined ($genseq))) {
             $count++;
             next HYPPROT;
         }   
 
-        if (($protein eq "") or (!defined $protein)) {
+        if (($protein eq "") or (!defined ($protein))) {
             $count++;
             next HYPPROT;
         } 
@@ -792,7 +779,6 @@ sub FindExonsInHypProtArray {  # the main is to find exons
         #  Run the alignement program
         system $cmd;
 
-
         # PARSE RESULTS FROM GENEWISE AND GET THE EXONS
         my @exons = &ParseInformationFromGeneWise ($genewiseout, $strand);
 
@@ -800,7 +786,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
             $count++;
             next;
         } 
-
+	
         # ANNOTATE EXONS
         my $hypprotexonarray = $hypprot->exons;
         foreach my $e (    @exons) {
@@ -840,7 +826,7 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
     my @organisedexons;
      
     #---Parsing genewise output
-    open (GENEWISEOUTPUT, $genewiseoutput) or die "Cn not open $genewiseoutput\n";
+    open (GENEWISEOUTPUT, $genewiseoutput) or die "Can not open $genewiseoutput\n";
      
     #--Look for lines having Exons 1 823 (exemple)
     while (my $line = <GENEWISEOUTPUT>) {
@@ -862,14 +848,13 @@ sub ParseInformationFromGeneWise {   # parse the genewise output
     @returnexons = sort {
         $a->{"start"} <=> $b->{"start"};
     } @returnexons;
-
-     
+ 
 
     #-----ORGANISE EXONS---------------
     my $currentexon;  # a reference to a hash 
     foreach my $exon (@returnexons) {
         # ---- Looking for the minimum exon size
-        if (!defined $currentexon) { 
+        if (!defined ($currentexon)) { 
             $currentexon->{"start"} = $exon->{"start"};
             $currentexon->{"end"} = $exon->{"end"};
             next;
@@ -903,9 +888,15 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         ####  Get informations  about empty ORF
         my $contigname        = $emptyorf->contigname;          # Get the contigname corresponding to the empty ORFs
         my $strand            = $emptyorf->strand;
-# BEGIN: THOMAS PLEASE FIX
-        my $arrow             = ($strand == 1 ? '==>' : '<==');
-# END
+
+        my $arrow;
+        if ($strand == 1) {
+            $arrow = '==>';
+        }
+        else {
+            $arrow = '<==';
+        }
+        
         my $start;
         my $end;
  
@@ -1072,13 +1063,19 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
     foreach my $hyprot (@$HYPPROTS) {
         my $name = $hyprot->name;
         # go the next protein if name is not defined
-        next if (not (defined $name) or ($name eq ""));
+        next if (not (defined ($name)) or ($name eq ""));
         my $contigname        = $hyprot->contigname;
         my $start             = $hyprot->start;
         my $end               = $hyprot->end;
-# BEGIN: THOMAS PLEASE FIX		  
-        my $arrow             = ($hyprot->strand == -1 ? '<==' : '==>');
-# END
+  
+        my $arrow;
+        if ($hyprot->strand == -1) {
+            $arrow = '<==';
+        }
+        else {
+            $arrow = '==>';
+        }
+
         my $tag               = $hyprot->remark;
 
         my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
@@ -1325,7 +1322,7 @@ sub BlastFlipVSGene {    # it runs blast with the flip results against file cont
     my $file         = $PEPFILE;                                # undef should never happen in fact.
     my $escaped_file = $file;
     $escaped_file    =~ s#'#'\\'#g;         
-    my $command      = "formatdb -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
+    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
     print "$command\n" if $DEBUG;
     my $resformatdb  = system($command);
 
@@ -1377,12 +1374,16 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
-# BEGIN: THOMAS PLEASE FIX - also change variables to English please
-    my $debut                  = ($start < $end ? $start : $end);
-    my $fin                    = ($start < $end ? $end : $start);
-    my $arrow                  = ($strand eq 'orig' ? '==>' : '<==');
+    my $arrow;
+     
+    if ($strand eq 'orig') {
+        $arrow =  '==>';
+    }
+    else {
+        $arrow =  '<==';
+    }
+    
     $strand                    = ($strand eq 'orig' ? 1 : -1);
-# END
     
     my $hit                    = $hits[0];    
 
@@ -1409,7 +1410,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     HIT : foreach my $hit (@hits) {
               my $desc         = $hit->description();  # Get the description of the query sequence    
               my ($hypprotein) = ($desc =~ /\s*([\S]*)\s*;/); 
-              next HIT if (not (defined $hypprotein) or $hypprotein eq "");
+              next HIT if (not (defined ($hypprotein)) or $hypprotein eq "");
               my $score        = $hit->score();        # Get the blast score
               my $evalue       = $hit->significance(); # Get the e-value
               my @hsps         = $hit->hsps;           # High Scoring pairs : Bio::Search::HSP::BlastHSP
@@ -1495,7 +1496,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
                                 
               my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
               # Two case
-              if (defined $newflipblastprot) {    #    Wether the prot is already defined
+              if (defined ($newflipblastprot)) {    #    Wether the prot is already defined
                   my $reforfarray = $newflipblastprot->orfs;
                   push (@$reforfarray, $neworf);    #    Annd we just add a new orf
               }
@@ -1630,10 +1631,24 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                 #------------    case     3-4 : Check space between 2 ORFs, including overlapping
                 if ($orf->strand == 1) { # Two case : right strand or opposite strand
                     if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
-# BEGIN: THOMAS PLEASE FIX
-                        my $newstart = ($orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
-                        my $newend   = ($orf->end   > $newhypprot->end   ? $orf->end   : $newhypprot->end); 
-# END 
+
+                        my $newstart;
+                        my $newend; 
+
+                        if ($orf->start < $newhypprot->start) {
+                            $newstart = $orf->start;
+                        }
+                        else {
+                            $newstart = $newhypprot->start;
+                        }
+
+                        if ($orf->end   > $newhypprot->end) {
+                            $newend   = $orf->end;
+                        }
+                        else {
+                            $newend   = $newhypprot->end;
+                        }
+ 
                         $newhypprot->set_start ($newstart);
                         $newhypprot->set_end ($newend);
                         
@@ -1671,10 +1686,23 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                 }    
                 else {            #    Opposite strand
                     if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
-# BEGIN: THOMAS PLEASE FIX
-                        my $newstart = ($orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
-                        my $newend   = ($orf->end   < $newhypprot->end   ? $orf->end   : $newhypprot->end); 
-# END
+                        
+                        my $newstart;
+                        my $newend;
+
+                        if ($orf->start > $newhypprot->start) {
+                            $newstart = $orf->start;
+                        }
+                        else {
+                            $newstart = $newhypprot->start;
+                        }
+                 
+                        if ($orf->end   < $newhypprot->end) {
+                            $newend   = $orf->end;
+                        }
+                        else {
+                            $newend   = $newhypprot->end;
+                        }
                     
                         $newhypprot->set_start ($newstart);
                         $newhypprot->set_end ($newend);
@@ -1741,15 +1769,15 @@ sub AddGeneFeatureUsingtRNAscanSE {
     #1st : put the dna sequence into a temporary fastafile
     
     my $pirmaster   = shift;                     # get the masterfile object
-    my $contigs     = [];                        # create a reference to a config file
+    #my $contigs     = [];                        # create a reference to a config file
     my $tag         = shift;        
     
-    $contigs        = $pirmaster->get_contigs(); # get the masterfiles contigs
+    my $contigs        = $pirmaster->get_contigs(); # get the masterfiles contigs
     
-    my $contig      = undef;                     # An array containing all the contig name
+    #my $contig      = undef;                     # An array containing all the contig name
     my $countcontig = 1;
     
-    foreach $contig (@$contigs) {                # parse all the contig
+    foreach my $contig (@$contigs) {                # parse all the contig
         my $name    = $contig->get_name();       # get the name for the contig
         my $seq     = $contig->get_sequence();   # get the sequence for each contig
         $seq        =~ s/[^atcgATCG]//g;
@@ -1758,7 +1786,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
         
         my $fastatmp = "$TMPDIR/fasta.tmp";      # temporary fasta file
         my $outputtrnascansetmp = "$TMPDIR/tRNAnouvscanSEoutputamacr.tmp";  # tRNAscanSE output temporary file
-        
+
         open (FASTATMP, ">$fastatmp") or die "can't open fasta tmp file\n"; # put into a temporary fasta file    
         print FASTATMP ">contig$countcontig\n$seq";   #put the sequence into the temporary file with fasta format
         close FASTATMP; #close the temporary file    
@@ -1783,20 +1811,35 @@ sub AddGeneFeatureUsingtRNAscanSE {
         foreach my $result (@$table) { # Correspond to the tRNAscanSE annotation 
             my $start;
             my $end;
-# BEGIN: THOMAS PLEASE FIX
-            my $arrow  = ($result->get_begin > $result->get_end ? "<=="   : "==>");
-# END 
-            if ($arrow eq "==>") {            
-# BEGIN: THOMAS PLEASE FIX
-                $start = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
-                $end   = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
-# END
+
+            my $arrow;
+            if ($result->get_begin > $result->get_end) {
+                $arrow = "<==";   
             }
             else {
-# BEGIN: THOMAS PLEASE FIX
-                $start = ($result->get_begin > $result->get_end ? $result->get_begin : $result->get_end);
-                $end   = ($result->get_begin > $result->get_end ? $result->get_end   : $result->get_begin);
-# END
+                $arrow = "==>";
+            } 
+
+            if ($arrow eq "==>") {            
+                # Get the start and the end
+                if ($result->get_begin > $result->get_end) {
+                    $start = $result->get_end;
+                    $end   = $result->get_begin;
+                }
+                else {
+                    $start = $result->get_begin;
+                    $end   = $result->get_end;
+                }
+            }
+            else {
+                if ($result->get_begin > $result->get_end) { 
+                    $start = $result->get_begin;
+                    $end   = $result->get_end;
+                }
+                else {
+                    $start = $result->get_end;
+                    $end   = $result->get_begin;
+                }
             }        
 
             my $type   = $result->get_type;
@@ -1819,7 +1862,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
             }
                    
             # 4th ----- Create annotation -----#
-            chomp ($aaSymbol) if (defined $aaSymbol);
+            chomp ($aaSymbol) if (defined ($aaSymbol));
             my $genename = "trn$aaSymbol";
             my $annot    = new PirObject::AnnotPair (
                                                       type      => "G", 
@@ -1871,9 +1914,9 @@ sub AddAnnotToPirMaster {
         my $annottype = $annotation->type || "C";
         my $annotstart = $annotation->startpos;
         my $annotend = $annotation->endpos;
-        $annotname = "comment" if (!defined  $annotname);
-        $annotstart = -1 if (!defined  $annotstart);
-        $annotend = -1 if (!defined  $annotend);
+        $annotname = "comment" if (!defined  ($annotname));
+        $annotstart = -1 if (!defined  ($annotstart));
+        $annotend = -1 if (!defined  ($annotend));
     
     
         ##--First case : if both are same comment on the same line 
@@ -1914,7 +1957,7 @@ sub AddAnnotToPirMaster {
             push (@$annotations, $annot);
             return 1;
         }
-        if (defined $ANNOTSEEN->{$annot->genename}) {     #  It mean,, this annotation has already been seen
+        if (defined ($ANNOTSEEN->{$annot->genename})) {     #  It mean,, this annotation has already been seen
             $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
             return 0;
         }
@@ -1959,9 +2002,7 @@ sub LogInfo { # this function is supposed to add information
     foreach my $genename (@added) {
         my($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
         $rep      = ";;     " if !$cnt;
-# BEGIN: THOMAS PLEASE FIX
         $rep     .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
-# END
         $cnt++;
         if ($cnt >= $COLS) {
             push(@report, $rep);
@@ -1981,9 +2022,7 @@ sub LogInfo { # this function is supposed to add information
     foreach my $genename (@redisc) {
         my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
         $rep       = ";;     " if !$cnt;
-# BEGIN: THOMAS PLEASE FIX
         $rep      .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
-# END
         $cnt++;
         if ($cnt >= $COLS) {
             push(@report, $rep);
