@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.38 2005/07/25 23:16:15 dto Exp $
+#    $Id: mfannot,v 1.39 2005/07/26 12:49:39 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.39  2005/07/26 12:49:39  dto
+#    Added more tags for Thomas to fix
+#    Fix BLASTOUTPUT line
+#
 #    Revision 1.38  2005/07/25 23:16:15  dto
 #    Added more tags for Thomas
 #
@@ -191,13 +195,11 @@ PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypo
 PirObject->LoadDataModel("Option");                   #  A module for options gestion
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
-
-
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.38 2005/07/25 23:16:15 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.39 2005/07/26 12:49:39 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -209,20 +211,27 @@ my $USER=getpwuid($<) or getlogin or die "Can't find USER from environment!\n";
 ##################################
 
 # Command-line args (first, original program)
-my $AUTOMATIC=0;
-my $TAGNAME=undef;                              #  Tag : is presnt in masterfile within the annotations made with Mfannot
-my $FORCEANNOT=0;
-my $HOMECONFIGFILE = ($ENV{"HOME"} or ".") . "/.mfannotconfig.xml";
-my $ANNOT_STATS = {
-    'Added'        => {},                       #  It means, never see it before
-    'Rediscovered' => {},                       #  Means exist at the same place (not added into the file)
-};
+# BEGIN: THOMAS, is this variable used?
+my $AUTOMATIC        = 0;
+# END
+my $TAGNAME          = undef;                   #  Tag : is presnt in masterfile within the annotations made with Mfannot
+my $FORCEANNOT       = 0;
+# BEGIN: THOMAS, is this variable used?
+my $HOMECONFIGFILE   = ($ENV{"HOME"} or ".") . "/.mfannotconfig.xml";
+# END
+my $ANNOT_STATS      = {
+                         'Added'        => {},  #  It means, never see it before
+                         'Rediscovered' => {},  #  Means exist at the same place (not added into the file)
+                       };
 my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
-my $ANNOTSEEN = {};                             #  An array storing annotations that have been seen before
-my $FIRSTTIME = 1;                              #  A global variable for annotation process (used in AddAnnotFrompirmaster)
+my $ANNOTSEEN        = {};                      #  An array storing annotations that have been seen before
+# BEGIN: THOMAS, is this varibable used?
+my $FIRSTTIME        = 1;                       #  A global variable for annotation process (used in AddAnnotFrompirmaster)
+# END
+# BEGIN: THOMAS, is this varibable used?
 my %GENENAMEOCCURENCE;                          #  An hash array, defined only if the gene has been discovered
-
+# END
 
 # Command line Program's paths    
 my $BLASTPATH        = "/share/supported/apps/ncbi/bin/blastall";
@@ -239,7 +248,9 @@ my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE        = 0;                       #  Just to know if the $LOGFILE is not empty (0 or 1)
+# BEGIN: THOMAS, is this varibable used?
 my $PEPLIBRARY;                                 #  Path for peplibrary directory
+
 my $MASTERFILE       = undef;                   #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
 my $TAKEINPUTFILE;                              
@@ -261,15 +272,14 @@ my @PEPFILES;                                   #  the pepfiles, used in the pro
 
 
 # Specific for the annotation (parameters for flip, blastall and organization)
-my $BLASTOUTPUT;                                #  The path for blast file results
+my $BLASTOUTPUT       = "";                     #  The path for blast file results
 my $BLASTEVALUECUTOFF;                          #  Cutoff value for the blast
 my $MINLENGTHORF;                               #  This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;                    #  Minimum size of a gap between 2 ORf. If 2 same ORF
-$BLASTOUTPUT         = "";                      #  Blastreport 
 my $MINLENEMPTYORF;                             #  Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          #  Overlapping cutoff for ORFs 
 my $TRNACUTOFF;                                 #  The cutoff for the tRNAs annotation
-my $MININTRONSIZE;                              #  opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
+my $MININTRONSIZE;                              #  opposite of MAXLENGTHFORGROUPINGORF. Minimum size for intron
 my $MINEXONSIZE;                                #  Minimum exon size for intron. In genewise.
 my $MATRIX;                                     #  The matrix used in genewise alignement
 
