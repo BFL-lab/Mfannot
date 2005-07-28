@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.40 2005/07/26 19:32:34 thomash Exp $
+#    $Id: mfannot,v 1.41 2005/07/28 21:12:45 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.41  2005/07/28 21:12:45  thomash
+#    Give name to the libraries in displaying
+#    Bug fixed in reg exp, in blast parse function
+#
 #    Revision 1.40  2005/07/26 19:32:34  thomash
 #    # If syntax changed
 #    # Unused parts removed
@@ -205,7 +209,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.40 2005/07/26 19:32:34 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.41 2005/07/28 21:12:45 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -227,6 +231,7 @@ my $ANNOT_STATS      = {
 my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
 my $ANNOTSEEN        = {};                      #  An array storing annotations that have been seen before
+my %PENAMEDISPLAY;                              #  An hash array, containing the name to display, associate with peplibraries and pepfiles
 
 
 # Command line Program's paths    
@@ -240,8 +245,8 @@ my $CGVIEWPATH       = "/home/thomash/programs/cgview";
 # General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
 my $GENCODE          = undef;                   #  Genetique code
-my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
-#my $TMPDIR           = "/home/thomash/unix-utils/mfannot/TMPDIR/mfannot.$$";
+#my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
+my $TMPDIR           = "/home/thomash/unix-utils/mfannot/TMPDIR/mfannot.$$";
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE        = 0;                       #  Just to know if the $LOGFILE is not empty (0 or 1)
@@ -335,7 +340,7 @@ open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
-             "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMM                        \n".
+             "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMME                       \n".
              "VERSION $VERSION                                                      \n".
              "Programmed by Thomas Hoellinger and Pierre Rioux\n".
              "######################################################################\n\n";
@@ -402,11 +407,13 @@ foreach my $library (@$PEPLIBRARIES) {
     $count++;
     my $tmppepfile = &CreatePepfileWithLibrary ($library, $namefile);       # call the function 
     push (@PEPFILES ,$namefile);
+    $PENAMEDISPLAY{"$namefile"} = $library;                                 # associate, the name of the library for each peplibraries
     
 }    
 #  2) second, push the input pepfiles in the pepfile array
     foreach my $file (@$INPUTPEPFILES) {
         push (@PEPFILES, $file);
+        $PENAMEDISPLAY{"$file"} = $file;                                    # associate the same name, 
     }
 
 #-----------ANNOTATION -------------------------------------------
@@ -479,9 +486,10 @@ if ($SIMILARITYSEARCH) {
   
         ## Print the name of each pepfile###
         ##  if it's a library, name begin with libarary....
-        $PEPFILE = $file;                           
-        my @tabname = split ("/", $PEPFILE);
-        my $tringprint = "\n****** Annotation of " . $tabname [$#tabname] . " ******";
+        $PEPFILE = $file;
+        my $displayfile = $PENAMEDISPLAY{"$file"} || "$file";    # Get the associate name, so if it's a library, get the name of the library         
+        my @tabname = split ("/", $displayfile);
+        my $tringprint = "\n****** Annotation from " . $tabname [$#tabname] . " ******";
         print $tringprint, "\n";
 
         ## check the existenz ##
@@ -1373,7 +1381,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     return if $numhits < 1;
 
     # We have an hypothetical protein and we want to know if it'real
-    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+$/);
+    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
     my $arrow;
      
     if ($strand eq 'orig') {
