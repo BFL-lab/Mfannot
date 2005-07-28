@@ -1,0 +1,148 @@
+MFANNOT(1)            ORGANELLAR SEQUENCE ANNOTATION UTILITIES                MFANNOT(1)
+
+NAME
+  mfannot - make an Masterfile annotation
+  
+SYNOPSIS
+  mfannot [options] masterfile
+
+DESCRIPTION
+  mfannot is a software for the annotation of organellar genomes stored
+  on specific format file called Masterfile.	
+  
+
+OPTIONS
+  -o        outputfile (or -outputfile)
+              name of the new masterfile created. Default name will be old
+	      masterfile name + '.new'
+  -i        inputfile(s) (or -inputfile)
+              Peptide file used for annotation of the masterfile.
+	      By default, the programm will search the peptide file 
+	      corresponding to the closest in the peplibrary. By default, 
+	      the program will search in the local directory
+  -d        debug mode (or -debug) 
+              Give informations about programm processing
+  -l        logfile (or -logfile)
+              Print command and step processing in the log file. Default, 
+	      don't print anything
+  -p        pepdirectory(ies) (or -pepdirectory)
+              Path for the peptide directory containing peptide files.
+              If nothing, peptide directory is './'. 
+	      Remark : To be inside the process of searching peptides files,
+	      files inside the directory will be finished with '.pep'
+  -g        genetic code (or -genetic)
+              Genetic code used.
+	      ---------------------------------
+	      1 => Standard
+              2 => Vertebrate Mitochondrial,
+              3 => Yeast Mitochondrial,
+              4 => Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate Mitochondrial; Mycoplasma; Spiroplasma,
+              5 => Invertebrate Mitochondrial,
+              6 => Ciliate Nuclear; Dasycladacean Nuclear; Hexamita Nuclear,
+              9 => Echinoderm Mitochondrial; Flatworm Mitochondrial,
+              10 => Euplotid Nuclear,
+              11 => Bacterial and Plant Plastid
+              12 => Alternative Yeast Nuclear
+              13 => Ascidian Mitochondrial
+              14 => Alternative Flatworm Mitochondrial
+              15 => Blepharisma Macronuclear
+              16 => Chlorophycean Mitochondrial
+              21 => Trematode Mitochondrial
+              22 => Scenedesmus Obliquus Mitochondrial
+              23 => Thraustochytrium Mitochondrial
+              99 => OGMP: TAG-Leu (previously 16)
+              98 => OGMP: TGA-Trp with GTG-initiation (previously 17)
+              97 => OGMP: TGA-Trp (previously 18)
+              96 => OGMP: Tetrahymena Mitochondrial (previously 19)
+              95 => OGMP: Basic Mitochondrial (previously 20)
+              93 => OGMP: TTA-stop (previously 22)
+	      ---------------------------------
+  -S        Without similarity search (or -nosimilarity)
+              Boolean. If defined, no similarity gene search with peptide 
+	      file for annotation
+  -trna     tRNAscanSE utilisation (or -trnascanse)
+              Using of tRNAscanSE for annotation	
+  -flip     flip parameter 
+              It's the minimum ORF size for annotation with Flip Blast correlated.
+  -blast    blast parameter
+              Minimum signifiant e-value for keeping ORF for annotation with Flip 
+	      Blast correlated.
+  -f        force annotation (or -force)
+              Allows 2 copies of the same gene in annotation
+  -m        multiples orfs (or -multiorfs)
+              Allows 2 annotations for a same ORF.
+  -rc       rcfile (or -rcfile)
+              Load the options presented in the file
+	      For running the programme
+  -norc     No rcfile usage (or -norcfile)
+              When the programme is running, it doesn't considerate a rcfile for
+	      loading options
+  -newrc    New rcfile generated (or -newrcfile)
+              it will create a file called .rcfile
+	      If a such file exists, it will be replaced
+  -norf     No Orf.
+              Allows the user not to run ORF process		      	
+  -el       The empty ORF minimum length (or -emptyorflen)    
+	      It's the cutoff value for an ORF, which doesn't correspond to a 
+	      gene, appearing in the Masterfile as ncorf (non corresponding ORF)
+  -oc	    Overlapping cutoff (or -overlapcut)
+              The non corresponding ORF that overlaps more than the cutoff are 
+	      not presented in the Masterfile
+  -tc       tRNAscanSE cutoff value (or trnacutoff)
+              Under this value, tRNAs detected with tRNAscanSE are deleted.
+	      Default 20.
+  -strict   Strict masterfile loading. (boolean)
+              Default false.
+  -ac       Add Comments (or addcomments)
+              If activated, comments are added in the masterfile
+	      Default false.
+  -allorfs  Display the all orf, even those wich are overlapping with other annotations
+              Default false
+  -matrix   Matrix used for the alignement with genewise
+              [ blosum62 (default) | identity ]
+  -maxis    Maximum intron size (Or -maxintronsize)
+              Integer. Default 3000 nucleotides
+	      Under this size, 2 ORFs having the same potential name, are grouped 
+	      together to form an hypothetical protein.
+	      When this size is bigger, gap can not be considerated as an intron and
+	      the 2 ORFs form 2 hypothetical proteins
+  -minis    Minimum intron size (Or -minintronsize)
+              Integer. Default 10 nucleotides
+  -mines    Minimum exon size (Or -minintronsize)
+              Integer. Default 10 nucleotides       
+  -h        help (or -help)
+              Display a little help, with syntax and options of the programms
+  -more     more 
+              Display more information about the programm
+
+
+MORE 
+ Masterfile :
+  The file given in input. Should be at masterfile format (ogmp web site)
+  Please note, the programm is able to work with several contigs (piece
+  of sequence) in the same masterfile.
+  Please note too, the input file can have annotations as masterfile format.
+  
+ The input peplibraries or pepfiles : 
+  User can use everal pepfiles and peplibraries
+  The pefiles contains the referee proteins to make the annotation
+  The should be at fasta format. Specially the name of the contig, be 
+  '>name of the specie name_of_protein_without_space ; more information'
+  If the protein name (in one piece) is not followed by ;, it won't be recgnized
+  By using peplibraries, files inside should ending with .pep extension.
+
+      
+SEE ALSO
+  blastall(1), flip(1),  formatdb(1)
+  www.bioperl.org, www.perl.com
+  pirobject documentation :
+  http://cvs.sourceforge.net/viewcvs.py/pirobject/pirobject/docs/PirObjectManual.txt?rev=1.2&view=log
+  
+VERSION
+  1.8
+  
+AUTHORS
+  David TO,
+  Pierre RIOUX
+  Franz LANG (Project Manager)
+  Thomas HOELLINGER
