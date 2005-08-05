@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.41 2005/07/28 21:12:45 thomash Exp $
+#    $Id: mfannot,v 1.42 2005/08/05 21:41:09 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.42  2005/08/05 21:41:09  thomash
+#    add introns prediction
+#
 #    Revision 1.41  2005/07/28 21:12:45  thomash
 #    Give name to the libraries in displaying
 #    Bug fixed in reg exp, in blast parse function
@@ -202,6 +205,7 @@ PirObject->LoadDataModel("Hsp");                      #  High Scoring Pair (belo
 PirObject->LoadDataModel("HypProt");                  #  Hypothetical protein : We believe its a protein after flip, blast an
                                                       #  Organization of the results     
 PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypothetical proteins
+PirObject->LoadDataModel("Intron");                   #  Intron : belongs to Hypothetical proteins
 PirObject->LoadDataModel("Option");                   #  A module for options gestion
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
 
@@ -209,7 +213,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.41 2005/07/28 21:12:45 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.42 2005/08/05 21:41:09 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -518,22 +522,22 @@ if ($SIMILARITYSEARCH) {
         &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
      
         # Create Hypothetical proteins  
-        print "$step) Fill Hyp prot Array With FLIPBLASTPROTSArray...\n";
+        print "$step) Identify similar ORFs...\n";
         $step += 1; 
         &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
         # Organise the hypothetical proteins (find the real start)
-        print "$step) Organise Prot Array...\n"; 
+        print "$step) Process ORFs => genes...\n"; 
         $step += 1; 
         &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
   
         # Make the alignement and give the exons
-        print "$step) Find Exons...\n"; 
+        print "$step) Internal structure prediction...\n"; 
         $step += 1; 
         &FindExonsInHypProtArray ($pirmaster, $count);
 
         # Annotate -> change hypothetical proteins into an object annotation
-        print "$step) Annotate from Hyp Prots Array...\n";
+        print "$step) Annotation in the masterile...\n";
         $step += 1; 
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
@@ -712,6 +716,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
     foreach my $hypprot (@$HYPPROTS) {        
         # HYPOTHETICAL PROTEIN FEATURE
         my $name   = $hypprot->name;
+        #print "protein $name $count\n";
         my $start  = $hypprot->start;                                          
         my $end    = $hypprot->end;
         my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);    
@@ -794,10 +799,21 @@ sub FindExonsInHypProtArray {  # the main is to find exons
             $count++;
             next;
         } 
-	
+
         # ANNOTATE EXONS
         my $hypprotexonarray = $hypprot->exons;
+        my $hypprotintronarray = $hypprot->introns;
+
+        
+        
+
         foreach my $e (    @exons) {
+            # On this step exon are sorted,
+            # The start correspond to the lowest value between start and stop
+            # The intron calculation is easier   
+            
+                 
+
             my $exonstart;
             my $exonend;
     
@@ -806,7 +822,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
                 $exonend    = $start + $e->{"end"} + 2;
             }
             else {
-                $exonstart  = $start - $e->{"start"} -1;
+                $exonstart  = $start - $e->{"start"}+1;
                 $exonend    = $start - $e->{"end"} + 1;
             }
     
@@ -816,8 +832,64 @@ sub FindExonsInHypProtArray {  # the main is to find exons
                                                      strand => $strand,
                                                   );
             push (@$hypprotexonarray, $hypprotexon); 
-        } 
-        $count ++;
+        }
+     
+        
+        # buiding introns-----------------------------------------------------
+   #     print "start $start end $end\n";
+        
+
+        my $lastposition = $start+1;
+        if ($strand == -1) {
+            $lastposition = $start;
+        }
+        else {
+            $lastposition = $start+1
+        }
+
+        my $firsttime = 1;  
+        foreach my $exon (@$hypprotexonarray) {
+            # just jump the first exon
+            if ($firsttime == 1) {
+                $lastposition = $exon->end;
+                $firsttime = 0;
+                next;
+            }
+            if ($strand == 1) {
+                if (abs($lastposition - $exon->start) > 0) {
+                    my $hypprotintron = new PirObject::Intron (
+                                               start  => $lastposition+1,
+                                               end    => $exon->start - 1,
+                                               strand => $strand,
+                                              );
+                    push (@$hypprotintronarray, $hypprotintron);
+                   # print "On a un intron \n";				  
+ 
+                }
+                $lastposition = $exon->end;
+
+            }
+           else {
+               if (abs($lastposition - $exon->start) > 0) {
+                   my $hypprotintron = new PirObject::Intron (
+                                               start  => $lastposition-1,
+                                               end    => $exon->start + 1,
+                                               strand => $strand,
+                                              );
+                    push (@$hypprotintronarray, $hypprotintron);  
+
+                }
+                $lastposition = $exon->end;
+ 
+            }
+    
+            #print "Exon ", $exon->start, " ", $exon->end, "\n";
+        }
+
+
+
+
+       $count ++;
     }  #  End of each prot        
 }
 
@@ -1146,6 +1218,34 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 
             $number++;
             my $res       = &AddAnnotToPirMaster($pirmaster,$contigname,$exonannot);
+        }
+        
+
+        my $introns = $hyprot->introns;
+        # Annotating introns
+        $number = 1;
+        foreach my $intron (@$introns) {
+            my $intronstart  = $intron->start;
+            my $intronend    = $intron->end;
+            my $intronstrand = $intron->strand;
+
+            my $startline  = ";     G-$linename-I$number $arrow start ";
+            $startline    .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+            my $endline    = ";     G-$linename-I$number $arrow end ";
+            $endline      .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+
+            my $intronannot = new PirObject::AnnotPair (
+                                                       type      => "I",
+                                                       genename  => "$name",
+                                                       startpos  => $intronstart,
+                                                       endpos    => $intronend,
+                                                       direction => $arrow,
+                                                       startline => $startline,
+                                                       endline   => $endline,
+                                                     );
+
+            $number++;
+            my $res       = &AddAnnotToPirMaster($pirmaster,$contigname,$intronannot);
         }
     }
 }
@@ -1611,6 +1711,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                                                        protein    => $orf->protein,
                                                        score      => $orf->score, 
                                                        exons      => [],
+                                                       introns    => [],
                                                      );
                                      
                     next; 
@@ -1631,6 +1732,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                                                            protein    => $orf->protein,
                                                            score      => $orf->score,  
                                                            exons      => [],
+                                                           introns    => [],
                                                          );                 
                                      
                     next;
@@ -1687,6 +1789,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                                                                protein    => $orf->protein,
                                                                score      => $orf->score, 
                                                                exons      => [],
+                                                               introns    => [],
                                                              );         
                                         
                         next;    
@@ -1742,6 +1845,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                                                                protein    => $orf->protein,
                                                                score      => $orf->score, 
                                                                exons      => [],
+                                                               introns    => [],
                                                              );
                         next;    
                     }
@@ -1948,6 +2052,15 @@ sub AddAnnotToPirMaster {
         if ($annot->type eq "E") { # it's an exon. The protein has normally already been added
             if (defined ($annot->genename)) {
                 $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++;
+            }
+            push (@$annotations, $annot);
+            return 1;
+        }
+
+        ##--4th case : Introns
+        if ($annot->type eq "I") { # it's an intron. The protein has normally already been added
+            if (defined ($annot->genename)) {
+                $ANNOT_STATS->{'Added'}->{$annot->genename}->{'I'} ++;
             }
             push (@$annotations, $annot);
             return 1;
