@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.47 2005/08/09 19:49:56 thomash Exp $
+#    $Id: mfannot,v 1.48 2005/08/09 20:37:56 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.48  2005/08/09 20:37:56  dto
+#    Fixed map creation
+#
 #    Revision 1.47  2005/08/09 19:49:56  thomash
 #    check the genetic code
 #
@@ -222,7 +225,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.47 2005/08/09 19:49:56 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.48 2005/08/09 20:37:56 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -253,7 +256,8 @@ my $FORMATDBPATH     = "/share/supported/apps/ncbi/bin/formatdb";
 my $FLIPPATH         = "/share/supported/apps/ogmp/bin/flip";
 my $GENEWISEPATH     = "/share/unsupported/apps/wise_2.2.0/src/bin/genewise";
 my $TRNASCANPATH     = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
-my $CGVIEWPATH       = "/home/thomash/programs/cgview";
+my $MF2XMLPATH       = "/share/supported/apps/mf2xml/bin/mf2xml";
+my $CGVIEWPATH       = "/share/supported/apps/cgview/bin/cgview";
 
 # General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
@@ -2183,25 +2187,23 @@ sub LogInfo { # this function is supposed to add information
     $pirmaster->set_header($header);
 }
 
-# BEGIN: THOMAS, Is this used?
 sub CreateCard {   # A sub for creating card
 
     my $masterfile     = shift;     # the masterfile annotated
     my $cardfile       = shift;       # the place where the card will go  
 
     # generate the xml file 
-    my $xmlcmd         = "java -jar $CGVIEWPATH/IO.jar $OUTPUTFILE map.xml 2> $TMPDIR/warningscgview";
+    my $xmlcmd         = "$MF2XML $OUTPUTFILE map.xml 2> $TMPDIR/warningscgview";
     print "$xmlcmd\n" if $DEBUG;
     print LOGFILE "$xmlcmd\n" if $ISLOGFILE;
     system $xmlcmd;
     
     # generate the map
-    my $mapcmd         = "java -jar  $CGVIEWPATH/cgview.jar -i map.xml -o $cardfile";
+    my $mapcmd         = " $CGVIEWPATH -i map.xml -f svg -o $cardfile -E F";
     print "$mapcmd\n" if $DEBUG;
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
 }
-# END
 
 sub TestFile
 {
