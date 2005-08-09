@@ -12,35 +12,32 @@ DESCRIPTION
 
 OPTIONS
     
-    -ac       
-              Add Comments (or addcomments)
-              If activated, comments are added in the masterfile
-              Default false.
+    --ac, --addcomments 
+              Add Comments
+              If activated, comments are added in the masterfile. Default false.
     
-    -allorfs  
-              Display the all orf, even those wich are overlapping with other annotations
-              Default false
-    
-    -blast    Blast e-value cutoff
-              Minimum signifiant e-value for keeping ORF for annotation with Flip 
-              Blast correlated
+    --allorfs
+              Display the all orf, even those wich are overlapping with other
+              annotations. Default false.
 
-    -d
-              debug mode (or -debug) 
-              Print debugging information
+    --blast   Blast e-value cutoff
+              Minimum signifiant e-value for ORF threshold.
 
-    -el       The empty ORF minimum length (or -emptyorflen)    
+    -d, --debug
+              Use debugging mode. Print debugging information 
+
+    --el, --emptyorflen  The empty ORF minimum length     
               This is the cutoff value for an ORF, which doesn't correspond to a 
               gene, appearing in the Masterfile as ncorf (non corresponding ORF)
     
-    -f        
-              force annotation (or -force)
+    -f, --force
+              force annotation
               Allows 2 copies of the same gene in annotation
     
-    -flip     Size of the ORFs generated and blasted.
-              It's the minimum ORF size for annotation with Flip Blast correlated.
+    --flip    Size of the ORFs generated and blasted.
+              This is the minimum ORF size for annotation with Flip Blast correlated.
     
-    -g        genetic code (or -genetic)
+    -g, --genetic       genetic code
               Genetic code used.
               ---------------------------------
               1 => Standard
@@ -69,86 +66,80 @@ OPTIONS
               93 => OGMP: TTA-stop (previously 22)
               ---------------------------------
     
-    -h        
-              help (or -help)
-              Display a little help, with syntax and options of the programms
+    -h, --help
+              Display a help and usage, with syntax and options of the
+              programme.
 
-    -i        inputpeptidefile(s) (or -inputfile)
+    -i, --inputfile inputpeptidefile(s)
               Peptide file(s) used for annotation of the masterfile. By default,
               the programme will search the peptide file which corresponds to
               the closest in the peplibrary in the current directory.
 
-    -l        logfile (or -logfile)
+    -l, --logfile       logfile
               Print commands and processing steps to a log file.
     
-    -m        
-              multiples orfs (or -multiorfs)
+    -m, --multiorfs
+              multiples orfs
               Allows 2 annotations for a same ORF.
     
-    -matrix   Matrix used for the alignement with genewise
+    --matrix  Matrix used for the alignement with genewise
               [ blosum62.bla (default) | identity.bla ]
 
-    -maxis    Maximum intron size (Or -maxintronsize)
+    --maxis   Maximum intron size (Or -maxintronsize)
               Integer. Default 3000 nucleotides
               Under this size, 2 ORFs having the same potential name, are grouped 
-              together to form an hypothetical protein.
-              When this size is bigger, gap can not be considerated as an intron and
-              the 2 ORFs form 2 hypothetical proteins
+              together to form an hypothetical protein. When this size is
+              bigger, gap can not be considerated as an intron and the 2 ORFs
+              form 2 hypothetical proteins.
 
-    -mines    Minimum exon size (Or -minintronsize)
+    --mines   Minimum exon size (Or -minintronsize)
               Integer. Default 10 nucleotides
     
-    -minis    Minimum intron size (Or -minintronsize)
+    --minis   Minimum intron size (Or -minintronsize)
               Integer. Default 10 nucleotides
 
-    -more     
-              more 
-              Display more information about the programme
-    
-    -newrc    
+    --newrc
               New rcfile generated (or -newrcfile)
               This option will create a file called ".mfannotrc"
               If a such file exists, it will be replaced
 
-    -norc     
+    --norc
               No rcfile usage (or -norcfile)
               When the programme is started the rcfile will be ignored if one
               exists.
     
-    -o        outputfile (or -outputfile)
+    -o, --outputfile        outputfile
               This is name of the new masterfile to be created. The default
               output file will use the append '.new' to the end of the input
               file name. 
 
-    -oc       Overlapping cutoff (or -overlapcut)
-              This value has to between 0 and 1. 
-              The non corresponding ORF that overlaps more than the cutoff are 
-              not presented in the Masterfile
+    --oc, --overlapcut      Overlapping cutoff
+              This value has to between 0 and 1. The non corresponding ORF that
+              overlaps more than the cutoff are not presented in the Masterfile.
     
-    -p        pepdirectory(ies) (or -pepdirectory)
+    -p, --pepdirectory       pepdirectory(ies)
               Path for the peptide directory containing peptide files. By
               default the peptide directory is set to the the current directory.
               Peptide files must contain the suffix ".pep".
 
-    -rc       rcfile (or -rcfile)
-              Load the options presented in the file
-              By default it look for the file ".mfannotrc"
-    
-    -S        
+    --rc, --rcfile       rcfile
+              Load the options presented in the file. By default it look for the
+              file ".mfannotrc".
+    -S
               Doesn't annotate genes translated into mitochondrial proteins.
 
-    -strict   
-              Strict masterfile loading. (boolean)
-              Default false.    
+    --strict
+              Strict masterfile loading. (boolean) Default false.    
     
-    -t        The user's tag for annotation (or tagname)
+    -t, --tagname        tagname
+              The user's tag for annotation
     
-    -tc       tRNAscanSE cutoff value (or trnacutoff)
+    --tc, --trnacutoff       tRNAscanSE cutoff value
               Under this value, tRNAs detected with tRNAscanSE are deleted.
               Default 20.
     
-    -trna     
-              tRNAscanSE utilisation (or -trnascanse)
+    --trna, --trnascanse
+              tRNAscanSE utilisation
               Include the results from tRNAscanSE in the annotation.
               Note: This step with lengthen the duration of mfannot
               considerably. 
