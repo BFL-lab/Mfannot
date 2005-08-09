@@ -8,21 +8,18 @@ SYNOPSIS
 
 DESCRIPTION
     mfannot is a tool to automatically annotate genome data stored in
-    masterfile format.
-    mfannot is using soem methods and programs to annotate genomes.
-    First it identify, with the software flip, the Opening Reading frames 
-    which are the sequences between the terminaison codons. A value for a 
-    minimum size of these ORFs is changeable (). 
-    Then these ORFs are blasted, using blastp, against peplibraries and/or 
-    pepfiles (exisiting by defaukt  containing mitochondrial proteins. The ones having similarities
-    (given by thoose who basically are under the blast e-value cutoff), 
-    with the same proteins are grouped together. After looking for a potential 
-    initiation codon, the genes are characterized. This mean the start, the end 
-    and the name of the gene which give also the function. (see OGMP website).
-    Genewise is after use to predict a internal prediction by aligning the 
-    gene identified and the reference protein (from the peplibrary).
-    An other part of the programm is using tRNAscan-SE for tRNA genes prediction. 
-    A cutoff corresponding to the score can fit the results. 
+    masterfile format. Mfannot uses a number of methods to annotate the given
+    genome. First it identifies ORFs using Flip. A value for a minimum size of
+    these ORFs is changeable. These ORFs are then blasted using blastp against
+    peplibraries and/or pepfiles (the default contain mitochondrial proteins).
+    Matches to the same protein which satify predetermined and user modifiable
+    cutoffs and are located within close proximity are grouped together. After
+    looking for a potential initiation codon, the genes are characterized.
+    Genewise is subsequently used to predict a internal gene structure by
+    aligning the predicted gene and the reference protein (from the peplibrary).
+    Another part of the programme uses tRNAscan-SE to detect tRNA genes. A
+    cutoff corresponding to the tRNAscan-SE score can filter the results. The 
+    resulting annotation is stored into an outputfile in Masterfile format.
     
       
 
