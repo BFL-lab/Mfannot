@@ -25,16 +25,11 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.46 2005/08/09 18:53:07 dto Exp $
+#    $Id: mfannot,v 1.47 2005/08/09 19:49:56 thomash Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.46  2005/08/09 18:53:07  dto
-#    Removed debugging
-#    Fixed tmpdir
-#
-#    Revision 1.45  2005/08/09 18:45:10  thomash
-#    A process, not to erase existing output file
-#    A number is added
+#    Revision 1.47  2005/08/09 19:49:56  thomash
+#    check the genetic code
 #
 #    Revision 1.44  2005/08/09 18:15:51  thomash
 #    a short mistake in masterfile spelling fixed
@@ -227,7 +222,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.46 2005/08/09 18:53:07 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.47 2005/08/09 19:49:56 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -263,7 +258,8 @@ my $CGVIEWPATH       = "/home/thomash/programs/cgview";
 # General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
 my $GENCODE          = undef;                   #  Genetique code
-my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
+#my $TMPDIR           = "/tmp/mfannot.$$";       #  Temporary directory
+my $TMPDIR           = "/home/thomash/unix-utils/mfannot/TMPDIR/mfannot.$$";
 my $LOGFILE;                                    #  log file : store all the information about run
 my $SIMILARITYSEARCH;                           #  Usefull for running similaritie gene process for annot.
 my $ISLOGFILE        = 0;                       #  Just to know if the $LOGFILE is not empty (0 or 1)
@@ -614,6 +610,10 @@ sub GetOptions {          # this function is here to manipulate options
     #--General options
     $DEBUG             = $option->debug;         #  Debug mode. If true, display message on the screen
     $GENCODE           = $option->genetic;       #  Genetique code
+    my $gentable = Bio::Tools::CodonTable->new();
+    if   (not $gentable->id($GENCODE)) {
+       die "Unexisting genetic id\n";
+    }
     $LOGFILE           = $option->logfile;       #  log file : store all the information about run
     $SIMILARITYSEARCH  = $option->similarity;    #  Usefull for running similaritie gene process for annot.
     $ISLOGFILE         = $option->islogfile;     #  Just to know if the $LOGFILE is not empty (0 or 1)
@@ -670,6 +670,7 @@ sub CreatePepfileWithLibrary {
     
     # delete an hyp. previous same. file
     if (-f $pepfile) {
+        #system ("rm -f $pepfile");
         unlink($pepfile);
     }
     
@@ -738,6 +739,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
     foreach my $hypprot (@$HYPPROTS) {        
         # HYPOTHETICAL PROTEIN FEATURE
         my $name   = $hypprot->name;
+        #print "protein $name $count\n";
         my $start  = $hypprot->start;                                          
         my $end    = $hypprot->end;
         my $contig =  $pirmaster->GetContigByName ($hypprot->contigname);    
@@ -857,6 +859,9 @@ sub FindExonsInHypProtArray {  # the main is to find exons
      
         
         # buiding introns-----------------------------------------------------
+   #     print "start $start end $end\n";
+        
+
         my $lastposition = $start+1;
         if ($strand == -1) {
             $lastposition = $start;
@@ -881,6 +886,8 @@ sub FindExonsInHypProtArray {  # the main is to find exons
                                                strand => $strand,
                                               );
                     push (@$hypprotintronarray, $hypprotintron);
+                   # print "On a un intron \n";				  
+ 
                 }
                 $lastposition = $exon->end;
 
@@ -898,6 +905,8 @@ sub FindExonsInHypProtArray {  # the main is to find exons
                 $lastposition = $exon->end;
  
             }
+    
+            #print "Exon ", $exon->start, " ", $exon->end, "\n";
         }
 
 
@@ -1128,6 +1137,7 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
     
       # Put into the table containing all of the masterfile annotations
       # So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
+      # print "Il a ajoute cette orf vide : $GenenameORF\n";
       &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
      
       } # END OF FOR EACH EMPTY ORFS
@@ -1991,7 +2001,7 @@ sub AddGeneFeatureUsingtRNAscanSE {
             my $genename = "trn$aaSymbol";
             my $annot    = new PirObject::AnnotPair (
                                                       type      => "G", 
-                                                      genename  => "$genename",
+                                                      genename  => "$genename", # Before : genename  => "tRNA-$type($acodon)",
                                                       startpos  => $start,
                                                       endpos    => $end,
                                                       direction => $arrow,
@@ -2208,6 +2218,7 @@ END { # With exit, programme will go here
     return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     
     print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
+    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
     rmtree($TMPDIR);
 }
 
