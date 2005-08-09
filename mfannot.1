@@ -45,9 +45,9 @@ OPTIONS
     
     -f, --force
               force annotation
-              Allows 2 copies of the same gene in annotation
+              Allows more than one copy of the same gene in annotation
     
-    --flip    Size of the ORFs generated and blasted.
+    --minorflen    Size of the ORFs generated and blasted.
               This is the minimum ORF size for annotation with Flip Blast correlated.
     
     -g, --genetic       genetic code
@@ -93,26 +93,27 @@ OPTIONS
     
     -m, --multiorfs
               multiples orfs
-              Allows 2 annotations for a same ORF.
+              Allows more than one annotation for a same ORF.
     
     --matrix  Matrix used for the alignement with genewise
               [ blosum62.bla (default) | identity.bla ]
 
-    --maxis   Maximum intron size (Or -maxintronsize)
+    --maxis, --maxintronsize   Maximum intron size
               Integer. Default 3000 nucleotides
-              Under this size, 2 ORFs having the same potential name, are grouped 
-              together to form an hypothetical protein. When this size is
-              bigger, gap can not be considerated as an intron and the 2 ORFs
-              form 2 hypothetical proteins.
+              Under this size, more than one ORF having the same potential
+              name is allowed. They grouped together to form an hypothetical
+              protein. When this size is bigger, gap can not be considerated as
+              an intron and the multiple ORFs form multiple hypothetical
+              proteins.
 
-    --mines   Minimum exon size (Or -minintronsize)
+    --mines, --minintronsize   Minimum exon size
               Integer. Default 10 nucleotides
     
-    --minis   Minimum intron size (Or -minintronsize)
+    --minis, --minintronsize   Minimum intron size
               Integer. Default 10 nucleotides
 
-    --newrc
-              New rcfile generated (or -newrcfile)
+    --newrc, --newrcfile
+              New rcfile generated
               This option will create a file called ".mfannotrc"
               If a such file exists, it will be replaced
 
