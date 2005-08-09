@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.44 2005/08/09 18:15:51 thomash Exp $
+#    $Id: mfannot,v 1.45 2005/08/09 18:45:10 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.45  2005/08/09 18:45:10  thomash
+#    A process, not to erase existing output file
+#    A number is added
+#
 #    Revision 1.44  2005/08/09 18:15:51  thomash
 #    a short mistake in masterfile spelling fixed
 #
@@ -219,7 +223,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.44 2005/08/09 18:15:51 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.45 2005/08/09 18:45:10 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -614,6 +618,16 @@ sub GetOptions {          # this function is here to manipulate options
     $MASTERFILE        = $option->masterfile;    #  Path for Masterfile
     $INPUTPEPFILES     = $option->inputfile;     #  Path for the peptide file used
     $OUTPUTFILE        = $option->outputfile;    #  Path for the new
+    my $count = "";
+    my $name = $OUTPUTFILE;
+    chomp ($name);
+    $name =~ s/\d*$//; 
+    while (-r ("$name"."$count")) {
+       if ($count eq "") {$count = 1;}
+       else              {$count++;} 
+    }      
+    $OUTPUTFILE = "$name"."$count";
+    
     $USETRNASCANSE     = $option->tRNAscanSE;    #  T or F : use of tRNAscanSE in the annotation 
     $TAKEINPUTFILE     = $option->takeinputfile; #  A boolean saying if programme is taking an input file
     $TAGNAME           = $option->tagname;       #  Adds a tag  
