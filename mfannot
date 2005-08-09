@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.42 2005/08/05 21:41:09 thomash Exp $
+#    $Id: mfannot,v 1.43 2005/08/09 18:13:52 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.43  2005/08/09 18:13:52  thomash
+#    name of the masterfile added in run
+#
 #    Revision 1.42  2005/08/05 21:41:09  thomash
 #    add introns prediction
 #
@@ -213,7 +216,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.42 2005/08/05 21:41:09 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.43 2005/08/09 18:13:52 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -451,7 +454,7 @@ if ($SIMILARITYSEARCH) {
 #      - load the annotations
 #      - load the sequence of each contig 
 
-print "Parsing masterfile...\n";
+print "Parsing masterfile $MASTERFILE...\n";
 my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = 0;                         # Number of contigs in the masterfile
