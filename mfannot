@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.43 2005/08/09 18:13:52 thomash Exp $
+#    $Id: mfannot,v 1.44 2005/08/09 18:15:51 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.44  2005/08/09 18:15:51  thomash
+#    a short mistake in masterfile spelling fixed
+#
 #    Revision 1.43  2005/08/09 18:13:52  thomash
 #    name of the masterfile added in run
 #
@@ -216,7 +219,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.43 2005/08/09 18:13:52 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.44 2005/08/09 18:15:51 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -540,7 +543,7 @@ if ($SIMILARITYSEARCH) {
         &FindExonsInHypProtArray ($pirmaster, $count);
 
         # Annotate -> change hypothetical proteins into an object annotation
-        print "$step) Annotation in the masterile...\n";
+        print "$step) Annotation in the masterfile...\n";
         $step += 1; 
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
   
