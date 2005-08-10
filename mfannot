@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.50 2005/08/10 15:14:29 thomash Exp $
+#    $Id: mfannot,v 1.51 2005/08/10 16:21:17 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.51  2005/08/10 16:21:17  thomash
+#    Delete the map option.
+#    Map is generating with withmap option
+#
 #    Revision 1.50  2005/08/10 15:14:29  thomash
 #    Map creating bug fixed
 #
@@ -231,7 +235,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.50 2005/08/10 15:14:29 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.51 2005/08/10 16:21:17 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -290,8 +294,7 @@ my $CHECKORFS;                                  #  Say if yes or not have to che
 my $PEPLIBRARIES;                               #  The libraries, in input, by default datagenescollection and dataorfcollection
 my $INPUTPEPFILES;                              #  the input files
 my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
-my $CARD;                                       #  the card for the annotation
-my $WITHCARD;                                   #  the allowed extension for the card. Png or svg
+my $WITHMAP;                                    #  the allowed extension for the card. Png or svg
 
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
@@ -305,6 +308,7 @@ my $MININTRONSIZE;                              #  opposite of MAXLENGTHFORGROUP
 my $MINEXONSIZE;                                #  Minimum exon size for intron. In genewise.
 my $MATRIX;                                     #  The matrix used in genewise alignement
 
+my $NBCONTIGS=0;                                #  The number of contigs
 
 #############################
 # Environment Verifications #
@@ -384,7 +388,7 @@ else {
 }
 $options .= "Masterfile used : $MASTERFILE\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
-$options .= "the map $CARD, with the format $WITHCARD will be generated\n" if ($CARD ne "");
+$options .= "the map $OUTPUTFILE.$WITHMAP will be generated\n" if ($WITHMAP ne "");
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
 $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
@@ -600,7 +604,13 @@ my $annotations = $cntigs->[0]->annotations();
 print "Dumping new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-&CreateCard ("map.svg");
+if (($WITHMAP ne "") and ($numbercontigs==1)) {
+    &CreateMap;
+    print "The map: $OUTPUTFILE.$WITHMAP has been produced\n";
+}
+elsif (($WITHMAP ne "") and ($numbercontigs!=1)) {
+   print "$numbercontigs contigs. Impossible to generate the map./n";
+}
 
 if ($ISLOGFILE == 1) {
     print "close Logfile : $LOGFILE\n" if $DEBUG;
@@ -657,8 +667,7 @@ sub GetOptions {          # this function is here to manipulate options
     my $allorfs        = $option->allorfs;       #  All orfs will apear and won't be checked if option is checked
     $CHECKORFS         = 0 if ($allorfs == 1);   #  A little calculation 
     $CHECKORFS         = 1 if ($allorfs == 0);   #  to find the opposite
-    $CARD              = $option->card;          #  Card for the masterfile
-    $WITHCARD          = $option->withcard;      #  The extension card
+    $WITHMAP           = $option->withmap;       #  The extension card
     
         
     #--Specific for the annotation (parameters for flip, blastall and organization)
@@ -2198,21 +2207,24 @@ sub LogInfo { # this function is supposed to add information
     $pirmaster->set_header($header);
 }
 
-sub CreateCard {   # A sub for creating card
+sub CreateMap {   # A sub for creating card
 
-   # my $cardfile       = shift;       # the place where the card will go  
 
+    my $nameofmap = $OUTPUTFILE.".".$WITHMAP;
+    
     # generate the xml file 
-    my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml > $TMPDIR/mf2xmloutput 2> $TMPDIR/mf2xmlwarnings";
+    #my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml > $TMPDIR/mf2xmloutput 2> $TMPDIR/mf2xmlwarnings";
+    my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml";
     print "$xmlcmd\n" if $DEBUG;
     print LOGFILE "$xmlcmd\n" if $ISLOGFILE;
     system $xmlcmd;
     
     # generate the map
     my $putinoptions;
-    $putinoptions = " -f $WITHCARD ";
-    $putinoptions .= " -E F " if ($WITHCARD eq "svg");
-    my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $CARD  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
+    $putinoptions = " -f $WITHMAP ";
+    $putinoptions .= " -E F " if ($WITHMAP eq "svg");
+    #my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
+    my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap";
     print "$mapcmd\n" if $DEBUG;
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
