@@ -21,40 +21,41 @@ DESCRIPTION
     cutoff corresponding to the tRNAscan-SE score can filter the results. The 
     resulting annotation is stored into an outputfile in Masterfile format.
     
-      
-
 OPTIONS
     
     --ac, --addcomments 
               Add Comments
-              If activated, comments are added in the masterfile. Default false.
+              If activated, comments are added in the masterfile.
+              Default false.
     
     --allorfs
               Display the all orf, even those wich are overlapping with other
-              annotations. Default false.
+              annotations.
+              Default: false.
 
     --blast   Blast e-value cutoff
-              Minimum signifiant e-value for ORF threshold.
+              This option allows the user to set the minimum signifiant e-value
+              for ORF threshold.
+              Default: 1e-12
     
     -d, --debug
               Use debugging mode. Print debugging information 
 
-    --el, --emptyorflen  The empty ORF minimum length     
-              This is the cutoff value for an ORF, which doesn't correspond to a 
-              gene, appearing in the Masterfile as ncorf (non corresponding ORF)
+    --el, --emptyorflen  empty ORF minimum length     
+              This option allows the users to supply the cutoff value for an
+              ORF (in amino acids), which is found not to correspond to a gene.
+              It will instead appear in the Masterfile as ncorf (non
+              corresponding ORF).
+              Default: 100
     
     -f, --force
-              force annotation
-              Allows more than one copy of the same gene in annotation
-    
-    --minorflen    Size of the ORFs generated and blasted.
-              This is the minimum ORF size for annotation with Flip Blast
-              correlated.
+              This option allows more than one copy of the same gene in
+              annotation.
     
     -g, --genetic       genetic code
               Genetic code used.
               ---------------------------------
-              1 => Standard
+              1 => Standard (default)
               2 => Vertebrate Mitochondrial,
               3 => Yeast Mitochondrial,
               4 => Mold Mitochondrial; Protozoan Mitochondrial; Coelenterate
@@ -85,83 +86,126 @@ OPTIONS
               programme.
 
     -i, --inputfile inputpeptidefile(s)
-              Peptide file(s) used for annotation of the masterfile. By default,
-              the programme will search the peptide file which corresponds to
-              the closest in the peplibrary in the current directory.
+              Peptide file(s) used for annotation of the masterfile. By default
+              mfannot uses a collection of default peptide libraries. This
+              option will override the default, and allow the user to name
+              a specific library file of their choosing.
+              See below for more information.
 
-    -l, --logfile       logfile
-              Print commands and processing steps to a log file.
+    -l, --logfile logfile
+              This option allows the user to log the state of mfannot into a user
+              chosen file.
     
     -m, --multiorfs
-              multiples orfs
-              Allows more than one annotation for a same ORF.
+              This option allows more than one annotation for the same predicted
+              ORF.
     
-    --matrix  Matrix used for the alignement with genewise
-              [ blosum62.bla (default) | identity.bla ]
+    --matrix  Matrix
+              This allows the user to choose which alignment matrix is used
+              during the genewise internal  used for the alignment with
+              genewise. Below are a list of possible maticies that are
+              available;
+
+              BLOSUM30.bla, BLOSUM45.bla, BLOSUM62.bla (default), BLOSUM80.bla,
+              gon120.bla, gon160.bla, gon200.bla, gon250.bla, gon350.bla
 
     --maxis, --maxintronsize   Maximum intron size
-              Integer. Default 3000 nucleotides
-              Under this size, more than one ORF having the same potential
-              name is allowed. They grouped together to form an hypothetical
-              protein. When this size is bigger, gap can not be considerated as
-              an intron and the multiple ORFs form multiple hypothetical
-              proteins.
+              This option allows the user to modify the defualt maximum intron
+              size (in nucleotides). During annotation, ORFs are grouped
+              together to form a hypothetical protein. When this size is bigger,
+              the gap can not be considered as an intron and the multiple ORFs
+              form multiple hypothetical proteins.
+              Default: 3000
 
-    --mines, --minintronsize   Minimum exon size
-              Integer. Default 10 nucleotides
+    --mines, --minexonsize   Minimum exon size
+              This option allows the user to modify the default minimum exon
+              size (in nucleotides) that mfannot uses during internal structure
+              prediction. This value should be an integer. 
+              Default: 10
     
     --minis, --minintronsize   Minimum intron size
-              Integer. Default 10 nucleotides
+              This option allows the user to modify the default minimum intron
+              size (in nucleotides) that mfannot uses during internal structure
+              prediction. This value should be an integer.
+              Default: 10
+
+    --minorflen   minumum ORF length
+              This option allows the user to choose the size of the minumum ORFs
+              (in amino acids) that are produced using Flip. This value must be
+              an integer.
+              Default: 40
 
     --newrc, --newrcfile
-              New rcfile generated
-              This option will create a file called ".mfannotrc"
-              If a such file exists, it will be replaced
+              This option will create a file called ".mfannotrc" based on the 
+              current selected and default options. If a such file exists, it
+              will be replaced.
 
-    --norc
-              No rcfile usage (or -norcfile)
-              When the programme is started the rcfile will be ignored if one
-              exists.
+    --norc, --norcfile
+              This option tells mfannot to ignore any existing rcfile should one
+              exist in the current working directory.
     
-    -o, --outputfile        outputfile
+    -o, --outputfile  outputfile
               This is name of the new masterfile to be created. The default
               output file will use the append '.new' to the end of the input
-              file name. 
+              file name. Should this file already exist, an integer will be
+              appended to the end of the file, incremented by 1 from the
+              largest number appended to existing file.
 
-    --oc, --overlapcut      Overlapping cutoff
-              This value has to between 0 and 1. The non corresponding ORF that
-              overlaps more than the cutoff are not presented in the Masterfile.
+    --oc, --overlapcut  Overlapping cutoff
+              This value is a cutoff percentage that represents the permitted
+              overlapping proportion of a non-corresponding ORF that overlaps
+              a predicted gene.
     
-    -p, --pepdirectory       pepdirectory(ies)
-              Path for the peptide directory containing peptide files. By
-              default the peptide directory is set to the the current directory.
-              Peptide files must contain the suffix ".pep".
+    -p, --pepdirectory  pepdirectory(ies)
+              Path to the peptide directory containing peptide files. By
+              default mfannot uses a collection of default peptide libraries.
+              See below for more information. Peptide files must contain the
+              suffix ".pep".
 
     --rc, --rcfile       rcfile
-              Load the options presented in the file. By default it look for the
-              file ".mfannotrc".
+              Load the options presented in the file. By default mfannot will
+              look for the file ".mfannotrc" in the current working directory.
+
     -S
-              Doesn't annotate genes translated into proteins.
+              Do not search for genes proteins coding genes.
 
     --strict
-              Strict masterfile loading. (boolean) Default false.    
+              Strict masterfile loading.
+              Default: false    
     
     -t, --tagname        tagname
-              The user's tag for annotation
+              This option allows the insertion of a user defined tag in each
+              annotation made by the mfannot.
+              Default: None
     
     --tc, --trnacutoff       tRNAscanSE cutoff value
-              Under this value, tRNAs detected with tRNAscanSE are deleted.
-              Default 20.
+              This option is passed cut off value in the form of an integer.
+              All results reported by tRNAscanSE that are below this value,
+              are filtered out from the annotation. The option to run
+              tRNAscaneSE must chosen for this option to work. (see next
+              option)
+              Default: 20
     
     --trna, --trnascanse
-              tRNAscanSE utilisation
-              Include the results from tRNAscanSE in the annotation.
-              Note: This step with lengthen the duration of mfannot
+              This option invokes the use of tRNAscanSE and inserts the results
+              it produces into the annotated masterfile.  
+              NOTE: This step with lengthen the duration of mfannot
               considerably. 
+              Default: Not used
 
     --withmap [ svg | png ]
-              The format of the output card created
-	      The map created has the same name as the outputfile, with the extension  
+              This option requires an argument to determine the format of the
+              graphic file which will be created. SVG (Scalable Vector Graphics)
+              format produces a file which is best for print, is scalable, and
+              allows string modifications. PNG format produces a compressed
+              bitmap image which is best for use on the internet, such as web
+              page.
+              The map option uses two programmes, mf2xml and cgview to produce
+              a circular genetic map, and as a result may not be used on 
+              masterfiles which include more than one contig. The map file is
+              has the same name as the output masterfile, but with the
+              appropriate graphics format extension.
+              Default: No map produced
 
 MORE 
     Masterfile:
