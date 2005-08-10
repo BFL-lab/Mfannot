@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.49 2005/08/09 21:47:34 thomash Exp $
+#    $Id: mfannot,v 1.50 2005/08/10 15:14:29 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.50  2005/08/10 15:14:29  thomash
+#    Map creating bug fixed
+#
 #    Revision 1.49  2005/08/09 21:47:34  thomash
 #    A map generating option is avaliable
 #
@@ -228,7 +231,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.49 2005/08/09 21:47:34 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.50 2005/08/10 15:14:29 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2208,7 +2211,7 @@ sub CreateCard {   # A sub for creating card
     # generate the map
     my $putinoptions;
     $putinoptions = " -f $WITHCARD ";
-    $putinoptions .= " -E -F " if ($WITHCARD eq "svg");
+    $putinoptions .= " -E F " if ($WITHCARD eq "svg");
     my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $CARD  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
     print "$mapcmd\n" if $DEBUG;
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
