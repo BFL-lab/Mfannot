@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.53 2005/08/10 18:39:05 dto Exp $
+#    $Id: mfannot,v 1.54 2005/08/10 21:03:05 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.54  2005/08/10 21:03:05  dto
+#    Added error checking for production of files
+#
 #    Revision 1.53  2005/08/10 18:39:05  dto
 #    Fixed comments - removed card, put in map
 #
@@ -242,7 +245,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.53 2005/08/10 18:39:05 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.54 2005/08/10 21:03:05 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -370,7 +373,6 @@ $SIG{'ALRM'} = \&SigCleanup;
 &GetOptions ;     # get the different options and put them into global variables
 
 open (LOGFILE, ">$LOGFILE") if $ISLOGFILE;
-
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
@@ -643,15 +645,31 @@ sub GetOptions {          # this function is here to manipulate options
     if   (not $gentable->id($GENCODE)) {
        die "Unexisting genetic id\n";
     }
-    $LOGFILE           = $option->logfile;       #  log file : store all the information about run
     $SIMILARITYSEARCH  = $option->similarity;    #  Usefull for running similaritie gene process for annot.
-    $ISLOGFILE         = $option->islogfile;     #  Just to know if the $LOGFILE is not empty (0 or 1)
+    if($option->islogfile and defined($option->logfile)) {
+      if(-w (dirname($option->logfile))) {
+        $ISLOGFILE       = $option->islogfile;     #  Just to know if the $LOGFILE is not empty (0 or 1)
+        $LOGFILE         = $option->logfile;       #  log file : store all the information about run
+      }
+      else {
+        print "\nThe path to your logfile \"" . ($option->logfile). "\" is not writable by you.\n";
+	print "No file logging will be performed\n";
+        $ISLOGFILE       = 0;
+        $LOGFILE         = undef;
+      }
+    }
     $PEPLIBRARIES      = $option->pepdirectory;  #  List of Path for peplibrary directory
     $MASTERFILE        = $option->masterfile;    #  Path for Masterfile
     $INPUTPEPFILES     = $option->inputfile;     #  Path for the peptide file used
     $OUTPUTFILE        = $option->outputfile;    #  Path for the new
     my $count = "";
     my $name = $OUTPUTFILE;
+    # Checking to see if the path to the output file is writable
+    if(!-w (dirname($name))) {
+       die "\nThe path to where your outputfile will be produced is not writable by you ($name).\nPlease resolve this problem before running again\n";
+    }
+
+    # Determing new name of output file if file already exists
     chomp ($name);
     $name =~ s/\d*$//; 
     while (-r ("$name"."$count")) {
@@ -668,6 +686,10 @@ sub GetOptions {          # this function is here to manipulate options
     $NEWRCFILE         = $option->newrcfile;     #  Just used to be printed. Indiquates that a new rcfile will be created
     $NORCFILE          = $option->norcfile;      #  0 or 1, if a rcfile has been used for loading data
     $RCFILE            = $option->rcfile;        #  The rcfile used for loading options
+    if(!-w (dirname($RCFILE))) {
+      die "\nThe path to where your rcfile will be produced is not writable by you ($RCFILE).\nPlease resolve this problem before running again\n";
+    }
+
     $ORFPROCESS        = $option->orf;           #  For Orf process, allowing presence or not in the masterfile
     $LOADSTRICT        = $option->loadstrict;    #  Load strict masterfile
     $ADDCOMMENTS       = $option->addcomments;   #  Add comments in the masterfile
@@ -675,7 +697,6 @@ sub GetOptions {          # this function is here to manipulate options
     $CHECKORFS         = 0 if ($allorfs == 1);   #  A little calculation 
     $CHECKORFS         = 1 if ($allorfs == 0);   #  to find the opposite
     $WITHMAP           = $option->withmap;       #  The extension map
-    
         
     #--Specific for the annotation (parameters for flip, blastall and organization)
     $BLASTEVALUECUTOFF       = $option->blast2;            #  Cutoff value for the blast
