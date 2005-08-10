@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.52 2005/08/10 18:03:43 thomash Exp $
+#    $Id: mfannot,v 1.53 2005/08/10 18:39:05 dto Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.53  2005/08/10 18:39:05  dto
+#    Fixed comments - removed card, put in map
+#
 #    Revision 1.52  2005/08/10 18:03:43  thomash
 #    an other way of saying the produced map is..
 #    Remove comments on generating map
@@ -239,7 +242,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.52 2005/08/10 18:03:43 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.53 2005/08/10 18:39:05 dto Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -298,7 +301,7 @@ my $CHECKORFS;                                  #  Say if yes or not have to che
 my $PEPLIBRARIES;                               #  The libraries, in input, by default datagenescollection and dataorfcollection
 my $INPUTPEPFILES;                              #  the input files
 my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
-my $WITHMAP;                                    #  the allowed extension for the card. Png or svg
+my $WITHMAP;                                    #  the allowed extension for the map. Png or svg
 
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
@@ -671,7 +674,7 @@ sub GetOptions {          # this function is here to manipulate options
     my $allorfs        = $option->allorfs;       #  All orfs will apear and won't be checked if option is checked
     $CHECKORFS         = 0 if ($allorfs == 1);   #  A little calculation 
     $CHECKORFS         = 1 if ($allorfs == 0);   #  to find the opposite
-    $WITHMAP           = $option->withmap;       #  The extension card
+    $WITHMAP           = $option->withmap;       #  The extension map
     
         
     #--Specific for the annotation (parameters for flip, blastall and organization)
@@ -2211,7 +2214,7 @@ sub LogInfo { # this function is supposed to add information
     $pirmaster->set_header($header);
 }
 
-sub CreateMap {   # A sub for creating card
+sub CreateMap {   # A sub for creating map
 
 
     my $nameofmap = $OUTPUTFILE.".".$WITHMAP;
