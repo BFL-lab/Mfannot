@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.51 2005/08/10 16:21:17 thomash Exp $
+#    $Id: mfannot,v 1.52 2005/08/10 18:03:43 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.52  2005/08/10 18:03:43  thomash
+#    an other way of saying the produced map is..
+#    Remove comments on generating map
+#
 #    Revision 1.51  2005/08/10 16:21:17  thomash
 #    Delete the map option.
 #    Map is generating with withmap option
@@ -235,7 +239,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.51 2005/08/10 16:21:17 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.52 2005/08/10 18:03:43 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -606,7 +610,7 @@ $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
 if (($WITHMAP ne "") and ($numbercontigs==1)) {
     &CreateMap;
-    print "The map: $OUTPUTFILE.$WITHMAP has been produced\n";
+    print "Genetic map: $OUTPUTFILE.$WITHMAP\n";
 }
 elsif (($WITHMAP ne "") and ($numbercontigs!=1)) {
    print "$numbercontigs contigs. Impossible to generate the map./n";
@@ -2213,8 +2217,7 @@ sub CreateMap {   # A sub for creating card
     my $nameofmap = $OUTPUTFILE.".".$WITHMAP;
     
     # generate the xml file 
-    #my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml > $TMPDIR/mf2xmloutput 2> $TMPDIR/mf2xmlwarnings";
-    my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml";
+    my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml > $TMPDIR/mf2xmloutput 2> $TMPDIR/mf2xmlwarnings";
     print "$xmlcmd\n" if $DEBUG;
     print LOGFILE "$xmlcmd\n" if $ISLOGFILE;
     system $xmlcmd;
@@ -2223,8 +2226,7 @@ sub CreateMap {   # A sub for creating card
     my $putinoptions;
     $putinoptions = " -f $WITHMAP ";
     $putinoptions .= " -E F " if ($WITHMAP eq "svg");
-    #my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
-    my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap";
+    my $mapcmd         = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
     print "$mapcmd\n" if $DEBUG;
     print LOGFILE "$mapcmd\n" if $ISLOGFILE;
     system $mapcmd;    
