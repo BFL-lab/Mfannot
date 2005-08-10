@@ -35,8 +35,6 @@ OPTIONS
 
     --blast   Blast e-value cutoff
               Minimum signifiant e-value for ORF threshold.
-
-    --card    The card generated after running mfannot
     
     -d, --debug
               Use debugging mode. Print debugging information 
@@ -143,7 +141,7 @@ OPTIONS
               Load the options presented in the file. By default it look for the
               file ".mfannotrc".
     -S
-              Doesn't annotate genes translated into mitochondrial proteins.
+              Doesn't annotate genes translated into proteins.
 
     --strict
               Strict masterfile loading. (boolean) Default false.    
@@ -161,8 +159,9 @@ OPTIONS
               Note: This step with lengthen the duration of mfannot
               considerably. 
 
-    --withcard [ svg | png ]
-              The format of the output card created  
+    --withmap [ svg | png ]
+              The format of the output card created
+	      The map created has the same name as the outputfile, with the extension  
 
 MORE 
     Masterfile:
