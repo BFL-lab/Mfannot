@@ -231,20 +231,34 @@ MORE
             '>(Genus species) (name_of_protein_without_space); comments'
         If the protein name (in one piece) is not followed by ;, it will not be
         recgnized.
-    The .mfannotrc
-        This file contains a set of options that will be used during the execution
-        of the programme.
-        It contains typically the same options as the command line except 
-        inputfile, outputfile and peplibrary options
-        The format to store the options are slightly different than the command 
-        line options : 
+
+CONFIGURATION FILE
+        Mfannot automatically searches for a file called ".mfannot" in the
+        current working directory upon starting. This file can be used to save
+        prefered command line options instead of writing them on the command 
+        line at the time of execution.
         
-                       option_name = value
+        This file uses the same options as the command line except;
+            -i,     --inputfile
+            -o,     --outputfile
+            -p,     --peplibrary
+            --rc,   --rcfile
+            --norc, --norcfile
+            --newrc, --newrcfile
+
+        The format to store the options are slightly different than the command 
+        line options. Instead of a prefix of '-' or '--' no prefix is added, and
+        if the option requires an argument, it is separated by an '=' as shown
+        below : 
+        
+            option_name = value
       
-        All the option must be completed with an equal sign and a value.
-        The option is ignored there is no value. It is ignored too if the value
-        is not possible. For the boolean, the only values 0 and 1 are accepted.
-        The comments begining with the symbol '#' are accepted  
+        If no argument is require for the equivilent command line option (ie the
+        presence of the option indicates a boolean state), the user must supply
+        a value of 0 or 1, which is separated from the option by an '='. If the
+        user does not supply an argument, the option is ignored. It is also
+        ignored if the value is erroneous. Lines begining with '#' are
+        considered to be comments.
       
 SEE ALSO
     blastall(1), flip(1),  formatdb(1), mf2xml(1)
