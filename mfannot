@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.55 2005/08/11 15:58:16 thomash Exp $
+#    $Id: mfannot,v 1.56 2005/08/11 17:17:10 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.56  2005/08/11 17:17:10  thomash
+#    a bug fixed about overlapping
+#
 #    Revision 1.55  2005/08/11 15:58:16  thomash
 #    Overlapping cutoff interval [0-1] => [0-100]
 #
@@ -248,7 +251,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.55 2005/08/11 15:58:16 thomash Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.56 2005/08/11 17:17:10 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -403,6 +406,7 @@ $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "the map $OUTPUTFILE.$WITHMAP will be generated\n" if ($WITHMAP ne "");
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
+$options .= "Logfile : $LOGFILE\n" if $ISLOGFILE;
 $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 
