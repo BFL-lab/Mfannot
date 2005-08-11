@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.54 2005/08/10 21:03:05 dto Exp $
+#    $Id: mfannot,v 1.55 2005/08/11 15:58:16 thomash Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.55  2005/08/11 15:58:16  thomash
+#    Overlapping cutoff interval [0-1] => [0-100]
+#
 #    Revision 1.54  2005/08/10 21:03:05  dto
 #    Added error checking for production of files
 #
@@ -245,7 +248,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.54 2005/08/10 21:03:05 dto Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.55 2005/08/11 15:58:16 thomash Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -470,9 +473,10 @@ if ($SIMILARITYSEARCH) {
     $options .= "Minimum exon size : $MINEXONSIZE\n";
     $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
     $options .= "Minimum intron size : $MININTRONSIZE\n";
+    $options .= "Force annotation\n" if ($FORCEANNOT);
     $options .= "Matrix : $MATRIX\n";
     $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
-    $options .= "Overlapping cutoff for non corresponding ORFs: " . $OVERLAPPINGCUTOFF*100 . "%\n";
+    $options .= "Overlapping cutoff for non corresponding ORFs: " . $OVERLAPPINGCUTOFF . "%\n";
     $options .= "trna cutoff : $TRNACUTOFF\n" if ($USETRNASCANSE);
   
     print $options if $DEBUG;
@@ -1055,7 +1059,7 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         my $start;
         my $end;
  
-        my $overlappingcutoff = $OVERLAPPINGCUTOFF;             # authorized overlapping  
+        my $overlappingcutoff = $OVERLAPPINGCUTOFF/100;         # authorized overlapping. It's a percent so it has to be between 0 and 1
         my $minimumlengthorf  = $MINLENEMPTYORF;                # minimum Orf size, below this size, the ORF is no more kept
         my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
          
