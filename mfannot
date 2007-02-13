@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.58 2007/02/13 21:41:10 nbeck Exp $
+#    $Id: mfannot,v 1.59 2007/02/13 22:18:49 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.59  2007/02/13 22:18:49  riouxp
+#    Improved handling of stderr and stdout on system() calls;
+#    makes a copy of the tRNA model file for RNAweasel.
+#
 #    Revision 1.58  2007/02/13 21:41:10  nbeck
 #    Use RNAweasel for tRNAs; adjusted codon start calculations.
 #
@@ -260,7 +264,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.58 2007/02/13 21:41:10 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.59 2007/02/13 22:18:49 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -335,7 +339,8 @@ my $MINEXONSIZE;                                #  Minimum exon size for intron.
 my $MATRIX;                                     #  The matrix used in genewise alignement
 my %CODE_GEN;					#  Hashtable with genetic code
 my $NBCONTIGS=0;                                #  The number of contigs
-my $RNAweasel_training = "/home/nbeck/MFANNOT/tRNA.epn";						# training set for RNAweasel
+
+my $RNAweasel_training = "/share/supported/data/RNAmodels/tRNA.epn"; # training set for RNAweasel
 my $RNAweasel_parameter = "-1,19 -add 1 17 18 -add 11 12 14 -add 2 3 5 7 -logzero -5 -cutoff 2.9 8 20";	# parameter for RNAweasel
 
 #############################
@@ -749,7 +754,6 @@ sub CreatePepfileWithLibrary {
     
     # delete an hyp. previous same. file
     if (-f $pepfile) {
-        #system ("rm -f $pepfile");
         unlink($pepfile);
     }
     
@@ -854,17 +858,14 @@ sub FindExonsInHypProtArray {  # the main is to find exons
 
         # check if it exists
         if (-f $fileprot) { # this file already exists
-            #system "rm $fileprot" or die "Impossible to delete $fileprot\n";
             unlink($fileprot) or die "Impossible to delete $fileprot\n";
         }
 
         if (-f $filegene) { # this file already exists
-            #system "rm $filegene" or die "Impossible to delete $filegene\n";
             unlink($filegene) or die "Impossible to delete $filegene\n";
         }
 
         if (-f $genewiseout) { # this file already exists
-            #system "rm $genewiseout" or die "Impossible to delete $genewiseout\n";
             unlink($genewiseout) or die "Impossible to delete $genewiseout\n";
         }
 
@@ -893,7 +894,7 @@ sub FindExonsInHypProtArray {  # the main is to find exons
         # GENEWISE COMMAND
         my $cmd = "$GENEWISEPATH $fileprot $filegene $genewiseoptions > $genewiseout 2> $TMPDIR/genewisewarning";  
         #  Run the alignement program
-        system $cmd;
+        system("/bin/sh","-c","$cmd");
 
         # PARSE RESULTS FROM GENEWISE AND GET THE EXONS
         my @exons = &ParseInformationFromGeneWise ($genewiseout, $strand);
@@ -1513,7 +1514,7 @@ sub RunFlip { # This function run flip with the masterfile
     # -l minimum length ORF
     # -g genetic codes
    
-    my $resultat = system ("$cmdflip");
+    my $resultat = system ("$cmdflip >/dev/null 2>/dev/null");
     
     print "$cmdflip\n" if $DEBUG;
 
@@ -1524,11 +1525,11 @@ sub RunFlip { # This function run flip with the masterfile
 sub BlastFlipVSGene {    # it runs blast with the flip results against file containing genes 
 
     my $flag         = shift || "";    # something to recognize, what is the pepfile treated
-    $BLASTOUTPUT     = $TMPDIR . "/blatstoutput_$flag";
+    $BLASTOUTPUT     = $TMPDIR . "/blastoutput_$flag";
     my $file         = $PEPFILE;                                # undef should never happen in fact.
     my $escaped_file = $file;
     $escaped_file    =~ s#'#'\\'#g;         
-    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log";
+    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log >/dev/null 2>/dev/null";
     print "$command\n" if $DEBUG;
     my $resformatdb  = system($command);
 
@@ -1985,6 +1986,8 @@ sub UseRNAweasel{
 	  my $contigs     = $pirmaster->get_contigs(); 		# get the masterfiles contigs
 	  my $countcontig = 1;
     
+          system("/bin/cp","$RNAweasel_training","$TMPDIR/tRNA.epn");
+        
   	  foreach my $contig (@$contigs) {                	# parse all the contig
 		  my $name    = $contig->get_name();       	# get the name for the contig
 		  my $seq     = $contig->get_sequence();   	# get the sequence for each contig
@@ -2003,7 +2006,7 @@ sub UseRNAweasel{
             die "can't open fasta tmp file\n";
         }
 
-	my $RNAweaselcmd = "$RNAWEASELPATH $RNAweasel_training $fastatmp -d $TMPDIR $RNAweasel_parameter";
+	my $RNAweaselcmd = "$RNAWEASELPATH \"$TMPDIR/tRNA.epn\" $fastatmp $RNAweasel_parameter >/dev/null 2>/dev/null";
         print "$RNAweaselcmd\n" if $DEBUG;
         my $resRNAweasel = system ($RNAweaselcmd);
 	
@@ -2017,6 +2020,8 @@ sub UseRNAweasel{
 	#3rd Parsing RNAweasel output
         my $parser  = new PirObject::RNAweaselparser();       					# Open the parser for RNAweasel
         $parser->loadObjectfromFile("$TMPDIR/$fullalign"); 					# Parse the file with the file and fill the object
+        unlink("$TMPDIR/$fullalign");
+        unlink("$TMPDIR/$fullalign.log");
         
 	my @annotat = $parser->get_annotations;
         my $table   = $parser->get_annotations;              					#this is a reference to an array
@@ -2474,8 +2479,8 @@ END { # With exit, programme will go here
 
     return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     
-    print "temporary work directory $TMPDIR cleaned up ...\n" if $DEBUG; 
-    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR;
+    print "Temporary work directory $TMPDIR NOT cleaned up ...\n" if $DEBUG; 
+    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR && !$DEBUG;
     rmtree($TMPDIR) unless $DEBUG;
 }
 
