@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.59 2007/02/13 22:18:49 riouxp Exp $
+#    $Id: mfannot,v 1.60 2007/02/13 22:29:16 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.60  2007/02/13 22:29:16  nbeck
+#    Fixed tRNA location calculations.
+#
 #    Revision 1.59  2007/02/13 22:18:49  riouxp
 #    Improved handling of stderr and stdout on system() calls;
 #    makes a copy of the tRNA model file for RNAweasel.
@@ -264,7 +267,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.59 2007/02/13 22:18:49 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.60 2007/02/13 22:29:16 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2048,12 +2051,12 @@ sub UseRNAweasel{
 	   if ($strand eq "RC") {		
                 $arrow = "<==";
 		$start = $result->get_end;
-		$end   = $result->get_begin;
+		$end   = $result->get_begin - 1;
             }
             else {
                 $arrow = "==>";
 		$start = $result->get_begin;
-		$end   = $result->get_end;
+		$end   = $result->get_end + 1;
             } 
 
 ##############################################################################
