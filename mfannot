@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.60 2007/02/13 22:29:16 nbeck Exp $
+#    $Id: mfannot,v 1.61 2007/03/05 20:28:29 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.61  2007/03/05 20:28:29  nbeck
+#    Support anticodon identification with '!'s; fixed bug with start positions
+#    of genes.
+#
 #    Revision 1.60  2007/02/13 22:29:16  nbeck
 #    Fixed tRNA location calculations.
 #
@@ -267,7 +271,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.60 2007/02/13 22:29:16 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.61 2007/03/05 20:28:29 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1425,7 +1429,7 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
 
 	#### Two cases
         if ($hypprot->strand == 1) { # Right strand
-            while (not ($found) and ($currentpos < $hypprot->end)) {
+            while (not ($found) and ($currentpos < $hypprot->end - 3)) {
                 my $codon = uc (substr($seq, $currentpos-1, 3));
                 $codon =~ tr/ATUGCatugc/ATTGCATTGC/;
 
@@ -1442,13 +1446,13 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
         }
         else { #Complementary strand
             while (not ($found) and ($currentpos-3 > $hypprot->end)) {
-                my $codon = uc (substr($seq, $currentpos-3-1, 3));
+                my $codon = uc (substr($seq, $currentpos-3, 3));
                 $codon =~ tr/ATUGCatugc/TAACGTAACG/;
                 $codon = reverse ($codon); # Reverse and complementary
 
-                if (ValueIsIn($possiblestarts, $codon) == 1 && ((($hypprot->end)-($currentpos-1-3))%3)==0) { ##modif bug M ##
+                if (ValueIsIn($possiblestarts, $codon) == 1 && ((($hypprot->end)-($currentpos+1-3))%3)==0) { ##modif bug M ##
                     $found       = 1;
-                    $newstartpos = $currentpos-1;
+                    $newstartpos = $currentpos;
                     last;
                 }
                 else {
@@ -1456,8 +1460,7 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
                     next;
                 }
             }
-        }
-
+	    }
         $hypprot->set_start ($newstartpos);  # set the new start to the protein
     }
 } # End function
@@ -1994,7 +1997,7 @@ sub UseRNAweasel{
   	  foreach my $contig (@$contigs) {                	# parse all the contig
 		  my $name    = $contig->get_name();       	# get the name for the contig
 		  my $seq     = $contig->get_sequence();   	# get the sequence for each contig
-		  $seq        =~ s/[^atcgATCG]//g;
+		  $seq        =~ s/[^atcgATCGnN]//g;
         
 	#2nd : run RNAweasel with the temporary fasta file
         
@@ -2028,16 +2031,18 @@ sub UseRNAweasel{
         
 	my @annotat = $parser->get_annotations;
         my $table   = $parser->get_annotations;              					#this is a reference to an array
-        
+        my $cmp = 0;
+	
 	foreach my $result (@$table) { 								#Correspond to the tRNAweasel annotation 
             my $start;
             my $end;
 	    my $strand;
+	    my $ac_begin = $result->get_begin_ac;
 	    $strand = $result->get_strand;
 	    my $arrow;
-
+	    my $fullseq = $contig->get_sequence();
 	    #########################################
-	    #	Allows the define the symbol of      #
+	    #	Allows the define the symbol of     #
 	    #		the Amino acid		    #
 	    #########################################
 	    my $acodon	 = $result->get_anti_codon;						
@@ -2125,6 +2130,13 @@ sub UseRNAweasel{
                                                       endpos    => $end,
                                                       direction => $arrow,
                                                     );
+				
+					$cmp++;
+	   my $annot_ac    = new PirObject::AnnotPair (
+                                                   type      => "AC", 
+						   genename  => "!anticodon_$cmp!",
+                                                   startpos  => $ac_begin,
+                                                   );
 
             my $number    = $ANNOTSEEN->{$annot->genename} || 0;
             my $arnname   = $genename;
@@ -2143,7 +2155,8 @@ sub UseRNAweasel{
             $annot->set_startline ($startline);
             $annot->set_endline ($endline);
             &AddAnnotToPirMaster($pirmaster,$name,$annot);
-        }
+	    &AddAnnotToPirMaster($pirmaster,$name,$annot_ac);
+	}
         $countcontig ++;    
     } # each contig    
 }
@@ -2302,7 +2315,7 @@ sub AddAnnotToPirMaster {
      
     # Here we compare all the annotations, with the one we try to add 
     foreach my $annotation (@$annotations) {
-        my $annotname = $annotation->genename;
+	my $annotname = $annotation->genename; 
         my $annottype = $annotation->type || "C";
         my $annotstart = $annotation->startpos;
         my $annotend = $annotation->endpos;
@@ -2310,7 +2323,7 @@ sub AddAnnotToPirMaster {
         $annotstart = -1 if (!defined  ($annotstart));
         $annotend = -1 if (!defined  ($annotend));
     
-    
+	
         ##--First case : if both are same comment on the same line 
         if (($annottype eq "C") and ($annot->type eq "C") and
             ($annot->startpos == $annotstart) and
@@ -2344,8 +2357,9 @@ sub AddAnnotToPirMaster {
             }
             push (@$annotations, $annot);
             return 1;
-        }    
+        } 
     }
+    
     
     if ($FORCEANNOT) { # If Force annot, you can add a new one 
         $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
@@ -2385,9 +2399,20 @@ sub LogInfo { # this function is supposed to add information
     my $redisc    = $ANNOT_STATS->{'Rediscovered'};
 
     my @added     = sort keys %$added;
+    my $comp_add  = 0;
+    foreach my $genename (@added){ 
+    $comp_add++ if ( $genename =~ /^!/);  
+    }
     my @redisc    = sort keys %$redisc;
-
-    push(@report, ";;    - Gene Totals: " . scalar(@added) . " added; " . scalar(@redisc) . " rediscovered.",);
+    my $comp_red  = 0;
+    foreach my $genename (@redisc){ 
+    $comp_red++ if ( $genename =~ /^!/);  
+    }
+    
+    my $gene_add = scalar(@added) - $comp_add;
+    my $red_add = scalar(@redisc) - $comp_red;
+     
+    push(@report, ";;    - Gene Totals: " . $gene_add  . " added; " . $red_add . " rediscovered.",);
 
     # ---------------- genes added -------------------------
     
@@ -2397,10 +2422,11 @@ sub LogInfo { # this function is supposed to add information
     my $cnt       = 0;
     my $rep       = "";
 
-    print "Added : ", scalar(@added), "\n" if $DEBUG;
-    print LOGFILE "Added : ", scalar(@added), "\n" if $ISLOGFILE;
+    print "Added : ", $gene_add, "\n" if $DEBUG;
+    print LOGFILE "Added : ", $gene_add, "\n" if $ISLOGFILE;
 
     foreach my $genename (@added) {
+    if ($genename =~ /^[^!]/){
         my($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
         $rep      = ";;     " if !$cnt;
         $rep     .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
@@ -2410,6 +2436,7 @@ sub LogInfo { # this function is supposed to add information
             $cnt  = 0;
         }
     }
+    }
     push(@report, $rep) if $cnt;
     
     # ---------------- genes rediscovered -------------------------
@@ -2418,9 +2445,10 @@ sub LogInfo { # this function is supposed to add information
 
     $cnt = 0;
     $rep = "";
-    print "Rediscovered : ", scalar(@redisc), "\n" if $DEBUG;
-    print LOGFILE "Rediscovered : ", scalar(@redisc), "\n" if $ISLOGFILE;
+    print "Rediscovered : ", $red_add, "\n" if $DEBUG;
+    print LOGFILE "Rediscovered : ", $red_add, "\n" if $ISLOGFILE;
     foreach my $genename (@redisc) {
+	if ($genename =~ /^[^!]/){
         my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
         $rep       = ";;     " if !$cnt;
         $rep      .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
@@ -2429,6 +2457,7 @@ sub LogInfo { # this function is supposed to add information
             push(@report, $rep);
             $cnt = 0;
         }
+    }
     }
     push(@report, $rep) if $cnt;
      
@@ -2477,15 +2506,16 @@ sub TestFile
 }
 
 
-END { # With exit, programme will go here
-      # Cleanup temp directory when program exits.
-
-    return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
-    
-    print "Temporary work directory $TMPDIR NOT cleaned up ...\n" if $DEBUG; 
-    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR && !$DEBUG;
-    rmtree($TMPDIR) unless $DEBUG;
-}
+#END { # With exit, programme will go here
+#      # Cleanup temp directory when program exits.
+#
+#    return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
+#    
+#    print "Temporary work directory $TMPDIR NOT cleaned up ...\n" if $DEBUG; 
+#    #system("/bin/rm","-rf",$TMPDIR) if -d $TMPDIR && !$DEBUG;
+#    rmtree($TMPDIR) unless $DEBUG;
+#}
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca 
+
 
