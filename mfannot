@@ -25,9 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.61 2007/03/05 20:28:29 nbeck Exp $
+#    $Id: mfannot,v 1.62 2007/03/09 21:50:20 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.62  2007/03/09 21:50:20  riouxp
+#    Masterfile now copied into tmp directory and stripped of
+#    all carriage returns before running 'flip' (otherwise,
+#    flip's report is all wrong).
+#
 #    Revision 1.61  2007/03/05 20:28:29  nbeck
 #    Support anticodon identification with '!'s; fixed bug with start positions
 #    of genes.
@@ -271,7 +276,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.61 2007/03/05 20:28:29 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.62 2007/03/09 21:50:20 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1513,7 +1518,22 @@ sub RunFlip { # This function run flip with the masterfile
         # relative
         $tmpMasterfile = "$cwd/$MASTERFILE";
     }
-    my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
+
+    # Need to remove CR from masterfile, so let's make a local copy
+    print "Making local copy of masterfile with no CRs.\n" if $DEBUG;
+    my $ifh = new IO::File "<$tmpMasterfile"
+        or die "Cannot read from masterfile '$tmpMasterfile': $!\n";
+    my $ofh = new IO::File ">mf_noCr.all"
+        or die "Cannot write to temp file 'mf_noCr.all': $!\n";  # in TMPDIR
+    while (my $line = <$ifh>) {
+        $line =~ s/\s+$/\n/;
+        print $ofh $line;
+    }
+    $ofh->close();
+    $ifh->close();
+
+    #my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
+    my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip_$flag.output";
 
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
