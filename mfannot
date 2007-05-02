@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.63 2007/05/01 21:04:55 nbeck Exp $
+#    $Id: mfannot,v 1.64 2007/05/02 18:24:09 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.64  2007/05/02 18:24:09  nbeck
+#    *** empty log message ***
+#
 #    Revision 1.63  2007/05/01 21:04:55  nbeck
 #    Support for external program 'exonerate' for exon annotation (replaces
 #    Genewise); tRNAscanSE is now disabled
@@ -282,7 +285,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.63 2007/05/01 21:04:55 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.64 2007/05/02 18:24:09 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -345,6 +348,10 @@ my $PEPLIBRARIES;                               #  The libraries, in input, by d
 my $INPUTPEPFILES;                              #  the input files
 my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
 my $WITHMAP;                                    #  the allowed extension for the map. Png or svg
+my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
+my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
+my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
+
 
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
@@ -454,7 +461,9 @@ $options .= "Logfile : $LOGFILE\n" if $ISLOGFILE;
 $options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 $options .= "Usage of RNAweasel\n";
-
+$options .= "Search of start $STARTBEFORE aa before the start of blast match\n";
+$options .= "Search of start $STARTAFTER aa after the start of blast match\n";
+$options .= "Warning if the protein make +/- $SIZE pourcent of homologous protein\n";
 
 if ($SIMILARITYSEARCH) 
 {
@@ -720,6 +729,10 @@ sub GetOptions
     #--General options
     $DEBUG             = $option->debug;         #  Debug mode. If true, display message on the screen
     $GENCODE           = $option->genetic;       #  Genetique code
+    $STARTBEFORE       = $option->startbefore;
+    $STARTAFTER        = $option->startafter;
+    $SIZE              = $option->size;
+    
     my $gentable = Bio::Tools::CodonTable->new();
     if   (not $gentable->id($GENCODE)) 
     {
@@ -1302,9 +1315,9 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 	}
 
 	#Define the interval of length
-	my $five_pourcent = ((5 * $length) / 100);
-	my $length_min    = $length - $five_pourcent;
-	my $length_max    = $length + $five_pourcent;
+	my $size_pourcent = (($SIZE * $length) / 100);
+	my $length_min    = $length - $size_pourcent;
+	my $length_max    = $length + $size_pourcent;
 	
 	#Put a warning if the length of protein is too small or too large
         my $tag               = $hyprot->remark;
@@ -1515,25 +1528,26 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
 	my $isMinus = ($hypprot->strand == 1 ? 0 : 1);
 	my $posOffset = ($isMinus ? -3 : 3);
 	
-	for (my $i = -10; $i <= 5; $i++)
+	
+	for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++)
 		{
-		$hash{$i}= uc (substr($seq, $currentpos-31, 3));
-		 my $pos = $currentpos-31;
+		$hash{$i}= uc (substr($seq, $currentpos-1-($STARTBEFORE*3), 3));
+		my $pos = $currentpos-1-($STARTBEFORE*3);
 		if ($isMinus) {							#Reverse complement case
-	            my $codon = uc (substr($seq, $currentpos+27, 3));
-		    my $pos = $currentpos+29;
+	            my $codon = uc (substr($seq, $currentpos+($STARTBEFORE*3)-3, 3));
+		    $pos = $currentpos+($STARTBEFORE*3)-3;
 		    $codon =~ tr/ACGT/TGCA/;
 		    $codon = reverse $codon;
 		    $hash{$i} = $codon;
 	        }
 		$currentpos += $posOffset;
-		if ($CODE_GEN{$hash{$i}} eq "*"){ push(@tab, $i);}  
+		if ($CODE_GEN{$hash{$i}} eq "*"){ push(@tab, $i);} 
 		}
 		
-        my $compt = -10;
+        my $compt = -$STARTBEFORE;
 	$compt = $tab[-1]+1 if @tab;
 		
-	for (my $i = $compt ; $i <= 5; $i++)
+	for (my $i = $compt ; $i <= $STARTAFTER; $i++)
 	{
 		if ($hash{$i} eq "ATG")
 		{
@@ -1605,7 +1619,7 @@ if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)
 	}
 }
 
-else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the position of blast match they have no start 10aa before and no start 5aa after"}
+else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the position of blast match they have no start $STARTBEFORE aa before and no start $STARTAFTER aa after"}
 
         $hypprot->set_start ($newstartpos);  # set the new start to the protein
 	$hypprot->set_warning ($new_warning);
