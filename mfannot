@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.64 2007/05/02 18:24:09 nbeck Exp $
+#    $Id: mfannot,v 1.65 2007/05/30 18:53:56 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.65  2007/05/30 18:53:56  nbeck
+#    Fixed bugs for Exonerate, and use startBlast to define start of protein without introns.
+#
 #    Revision 1.64  2007/05/02 18:24:09  nbeck
 #    *** empty log message ***
 #
@@ -285,7 +288,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.64 2007/05/02 18:24:09 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.65 2007/05/30 18:53:56 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -959,35 +962,100 @@ sub FindExonsInHypProtArray
 	my $flobj = new PirObject::ExonerateOutput();
 	$flobj->FillFeaturesFromTextOutput(\@tab);
 
-	my $reports 		= $flobj->report;				#One report contain information about one C4 section present in exonerate Output
-	my @exon_start_end	=();						#tab with information about start and end of all exons present in Exonerte Output
-	foreach my $report (@$reports){
-	my $features = $report->dnafeatures;					#$features contains all information present in the part GFF DNA per lines
-	foreach my $lineobj (@$features) {
-		my $start 	= $lineobj->start;
-		my $end		= $lineobj->end;
-		my $strand      = $lineobj->strand;
-		my $feat 	= $lineobj->feature;
-		if ($feat eq "exon"){
-		my $a 		= $start; 
-		my $b 		= $end;
-		my $pair_start_end 	= [ $a, $b, $strand ];
-		push(@exon_start_end, $pair_start_end);				#@exon_start_end contain information about exon with start end and strand of each exons
+	my $ExoReports 		= $flobj->report;				#One report contain information about one C4 section present in exonerate Output
+	#my $reports 		= $flobj->report;	
+	
+	my @start_end_query	= ();
+	my @report_memory       = ();
+	foreach my $ExoReport (@$ExoReports){
+	my $query_range			= $ExoReport->query_range;
+	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
+	my $pair_start_end 	= [ $start_query, $end_query ];
+	push(@start_end_query, $pair_start_end);					#@start_end_query contain information about query with start end of each C4 alignement
+	push(@report_memory, $ExoReport);
+	}
+	
+	my @report_tab;
+	my @add_report;
+	if (@start_end_query-1 == 0) {
+		push(@report_tab, [ $report_memory[0] ] );
+	}
+	else{
+	for (my $i = 0; $i < (@start_end_query-1); $i++){
+		if (($start_end_query[$i]->[1] < $start_end_query[$i+1]->[0]) || ($start_end_query[$i+1]->[1] < $start_end_query[$i]->[0])){		#non overlapp
+			push(@add_report, $report_memory[$i]);
+			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
+		}
+		else {																	#overlappe	
+			push(@add_report, $report_memory[$i]);
+			push (@report_tab, [@add_report]);
+			@add_report = ();							#je veut juste le vider ps lui mettre en premier élément rien ?? 
+			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
+			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
+ 
 		}
 	}
 	}
 
-	@exon_start_end = sort { $a->[0] <=> $b->[0] } @exon_start_end;		#sort exons_start_end by start
+	foreach  my $reports (@report_tab) {
+	my @exon_start_end	= ();						#tab with information about start and end of all exons present in Exonerte Output
+	foreach my $report (@$reports){
+	my $features = $report->dnafeatures;					#$features contains all information present in the part GFF DNA per lines
+	my $query_range			= $report->query_range;
+	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
+	my $isMinus = ($strand == 1 ? 0 : 1);
+	foreach my $lineobj (@$features) {
+		my $start 	= $lineobj->start;
+		$start 		= $lineobj->end   if $isMinus;
+		my $end		= $lineobj->end;
+		$end 		= $lineobj->start if $isMinus;
+		my $strand_exon = $lineobj->strand;
+		my $feat 	= $lineobj->feature;
+		if ($feat eq "exon"){
+		my $pair_start_end 	= [ $start, $end, $strand_exon, $start_query ];
+		push(@exon_start_end, $pair_start_end);				#@exon_start_end contain information about exon with start end and strand of each exons
+		}
+	}
+	}
 	
-		
+
+	@exon_start_end = sort {    ($a->[3] <=> $b->[3])
+				||  ($a->[0] <=> $b->[0])} @exon_start_end if $strand != -1;	#sort exons_start_end by start brin-
+				
+	@exon_start_end = sort {    ($a->[3] <=> $b->[3]) 
+				||  ($b->[0] <=> $a->[0])} @exon_start_end if $strand == -1;	#sort exons_start_end by start brin+
+
+	($exon_start_end[0]->[0] = $exon_start_end[0]->[0] - ($exon_start_end[0]->[3]*3)) if ($strand != -1 && $exon_start_end[0]->[3] != 0); 	#correction about start of protein
+	($exon_start_end[0]->[0] = $exon_start_end[0]->[0] + ($exon_start_end[0]->[3]*3)) if ($strand  == -1 && $exon_start_end[0]->[3] != 0);  #correction about start of protein
+	
+##########################################correction about start and end of exon if two exons is overlapping####################################
+
 	my @exon_start_end_cor	=();						#correction about start and end of exon if two exons is overlapping 
 	for (my $i = 0; $i < (@exon_start_end-1); $i++){			#for exemple
-		if ($exon_start_end[$i]->[1] > $exon_start_end[$i+1]->[0]){	#take the minus start and the bigger stop if exons is on strand +
-			my $start 		= $exon_start_end[$i]->[0];
-			my $end  		= $exon_start_end[$i+1]->[1];
-			my $strand		= $exon_start_end[$i]->[2];
-			my $quad_start_end 	= [ $start, $end, $strand, $i ];		#start, end strand and index 
+		if ($strand != -1) {
+		if (!( ($exon_start_end[$i]->[1] < $exon_start_end[$i+1]->[0]) || ($exon_start_end[$i+1]->[1] < $exon_start_end[$i]->[0]) )){	#take the minus start and the bigger stop if exons is on strand +
+			my $boolean = (($exon_start_end[$i]->[1] > $exon_start_end[$i+1]->[0]) == 1 ? 0 : 1);
+			my $start 		= $exon_start_end[$i]->[0]   if !$boolean;	#if E1_end > E2_start
+			my $end  		= $exon_start_end[$i+1]->[1] if !$boolean;	#if E1_end > E2_start
+			$start			= $exon_start_end[$i+1]->[0] if $boolean;	#if E2_end > E1_start
+			$end  			= $exon_start_end[$i]->[1]   if $boolean;	#if E2_end > E1_start
+			my $strand_exon		= $exon_start_end[$i]->[2];
+			my $quad_start_end 	= [ $start, $end, $strand_exon, $i ];		#start, end strand and index 
 			push(@exon_start_end_cor, $quad_start_end);
+		}
+		}
+		
+		elsif ($strand == -1)  {
+		if (!( ($exon_start_end[$i+1]->[0] < $exon_start_end[$i]->[1]) || ($exon_start_end[$i]->[0] < $exon_start_end[$i+1]->[1]) )){	#take the minus start and the bigger stop if exons is on strand +
+			my $boolean = (($exon_start_end[$i+1]->[0] > $exon_start_end[$i]->[1]) == 1 ? 0 : 1);
+			my $start 		= $exon_start_end[$i]->[0]   if !$boolean;	#if E2_start > E1_end
+			my $end  		= $exon_start_end[$i+1]->[1] if !$boolean;	#if E2_start > E1_end
+			$start 			= $exon_start_end[$i+1]->[0] if $boolean;	#if E1_start > E2_end
+			$end  			= $exon_start_end[$i]->[1]   if $boolean;	#if E1_start > E2_end
+			my $strand_exon		= $exon_start_end[$i]->[2];
+			my $quad_start_end 	= [ $start, $end, $strand_exon, $i ];		#start, end strand and index 
+			push(@exon_start_end_cor, $quad_start_end);
+		}
 		}
 	}
 
@@ -998,35 +1066,32 @@ sub FindExonsInHypProtArray
 	 }
 	 
 	 for (my $i=0; $i < @exon_start_end_cor; $i++){				#push information about the new exon 
-		 my $start = $exon_start_end_cor[$i]->[0];
-		 my $end = $exon_start_end_cor[$i]->[1];
-		 my $strand = $exon_start_end_cor[$i]->[2];
-		 my $tri = [ $start, $end, $strand];				#start and end and strand
+		 my $start 	 = $exon_start_end_cor[$i]->[0];
+		 my $end 	 = $exon_start_end_cor[$i]->[1];
+		 my $strand_exon = $exon_start_end_cor[$i]->[2];
+		 my $tri = [ $start, $end, $strand_exon];			#start and end and strand
 		 push(@exon_start_end, $tri );					#push information about the exon corrected into @exons_start_end
 	 }
-	 
-	
+
+##########################################correction about start and end of exon if two exons is overlapping####################################
+
 	my @intron_start_end;							#Define the tab of intron with the information about exons localisation
  	for (my $i = 0; $i < (@exon_start_end-1); $i++){
-         	 my $start = $exon_start_end[$i]->[1] + 1;
-	         my $end   = $exon_start_end[$i+1]->[0] - 1;
-		 my $strand = $exon_start_end[$i]->[2];
-		 my $tri = [$start,$end,$strand];
+         	 my $start 	   = $exon_start_end[$i]->[1] + 1;
+		 $start   	   = $exon_start_end[$i]->[1] - 1 if $strand == -1;
+	         my $end   	   = $exon_start_end[$i+1]->[0] - 1;
+		 $end		   = $exon_start_end[$i+1]->[0] + 1 if $strand == -1;
+		 my $strand_intron = $exon_start_end[$i]->[2];
+		 my $tri = [$start,$end,$strand_intron];
 	         push(@intron_start_end, $tri);	 
 	 }
 	
 	my $newhypprot = undef;
-	my $start;
-	my $end; 
+	my $start = $exon_start_end[0]->[0]   if $strand == 1;
+	my $end	  =  $exon_start_end[-1]->[1] if $strand == 1; #acces to the last element of $exon_start_end
+	$start 	  =  $exon_start_end[0]->[0]  if $strand != 1;
+	$end      =  $exon_start_end[-1]->[1] if $strand != 1; #acces to the last element of $exon_start_end
 	
-	if ($strand == 1){
-	$start =  $exon_start_end[0]->[0];
-	$end   = $exon_start_end[-1]->[1];					#acces to the last element of $exon_start_end
-	} 
-	else {
-	$start =  $exon_start_end[-1]->[1];					#acces to the last element of $exon_start_end
-	$end   = $exon_start_end[0]->[0];
-	} 
 	$newhypprot = new PirObject::HypProt (
         	                                      name       => $name,
 						      contigname => $contigname,
@@ -1045,30 +1110,19 @@ sub FindExonsInHypProtArray
 	
 	my $newhypprotexonarray = $newhypprot->exons;
 	for (my $i = 0; $i < @exon_start_end; $i++){
-            # On this step exon are sorted,
-            # The start correspond to the lowest value between start and stop
-            # The intron calculation is easier
-            if ( $exon_start_end[$i]->[2] eq "+"){
+		#fill information about exon
             my $hypprotexon = new PirObject::Exon (
                                                      start  => $exon_start_end[$i]->[0],
                                                      end    => $exon_start_end[$i]->[1],
                                                      strand => $exon_start_end[$i]->[2],
                                                   );
 						   push (@$newhypprotexonarray, $hypprotexon); 
-	    }
-	    else {
-	    my $hypprotexon = new PirObject::Exon (
-                                                     start  => $exon_start_end[$i]->[1],
-                                                     end    => $exon_start_end[$i]->[0],
-                                                     strand => $exon_start_end[$i]->[2],
-                                                  );
-						   push (@$newhypprotexonarray, $hypprotexon); 
-	    }
         }
+	
 	
 	my $newhypprotintronarray = $newhypprot->introns;
 	for (my $i = 0; $i < @intron_start_end; $i++){
-	if ( $exon_start_end[$i]->[2] eq "+"){
+		#fill information about intron
 	my $hypprotintron = new PirObject::Intron (
 		 start  => $intron_start_end[$i]->[0],
                  end    => $intron_start_end[$i]->[1],
@@ -1076,17 +1130,7 @@ sub FindExonsInHypProtArray
 	 );
 	  push (@$newhypprotintronarray, $hypprotintron);
 	}
-	else {
-	my $hypprotintron = new PirObject::Intron (
-		 start  => $intron_start_end[$i]->[1],
-                 end    => $intron_start_end[$i]->[0],
-                 strand => $intron_start_end[$i]->[2],
-	 );
-	  push (@$newhypprotintronarray, $hypprotintron);
 	}
- }
-		
- 
 	$count ++;
     }  #  End of each prot        
 }
@@ -1102,13 +1146,9 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         my $contigname        = $emptyorf->contigname;          # Get the contigname corresponding to the empty ORFs
         my $strand            = $emptyorf->strand;
 
-        my $arrow;
-        if ($strand == 1) {
-            $arrow = '==>';
-        }
-        else {
-            $arrow = '<==';
-        }
+        my $arrow = '==>' if $strand == 1;
+        $arrow = '<==' if $strand != 1;
+   
         
         my $start;
         my $end;
@@ -1222,16 +1262,16 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
       my $startline = "";
       my $endline = "";
       if ($numberofannotforthisorf >= 2) {
-          $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start ";
-          $startline  .= ";; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-          $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end ";
-          $endline    .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
+          $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
+          $startline  .= " ;; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+          $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
+          $endline    .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
       }
       else {
-           $startline  = ";     G-$GenenameORF $arrow start ";
-           $startline .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-           $endline    = ";     G-$GenenameORF $arrow end ";
-           $endline   .= ";; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
+           $startline  = ";     G-$GenenameORF $arrow start";
+           $startline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+           $endline    = ";     G-$GenenameORF $arrow end";
+           $endline   .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
       }
       #________________________________________________________________________________
    
@@ -1284,11 +1324,15 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 	my $length	      = 0;				#length of the library protein
   	my $length_protein    = 0; 				#length of the annotated protein
 	
-	my @tab_prot = split(/\s+/, $prot);
+	my @tab_prot = split(/\n/, $prot);
 	for (my $i = 0 ; $i <= $#tab_prot ; $i++)
 	{
-			$length = $tab_prot[$i] if $tab_prot[$i] =~ /\d+/;
+		if (!($tab_prot[$i] =~ /^>/)){
+		$length += length($tab_prot[$i]);
+		}
 	}
+	
+	$length = $length - 1;
 	
         my $arrow;
 	my $exons = $hyprot->exons;
@@ -1311,7 +1355,7 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 	else												#For protein without intron
 	{
 	    $length_protein = (( $end - $start + 1 )/3) -1;
-	    $length_protein = (( $start - $end + 1 )/3)-1 if $isMinus;
+	    $length_protein = (( $start - $end + 1 )/3) -1 if $isMinus;
 	}
 
 	#Define the interval of length
@@ -1354,9 +1398,9 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 	
         $startline           .= ";     G-$linename $arrow start ;; Warning : $warning" if $warning ne "";
 	$startline           .= ";     G-$linename $arrow start" if $warning eq "";
-        $startline           .= ";; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # add comments if option is checked
-        my $endline           = ";     G-$linename $arrow end ";
-        $endline             .= ";; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS;  # add comments if option is checked
+        $startline           .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # add comments if option is checked
+        my $endline           = ";     G-$linename $arrow end";
+        $endline             .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS;  # add comments if option is checked
 
         my $protannot = new PirObject::AnnotPair (
                                                    type      => "G", 
@@ -1385,17 +1429,17 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
         # Annotating exons
 	
 	my $strand = $hyprot->strand;
-	my $number = ($isMinus ? scalar(@$exons) : 1);
-	my $compt = ($isMinus ? -1 : 1);
+	my $number = ($isMinus ? 1 : 1);
+	my $compt = ($isMinus ? 1 : 1);
         foreach my $exon (@$exons) {
             my $exon_start  = $exon->start;
             my $exon_end    = $exon->end;
             my $exon_strand = $exon->strand;
 
-            my $start_line  = ";     G-$linename-E$number $arrow start ";
-            $start_line    .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
-            my $end_line    = ";     G-$linename-E$number $arrow end ";
-            $end_line      .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+            my $start_line  = ";     G-$linename-E$number $arrow start";
+            $start_line    .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+            my $end_line    = ";     G-$linename-E$number $arrow end";
+            $end_line      .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
 
             my $exon_annot = new PirObject::AnnotPair (
                                                        type      => "E",
@@ -1414,16 +1458,16 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
         # Annotating introns
 	
 	my $introns = $hyprot->introns;
-        $number = ($isMinus ? scalar(@$introns) : 1);
+        $number = ($isMinus ? 1 : 1);
 	foreach my $intron (@$introns) {
             my $intron_start  = $intron->start;
             my $intron_end    = $intron->end;
             my $intron_strand = $intron->strand;
 
-            my $start_line  = ";     G-$linename-I$number $arrow start ";
-            $start_line    .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
-            my $end_line    = ";     G-$linename-I$number $arrow end ";
-            $end_line      .= ";; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+            my $start_line  = ";     G-$linename-I$number $arrow start";
+            $start_line    .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
+            my $end_line    = ";     G-$linename-I$number $arrow end";
+            $end_line      .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # option checked, add comments
 
             my $intron_annot = new PirObject::AnnotPair (
                                                        type      => "I",
@@ -1527,28 +1571,36 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
 	my $currentpos  = $hypprot->start;					
 	my $isMinus = ($hypprot->strand == 1 ? 0 : 1);
 	my $posOffset = ($isMinus ? -3 : 3);
+	my @i_start;
 	
 	
-	for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++)
+	for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += $posOffset)
 		{
+		next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) < 0)) || ($isMinus && ($currentpos+($STARTBEFORE*3)-3 > length($seq)-3 )))  ;
+		next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) > length($seq)-3)) || ($isMinus && (($currentpos+($STARTBEFORE*3)-3) < 0 ) ) ) ;
 		$hash{$i}= uc (substr($seq, $currentpos-1-($STARTBEFORE*3), 3));
 		my $pos = $currentpos-1-($STARTBEFORE*3);
+		#print "i = $i pos = $pos start = $oldstartpos\n";
 		if ($isMinus) {							#Reverse complement case
 	            my $codon = uc (substr($seq, $currentpos+($STARTBEFORE*3)-3, 3));
+		    #print "codon = $codon\n";
 		    $pos = $currentpos+($STARTBEFORE*3)-3;
 		    $codon =~ tr/ACGT/TGCA/;
 		    $codon = reverse $codon;
 		    $hash{$i} = $codon;
 	        }
-		$currentpos += $posOffset;
+		#print "hash = $hash{$i}\n";
 		if ($CODE_GEN{$hash{$i}} eq "*"){ push(@tab, $i);} 
+		push(@i_start, $i);
 		}
 		
-        my $compt = -$STARTBEFORE;
-	$compt = $tab[-1]+1 if @tab;
+        my $compt_i = $i_start[0];
+	my $compt_f = $i_start[-1];
+	$compt_i = $tab[-1]+1 if @tab;
 		
-	for (my $i = $compt ; $i <= $STARTAFTER; $i++)
+	for (my $i = $compt_i ; $i <= $compt_f; $i++)
 	{
+		#print "i = $i hash = $hash{$i}\n";
 		if ($hash{$i} eq "ATG")
 		{
 			if ($i > 0)
@@ -1627,15 +1679,17 @@ else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the p
 	my $exons = $hypprot->exons;
 	
 
-	if (@$exons && $strand == 1){
+	if (@$exons){
         my $first_exon = $exons->[0];
 	my $end_exon   = $exons->[-1];
 	my $end = $end_exon->end;
 
+	if ($strand == 1){
 		for (my $i = -3;; $i += 3)
 		{
 			my $length = length($seq);
-			last if $end+$i > length($seq);
+			#print length($seq)."\n";
+			last if $end+$i > length($seq)-3;
 			my $tri_nt      = uc (substr($seq, $end + $i, 3));
 			my $codon	= $CODE_GEN{$tri_nt};
 			next if $codon ne "*";
@@ -1644,19 +1698,13 @@ else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the p
 			$hypprot->end($new_end);  # set the new end to the protein
 			last;	
 		}
-	$first_exon->start($newstartpos);
 	}
 	
-	if (@$exons && $strand != 1){
-	my $first_exon = $exons->[-1];
-	my $end_exon   = $exons->[0];
-	$first_exon->start($newstartpos);
-	
-	for (my $i = 0;; $i -= 3)
+	elsif ($strand != 1){
+		for (my $i = 0;; $i -= 3)
 		{
-			my $length = length($seq);
-			#print "name=$name length=$length i=$i end=$end\n";
-			last if $end+$i >length($seq);
+			#print "name=$name i=$i end=$end\n";
+			last if $end+$i-1 < 0;
 			my $tri_nt      = uc (substr($seq, $end + $i - 1 , 3));
 			#print "tri_nt_before=$tri_nt";
 			$tri_nt    =~ tr/ATUGCatugc/TAACGTAACG/;
@@ -1671,6 +1719,8 @@ else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the p
 			$hypprot->end($new_end);  # set the new end to the protein
 			last;	
 		}	
+	}
+	$first_exon->start($newstartpos);
 	}
 }
 } # End function
@@ -1737,7 +1787,7 @@ sub RunFlip { # This function run flip with the masterfile
     $ifh->close();
 
     #my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE $tmpMasterfile > $TMPDIR/flip_$flag.output";
-    my $cmdflip = "$FLIPPATH -s ATG -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip_$flag.output";
+    my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip_$flag.output";
 
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
@@ -1916,14 +1966,17 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 
               #----    Creating a new ORF object    ---
               my $neworf = new PirObject::Orf (
-                                                start   => $start,
-                                                end     => $end,
-                                                strand  => $strand,
-                                                score   => $evalue,
-                                                protein => $prot, # assign the protein to the ORF 
-                                                hsps    => []
+                                                start      => $start,
+						startBlast => [],
+                                                end        => $end,
+                                                strand     => $strand,
+                                                score      => $evalue,
+                                                protein    => $prot, # assign the protein to the ORF 
+                                                hsps       => []
                                               );
-              my $refhsparray = $neworf->hsps;           #    An array reference,                          
+              
+	      my @start_b;
+	      my $refhsparray = $neworf->hsps;           #    An array reference,                          
               foreach my $hsp (@hsps) {
                   my $newhsp = new PirObject::Hsp_query_sbjct (
                                                     start_q  => $hsp->start('query'),
@@ -1931,8 +1984,19 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
 						    start_s => $hsp->start('sbjct'),
  						    end_s   => $hsp->end('sbjct'),
                                                     strand => $hsp->strand);
-				push (@$refhsparray, $newhsp);
+		push (@$refhsparray, $newhsp);
+										    
+		if ($hsp->start('query') > $hsp->start('sbjct')) {
+			my $start_cor = $start + ( ($hsp->start('query') *3) - ($hsp->start('sbjct') *3) ) if $strand == 1;
+			   $start_cor = $start - ( ($hsp->start('query') *3) - ($hsp->start('sbjct') *3) ) if $strand != 1;
+			push (@start_b, $start_cor);
+			}		
               }
+	      
+	      my $newstartblast = $neworf->startBlast;
+	      my $start_bl = min(@start_b) if $strand == 1;
+	         $start_bl = max(@start_b) if $strand == -1; 
+	      push (@$newstartblast, $start_bl);
                                 
               my $newflipblastprot = GetFlipBlastProtByNAmeAndContigName ($hypprotein, $contigname);
               # Two case
@@ -1999,7 +2063,7 @@ sub Select_protein								#This function is create in order to selection the pro
 		 my $contigname = $flipblastprot->contigname;
 		 my $orfs       = $flipblastprot->orfs;
 		 my $number_orfs = scalar (@$orfs);
-		 
+		 my %strand;									#hashtable with the number of each strand for one flipblastprot
 		 
 		  if ($number_orfs < 1)
 		  { 
@@ -2008,65 +2072,69 @@ sub Select_protein								#This function is create in order to selection the pro
 
 		  if ($number_orfs > 1)
 		  {
-			   my @start_end_orf	=();
-			   my @protein_score	=();
-			   my @strand	 	=();
-			   foreach my $orf(@$orfs) 
-			   {
-				   my $isMinus = ($orf->strand == 1 ? 0 : 1);
-				   my @start_hsp 	=();
-				   my @end_hsp 		=();
-				   my $hsps	= $orf->hsps;
-				   foreach my $hsp(@$hsps)
-				   {
-					   push (@start_hsp, $hsp->start_q);
-					   push (@end_hsp, $hsp->end_q);
-				   }
-				   my $min_start_hsp 	= min(@start_hsp);					#give the lower start of hsp
-				   my $max_end_hsp	= max(@end_hsp);					#give the bigger end of hsp
-				   my $cor_start 		= $orf->start + (3 * $min_start_hsp);		#the really start of orf if strand +
-				   my $cor_end   		= $orf->start + (3 * $max_end_hsp);		#the really end of orf if strand +
-				   $cor_start 		= $orf->start - (3 * $min_start_hsp) if $isMinus;	#the really startof orf if strand -
-				   $cor_end   		= $orf->start - (3 * $max_end_hsp) if $isMinus;		#the really endof orf if strand -
-				   my $pair_start_end = [ $cor_start, $cor_end ];
-				   my $pair_protein_score = [ $orf->score, $orf->protein, $orf->strand ];
-				   push (@start_end_orf, $pair_start_end);
-				   push (@protein_score, $pair_protein_score);
-				   push (@strand, $orf->strand);
+			  my @prot_score;							#tab for score of blast and protein
+			  foreach my $orf(@$orfs) 
+			  {
+				$strand{1}++ if $orf->strand == 1;
+				$strand{-1}++ if $orf->strand == -1;							
+				my $info_prot_score = [$orf->score, $orf->protein];
+				push (@prot_score, $info_prot_score);	   
 			   }
 			   
-			   @start_end_orf  = sort { $a->[0] <=> $b->[0] } @start_end_orf;			#sort @start_end_orf by start
+			   @prot_score = sort { $a->[0] <=> $b->[0] } @prot_score;				#sort @protein_score by score
+			   my $prot = $prot_score[0]->[1];							#protein who have bigger score
 			   
-			   @protein_score = sort { $a->[0] <=> $b->[0] } @protein_score;			#sort @protein_score by score
-			   my $prot = $protein_score[0]->[1];							#protein who have bigger score
-			   my $strand = $protein_score[0]->[2]; 						#strand of protein who have bigger score
-			   
-			for (my $i=0; $i < @start_end_orf - 1; $i++)
-			   {
+			   if ($strand{1} && $strand{-1}){
+				print "The gene coding for $name is probably transpliced\n";
+			   }
+			
+			   elsif ($strand{1} || $strand{-1}){
+				my @start_end_orf;
+				my $strand = 1 if $strand{1};
+				$strand = -1 if $strand{-1};
+				foreach my $orf(@$orfs){
+				  my @start_hsp 	=();
+				  my @end_hsp 		=();
+				  my $hsps		= $orf->hsps;
+				  foreach my $hsp(@$hsps){
+				     push (@start_hsp, $hsp->start_q);
+				     push (@end_hsp, $hsp->end_q);
+				   }
+				 my $min_start_hsp 	= min(@start_hsp);					#give the lower start of hsp
+				 my $max_end_hsp	= max(@end_hsp);					#give the bigger end of hsp
+				 my $cor_start 	= $orf->start + (3 * $min_start_hsp) if $strand == 1;		#the really start of orf if strand +
+				 $cor_start	= $orf->start - (3 * $min_start_hsp) if $strand == -1;		#the really startof orf if strand -
+				 my $cor_end   	= $orf->start + (3 * $max_end_hsp)   if $strand == 1;		#the really end of orf if strand +
+				 $cor_end   	= $orf->start - (3 * $max_end_hsp)   if $strand == -1;		#the really endof orf if strand -
+				 my $pair_start_end   = [ $cor_start, $cor_end ];
+				 push (@start_end_orf, $pair_start_end);
+				}
+				
+				@start_end_orf  = sort { $a->[0] <=> $b->[0] } @start_end_orf if $strand == 1;			#sort @start_end_orf by start for strand+
+				@start_end_orf  = sort { $b->[0] <=> $a->[0] } @start_end_orf if $strand == -1;			#sort @start_end_orf by start for strand-
+
+				for (my $i=0; $i < @start_end_orf - 1; $i++)
+				{
+				   
 				   my $diff = abs($start_end_orf[$i]->[1]-$start_end_orf[$i+1]->[0]);
+				   #print "difference = $diff name = $name\n";
 				   if ( 142 <= $diff )								#if distance between 2 orf who have match with one protein is lower than 142 nt => Run exonerate
-				   	{
-					   my $info = [$name, $contigname, $prot, $strand];
-					   push(@PROT_FOR_EXONERATE, $info);
-					   push(@index, $compt);
-					}
+				   {
+				     my $info = [$name, $contigname, $prot, $strand];
+				     push(@PROT_FOR_EXONERATE, $info);
+				     push(@index, $compt);
+				   }
 				   else
 				   	{
-					   print "The gene coding for $name present probably a frameshift\n"; 
+				     print "The gene coding for $name present probably a frameshift\n"; 
 					}
-			   }
-			   
-			   for (my $i=0; $i < (@strand-1); $i++)
-			   {
-				if ($strand[$i] ne $strand[$i+1])
-				{
-					print "\nThe gene coding for $name is probably transpliced\n";
 				}
-			   }
+			}
 		  }
 		  $compt++;
 	 }
 	 
+	 #In order to run exonerate only one time foreach protein
 	 my %index_deja_vu = ();
 	 my @index_uni; 
 	 foreach my $index (@index) { 
@@ -2083,7 +2151,8 @@ sub Select_protein								#This function is create in order to selection the pro
 	 @PROT_FOR_EXONERATE = @prot_uni; 
 	 
 	 @index_uni = sort {$b <=> $a} @index_uni;
-	 	 
+
+	 #In order to remove the protein of flipblastprot when we run Exonerate
 	 for (my $i=0; $i < @index_uni; $i++){
 		 splice(@$FLIPBLASTPROTS,$index_uni[$i],1);
 	 }
@@ -2121,7 +2190,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                          else {
                              $a->end    <=> $b->end;
                          }    
-                         
             } @$orfs;    
          
             my $newhypprot = undef;
@@ -2129,13 +2197,27 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
              foreach my $orf(@$orfs) {
                 #    Now the thing is to create a new hyp prot if the conditions are not required
                 #    First : if the $currentprot is not defined
+		
+		#Redefinir un start qui servira au start de la newhyprot si necessaire partir 
+		#sur le meme ppe que dans la redefinition du start pour les protein sur lesquelles ont fait touirner 
+		#Exonerate		
+		
+		my $start_cor;
+		my $start_bl = $orf->startBlast;
+		if (!(@$start_bl[0])){
+		$start_cor = $orf->start;
+		}
+		else {
+	     	$start_cor = @$start_bl[0];
+		}
+		 
                 #------------    case     1 : first ORF
                 if (not defined($newhypprot)) {
                 #    Here we create a new protein
                 $newhypprot = new PirObject::HypProt (
                                                        name       => $name,
                                                        contigname => $contigname,
-                                                       start      => $orf->start,
+                                                       start      => $start_cor,
                                                        end        => $orf->end,
                                                        strand     => $orf->strand,
                                                        numorfs    => 1,
@@ -2156,7 +2238,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                     $newhypprot = new PirObject::HypProt (
                                                            name       => $name,
                                                            contigname => $contigname,
-                                                           start      => $orf->start,
+                                                           start      => $start_cor,
                                                            end        => $orf->end,
                                                            strand     => $orf->strand,
                                                            numorfs    => 1,
@@ -2213,7 +2295,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                         $newhypprot = new PirObject::HypProt (
                                                                name       => $name,
                                                                contigname => $contigname,
-                                                               start      => $orf->start,
+                                                               start      => $start_cor,
                                                                end        => $orf->end,
                                                                strand     => $orf->strand,
                                                                numorfs    => 1,
@@ -2269,7 +2351,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                         $newhypprot = new PirObject::HypProt (
                                                                name       => $name,
                                                                contigname => $contigname,
-                                                               start      => $orf->start,
+                                                               start      => $start_cor,
                                                                end        => $orf->end,
                                                                strand     => $orf->strand,
                                                                numorfs    => 1,
@@ -2422,8 +2504,8 @@ sub UseRNAweasel{
 	    $acodon = $result->get_anti_codon;
 	    $acodon       =~ tr/UTCGAutcga/uucgauucga/;
             $arnname     .= "($acodon)";
-            my $startline = ";     G-$arnname $arrow start ";
-            my $endline   = ";     G-$arnname $arrow end ";
+            my $startline = ";     G-$arnname $arrow start";
+            my $endline   = ";     G-$arnname $arrow end";
             $annot->set_startline ($startline);
             $annot->set_endline ($endline);
             &AddAnnotToPirMaster($pirmaster,$name,$annot);
@@ -2547,10 +2629,10 @@ sub old_AddGeneFeatureUsingtRNAscanSE {
 
             $acodon       =~ tr/UTCGAutcga/uucgauucga/;
             $arnname     .= "($acodon)";
-            my $startline = ";     G-$arnname $arrow start ";
-            $startline   .= ";; MFFEAT=$tag score=$score" if $ADDCOMMENTS;
-            my $endline   = ";     G-$arnname $arrow end ";
-            $endline     .= ";;MFFEAT=$tag" if $ADDCOMMENTS;
+            my $startline = ";     G-$arnname $arrow start";
+            $startline   .= " ;; MFFEAT=$tag score=$score" if $ADDCOMMENTS;
+            my $endline   = ";     G-$arnname $arrow end";
+            $endline     .= " ;;MFFEAT=$tag" if $ADDCOMMENTS;
             $annot->set_startline ($startline);
             $annot->set_endline ($endline);
             &AddAnnotToPirMaster($pirmaster,$name,$annot);
@@ -2700,12 +2782,11 @@ sub AddAnnotToPirMaster {
         return 1;
      }
      
-     if (defined ($ANNOTSEEN->{$annot->genename})) {     #  It mean,, this annotation has already been seen
-         if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename)) {
+         if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename)) { 	 	#  It mean,, this annotation has already been seen
              $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
              return 0;
 	  }
-    }
+      
       #  It means, force annot but this annotations doesn't seems to have an other copy
       
      $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
@@ -2720,8 +2801,22 @@ sub AnnotAlreadyAtSamePlace {
 	my $end 	= shift;
 	my $name	= shift;
 	
+	return if $name =~ /^!/;
+	($start,$end) = ($end,$start) if $start > $end; 
+	$name =~ s/_\d+$//;
+	
+	#A refaire ici 
 	foreach my $annotation (@$annotations) {
-		if ($start == $annotation->startpos && $end == $annotation->endpos && $name == $annotation->genename){
+		next if $annotation->type eq "C";
+		next if $annotation->genename =~ /^!/;
+		my $annot_name  = $annotation->genename;
+		my $annot_start = $annotation->startpos;
+		my $annot_end   = $annotation->endpos;
+		$annot_name =~ s/_\d+$//;		
+		($annot_start,$annot_end) = ($annot_end,$annot_start) if $annot_start > $annot_end; 
+
+		
+		if ( (!($end < $annot_start || $annot_end < $start)) && $name eq $annot_name){
 		        return 1;
 	        } 
         }
