@@ -25,9 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.65 2007/05/30 18:53:56 nbeck Exp $
+#    $Id: mfannot,v 1.66 2007/06/01 20:53:56 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.66  2007/06/01 20:53:56  riouxp
+#    Added post processing step to renumber duplicate genes and genes
+#    in fragments with unique extension numbers (_1, _2 etc); priority
+#    is given to numbering already supplied in the input masterfile.
+#
 #    Revision 1.65  2007/05/30 18:53:56  nbeck
 #    Fixed bugs for Exonerate, and use startBlast to define start of protein without introns.
 #
@@ -288,7 +293,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.65 2007/05/30 18:53:56 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.66 2007/06/01 20:53:56 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -691,12 +696,13 @@ undef $FLIPBLASTPROTS;
 undef $HYPPROTS;
 undef $EMPTYORFS;
 
-# Add annotations in the masterfile            
-my $cntigs      = $pirmaster->contigs();
-my $annotations = $cntigs->[0]->annotations();
+# Renumber genes with _1, _2 etc correctly this time.
+&RenumberFeatures($pirmaster);
 
 # Add informations in the masterfile     
 &LogInfo ($pirmaster);
+
+# Dump it
 print "Dumping new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
@@ -2951,6 +2957,131 @@ sub TestFile
   }
 }
 
+# Post-processing: renumber gene names with unique
+# extensions such as _1, _2 etc. The original mechanism
+# that was trying to do this using %ANNOTSEEN is
+# broken, this routine does a better job.
+sub RenumberFeatures {
+    my $pirmaster = shift;
+
+    my %genename2suffix = (); # cox3 => { _1 => [ [ obj obj ] [ obj ] ], "" => [ [ obj obj ] [ obj ] ] }
+
+    my $contigs = $pirmaster->get_contigs(); 	# get the masterfiles contigs
+    foreach my $contig (@$contigs) {                	# parse all the contig
+
+        my $annotations = $contig->get_annotations();
+        my @GEI_annots = grep( $_->get_type() =~ m#^[GEI]$# , @$annotations);
+        my %RanksGEI = ( G => 0, E => 1, I => 2 );
+        @GEI_annots = sort
+            { $RanksGEI{$a->get_type()} <=> $RanksGEI{$b->get_type()}
+              or
+              $a->get_startpos() <=> $b->get_startpos();
+            }
+            @GEI_annots;
+
+        foreach my $annotation (@GEI_annots) {
+    
+            my $genename  = $annotation->get_genename(); # does NOT contain the _1
+            my $type      = $annotation->get_type();
+            my $startline = $annotation->get_startline();
+            my $start     = $annotation->get_startpos();
+            my $end       = $annotation->get_endpos();
+            ($start,$end) = ($end,$start) if $end < $start;
+
+            my $suffix    = "";
+            $suffix = $1 if $startline =~ m#(_\d+)#;
+
+            my $suffix2groups = $genename2suffix{$genename} ||= {};
+            my $groups        = $suffix2groups->{$suffix}   ||= [];
+            my $addedToExistingGroup = 0;
+            foreach my $group (@$groups) {
+                my $firstfeat = $group->[0];
+                my $ffstart = $firstfeat->get_startpos();
+                my $ffend   = $firstfeat->get_endpos();
+                ($ffstart,$ffend) = ($ffend,$ffstart) if $ffend < $ffstart;
+                if (! ( $end < $ffstart || $start > $ffend ) ) {
+                    push(@$group,$annotation);
+                    $addedToExistingGroup=1;
+                    last;
+                }
+            }
+            if (!$addedToExistingGroup) {
+                push(@$groups, [ $annotation ]);
+            }
+
+        } # foreach annotation
+
+    } # foreach contig
+
+    # At this point, we've regrouped all G, E and I features in
+    # overlapping groups based on their EXISTING suffixes. Now
+    # let's fix these suffixes.
+
+    foreach my $genename (keys %genename2suffix) {
+        my $suffix2groups = $genename2suffix{$genename};
+        my @suffixes = sort keys %$suffix2groups; # "" , _1, _2 etc etc
+
+        if (
+            @suffixes == 1 &&            # only one type of suffix found
+            $suffixes[0] eq "" &&        # case where only "genename" exists with no suffix
+            @{$suffix2groups->{""}} == 1 # a single instance? All ok.
+        ) {
+#print "RENUMBER: $genename is unique.\n";
+            next;
+        }
+
+#print "RENUMBER: $genename has duplicates.\n";
+        # ok, so we have a "" or _1 or _2 or _nn and/or a mix, we need to renumber
+        my @keepnumbering=(); # we set aside those that need no renumbering; not used actually
+        my @dorenumber=(); # these groups will be renumbered
+        foreach my $suffix (@suffixes) {
+            my $groups = $suffix2groups->{$suffix};
+            if ($suffix eq "") {
+                push(@dorenumber,@$groups); # all of them are renumbered
+                next;
+            }
+            my $unchangedgroup = shift(@$groups); # only first group KEEPS its number
+            push(@keepnumbering,$unchangedgroup);
+            push(@dorenumber,@$groups); # these get new numbers
+        }
+
+        # Renumber all annots of each group (each group gets a single new number)
+        for (my $i = 1; @dorenumber > 0 ; $i++) {
+            my $newsuf = "_$i";
+            next if $suffix2groups->{$newsuf}; # already used? try next suffix
+            my $group = shift(@dorenumber);
+            foreach my $annot (@$group) {
+                my $startline = $annot->get_startline();
+                my $endline   = $annot->get_endline();
+                my $type      = $annot->get_type();
+                my $start     = $annot->get_startpos();
+                my $end       = $annot->get_endpos();
+                print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
+                    if $type eq "G";
+#print " -> To $newsuf : $startline ";
+                $startline = &ReplaceNumber($startline,$newsuf);
+#print " -> $startline\n";
+                $endline   = &ReplaceNumber($endline,$newsuf);
+                $annot->set_startline($startline);
+                $annot->set_endline($endline);
+            }
+        }
+    }
+}
+
+# Substitutes, in a G- annotation line, the numbered suffix _1 _2 etc (which
+# might not even be there) bu a new suffix ($newsuf).
+sub ReplaceNumber {
+    my $line   = shift;
+    my $newsuf = shift;
+    $line =~ s/(G-[^_\s]+)_\d+/$1/; # remove existing _1
+    if ($line =~ m#G-\S+-[EI]\d+#) { # exon or intron ?
+        $line =~ s/(-[EI]\d+)/$newsuf$1/;
+    } else {
+        $line =~ s/(G-\S+)/$1$newsuf/;
+    }
+    $line;
+}
 
 END { # With exit, programme will go here
       # Cleanup temp directory when program exits.
