@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.67 2007/06/07 18:00:17 riouxp Exp $
+#    $Id: mfannot,v 1.68 2007/06/15 21:31:14 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.68  2007/06/15 21:31:14  riouxp
+#    Fixed gene renumbering routine.
+#
 #    Revision 1.67  2007/06/07 18:00:17  riouxp
 #    Added a subroutine &WhatOverlapsThis() to be used later by
 #    the ORF decision code.
@@ -297,7 +300,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.67 2007/06/07 18:00:17 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.68 2007/06/15 21:31:14 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3047,13 +3050,16 @@ sub RenumberFeatures {
 
     my $contigs = $pirmaster->get_contigs(); 	# get the masterfiles contigs
     foreach my $contig (@$contigs) {                	# parse all the contig
+        my $contiglen = length($contig->get_sequence());
 
         my $annotations = $contig->get_annotations();
         my @GEI_annots = grep( $_->get_type() =~ m#^[GEI]$# , @$annotations);
         my %RanksGEI = ( G => 0, E => 1, I => 2 );
         @GEI_annots = sort
             { $RanksGEI{$a->get_type()} <=> $RanksGEI{$b->get_type()}
-              or
+                  or
+              &IsIntronicOrf($a) <=> &IsIntronicOrf($b)
+                  or
               $a->get_startpos() <=> $b->get_startpos();
             }
             @GEI_annots;
@@ -3065,7 +3071,12 @@ sub RenumberFeatures {
             my $startline = $annotation->get_startline();
             my $start     = $annotation->get_startpos();
             my $end       = $annotation->get_endpos();
-            ($start,$end) = ($end,$start) if $end < $start;
+            my $dir       = $annotation->get_direction() || "==>";
+
+            if ($startline =~ m#G-([^\-\s]+)#) { # we need to override for G-cox1_3-I4-orf34 for instance
+                $genename  = $1; # we want cox1 not orf34
+            }
+            $genename =~ s/_\d+$//; # make sure
 
             my $suffix    = "";
             $suffix = $1 if $startline =~ m#(_\d+)#;
@@ -3077,8 +3088,9 @@ sub RenumberFeatures {
                 my $firstfeat = $group->[0];
                 my $ffstart = $firstfeat->get_startpos();
                 my $ffend   = $firstfeat->get_endpos();
-                ($ffstart,$ffend) = ($ffend,$ffstart) if $ffend < $ffstart;
-                if (! ( $end < $ffstart || $start > $ffend ) ) {
+                my $ffdir   = $firstfeat->get_direction() || "==>";
+
+                if (&OverlappingRegions($contiglen,$start,$end,$dir,$ffstart,$ffend,$ffdir)) {
                     push(@$group,$annotation);
                     $addedToExistingGroup=1;
                     last;
@@ -3130,13 +3142,14 @@ sub RenumberFeatures {
             next if $suffix2groups->{$newsuf}; # already used? try next suffix
             my $group = shift(@dorenumber);
             foreach my $annot (@$group) {
+                my $origname  = $annot->get_genename();
                 my $startline = $annot->get_startline();
                 my $endline   = $annot->get_endline();
                 my $type      = $annot->get_type();
                 my $start     = $annot->get_startpos();
                 my $end       = $annot->get_endpos();
                 print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
-                    if $type eq "G";
+                    if $type eq "G" && $origname eq $genename; # no warn if "cox1_1-I1-orf344"
 #print " -> To $newsuf : $startline ";
                 $startline = &ReplaceNumber($startline,$newsuf);
 #print " -> $startline\n";
@@ -3146,6 +3159,63 @@ sub RenumberFeatures {
             }
         }
     }
+}
+
+# Returns 1 if annotation line is like G-gene-Inn-orfblahblah
+sub IsIntronicOrf {
+    my $annot = shift;
+    return 0 unless $annot->get_type() eq "G";
+    my $startline = $annot->get_startline();
+    return 1 if $startline =~ m#G-\S+-I\d+-\S+#;
+    0;
+}
+
+sub OverlappingRegions { # Works even for circular genomes and regions that span the gap
+    my ($seqlen,$start1,$end1,$dir1,$start2,$end2,$dir2) = @_;
+
+    my $spansgap1 = (($dir1 =~ m#>#) xor ($start1 <= $end1)); # true means spans the gap
+    my $spansgap2 = (($dir2 =~ m#>#) xor ($start2 <= $end2)); # true means spans the gap
+
+    if ($spansgap1) {
+        if ($dir1 =~ m#>#) {
+            $end1 += $seqlen;
+        } else {
+            $start1 += $seqlen;
+        }
+    }
+
+    if ($spansgap2) {
+        if ($dir2 =~ m#>#) {
+            $end2 += $seqlen;
+        } else {
+            $start2 += $seqlen;
+        }
+    }
+
+    ($start1,$end1) = ($end1,$start1) if $start1 > $end1;
+    ($start2,$end2) = ($end2,$start2) if $start2 > $end2;
+
+    # Test for overlap
+    return 1 if $start1 >= $start2 && $start1 <= $end2;
+    return 1 if $end1   >= $start2 && $end1   <= $end2;
+
+    return 0 if $spansgap1 == $spansgap2; # same spanning sit -> we're done
+
+    if (! $spansgap1) {
+        $start1 += $seqlen;
+        $end1   += $seqlen;
+    }
+
+    if (! $spansgap2) {
+        $start2 += $seqlen;
+        $end2   += $seqlen;
+    }
+
+    # Test for overlap again, new situation
+    return 1 if $start1 >= $start2 && $start1 <= $end2;
+    return 1 if $end1   >= $start2 && $end1   <= $end2;
+
+    return 0;
 }
 
 # Substitutes, in a G- annotation line, the numbered suffix _1 _2 etc (which
