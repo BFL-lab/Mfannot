@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.69 2007/06/18 17:33:00 nbeck Exp $
+#    $Id: mfannot,v 1.70 2007/06/18 18:52:19 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.70  2007/06/18 18:52:19  riouxp
+#    Commented out all the old %ANNOTSEEN-based renumbering mechanism
+#    which was interfering with the new one.
+#
 #    Revision 1.69  2007/06/18 17:33:00  nbeck
 #    New subroutine for annotation of ORF
 #
@@ -303,7 +307,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.69 2007/06/18 17:33:00 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.70 2007/06/18 18:52:19 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1493,22 +1497,22 @@ $long = $start_orf - $end_orf + 1  if $isMinus;
       #-------------------------------------------------------------------------------------
       #  Treatment to add a number after the genename ______________________________________
       #-------------------------------------------------------------------------------------
-      my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
-      $numberofannotforthisorf ++;
+      #my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
+      #$numberofannotforthisorf ++;
       my $startline = "";
       my $endline = "";
-      if ($numberofannotforthisorf >= 2) {
-          $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
-          $startline  .= " ;; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-          $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
-          $endline    .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
-      }
-      else {
+      #if ($numberofannotforthisorf >= 2) {
+      #    $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
+      #    $startline  .= " ;; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+      #    $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
+      #    $endline    .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
+      #}
+      #else {
            $startline  = ";     G-$GenenameORF $arrow start";
            $startline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
            $endline    = ";     G-$GenenameORF $arrow end";
            $endline   .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
-      }
+      #}
       #________________________________________________________________________________
    
       my $orfannot = new PirObject::AnnotPair(
@@ -1623,11 +1627,11 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 
 
 	#annot the gene
-        my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
-        $numberofthisannot   += 1;                         # increase by one, because it's current
+        #my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
+        #$numberofthisannot   += 1;                         # increase by one, because it's current
         my $linename          = $name;                     # the name gene in start and endline
-        # If there is more than one, add this at the end
-        $linename            .= "_$numberofthisannot" if ($numberofthisannot >= 2);
+        ## If there is more than one, add this at the end
+        #$linename            .= "_$numberofthisannot" if ($numberofthisannot >= 2);
 	my $startline 	      = "";
 
         $startline           .= ";     G-$linename $arrow start ;; Warning : $warning" if $warning ne "";
@@ -2672,7 +2676,7 @@ sub UseRNAweasel{
 
 	my @annotat = $parser->get_annotations;
         my $table   = $parser->get_annotations;              					#this is a reference to an array
-        my $cmp = 0;
+        #my $cmp = 0;
 
 	foreach my $result (@$table) { 								#Correspond to the tRNAweasel annotation 
             my $start;
@@ -2711,7 +2715,7 @@ sub UseRNAweasel{
 	    }
 
 	    # 4th ----- Create annotation -----#
-            my $genename = "trn$aaSymbol"."_"."$cmp";
+            my $genename = "trn$aaSymbol"; # ."_"."$cmp";
             my $annot    = new PirObject::AnnotPair (
                                                       type      => "G", 
                                                       genename  => "$genename", # Before : genename  => "tRNA-$type($acodon)",
@@ -2720,20 +2724,20 @@ sub UseRNAweasel{
                                                       direction => $arrow,
                                                     );
 
-					$cmp++;
+           #					$cmp++;
 	   my $annot_ac    = new PirObject::AnnotPair (
                                                    type      => "AC", 
-						   genename  => "!anticodon_$cmp!",
+						   genename  => "!anticodon!",
                                                    startpos  => $ac_begin,
                                                    );
 
-            my $number    = $ANNOTSEEN->{$annot->genename} || 0;
+            #my $number    = $ANNOTSEEN->{$annot->genename} || 0;
             my $arnname   = $genename;
 
-            $number      += 1;
-            if ($number > 1) { 
-                $arnname .= "_$number";
-            }
+            #$number      += 1;
+            #if ($number > 1) { 
+            #        $arnname .= "_$number";
+            #}
 
 	    $acodon = $result->get_anti_codon;
 	    $acodon       =~ tr/UTCGAutcga/uucgauucga/;
@@ -2853,13 +2857,13 @@ sub old_AddGeneFeatureUsingtRNAscanSE {
                                                       direction => $arrow,
                                                     );
 
-            my $number    = $ANNOTSEEN->{$annot->genename} || 0;
+            #my $number    = $ANNOTSEEN->{$annot->genename} || 0;
             my $arnname   = $genename;
 
-            $number      += 1;
-            if ($number > 1) { 
-                $arnname .= "_$number";
-            }
+            #$number      += 1;
+            #if ($number > 1) { 
+            #    $arnname .= "_$number";
+            #}
 
             $acodon       =~ tr/UTCGAutcga/uucgauucga/;
             $arnname     .= "($acodon)";
@@ -3343,11 +3347,11 @@ sub RenumberFeatures {
             $suffixes[0] eq "" &&        # case where only "genename" exists with no suffix
             @{$suffix2groups->{""}} == 1 # a single instance? All ok.
         ) {
-#print "RENUMBER: $genename is unique.\n";
+#print "RENUMBER: $genename is unique with no suffix.\n";
             next;
         }
 
-#print "RENUMBER: $genename has duplicates.\n";
+#print "RENUMBER: $genename has duplicates: [",join("][",@suffixes),"]\n";
         # ok, so we have a "" or _1 or _2 or _nn and/or a mix, we need to renumber
         my @keepnumbering=(); # we set aside those that need no renumbering; not used actually
         my @dorenumber=(); # these groups will be renumbered
