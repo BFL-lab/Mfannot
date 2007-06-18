@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.70 2007/06/18 18:52:19 riouxp Exp $
+#    $Id: mfannot,v 1.71 2007/06/18 21:04:44 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.71  2007/06/18 21:04:44  riouxp
+#    Fixed overlapping region detection code.
+#
 #    Revision 1.70  2007/06/18 18:52:19  riouxp
 #    Commented out all the old %ANNOTSEEN-based renumbering mechanism
 #    which was interfering with the new one.
@@ -284,6 +287,7 @@ use Bio::Tools::CodonTable;                           #  To create a codon table
 use List::Util qw(max);
 use List::Util qw(min);
 
+BEGIN {
 #---General Objects
 PirObject->LoadDataModel("Masterfile");               #  Masterfile object
 PirObject->LoadDataModel("MfAnnotConfig");            #  Configuration object
@@ -302,12 +306,13 @@ PirObject->LoadDataModel("Exon");                     #  Exons : belongs to Hypo
 PirObject->LoadDataModel("Intron");                   #  Intron : belongs to Hypothetical proteins
 PirObject->LoadDataModel("Option");                   #  A module for options gestion
 PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs having no corresponding genes
+}
 
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.70 2007/06/18 18:52:19 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.71 2007/06/18 21:04:44 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1227,7 +1232,7 @@ my $orf_a_annoter = scalar(@$EMPTYORFS);
 
         # OTHER CHECKING, SUCH AS OVERLAPPING..........
 #print "on a un orf de plus de 300nt avec pour start_orf $start_orf end_orf $end_orf\n";
-	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$annotations);
+	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
 		
 	my $annotIsOK_gene_without_intron = 0;
 	if (!@$annot_who_overlap){
@@ -3192,7 +3197,11 @@ sub TestFile
 sub WhatOverlapsThis {
     my $wstart     = shift;
     my $wend       = shift;
-    my $annotlist  = shift;
+    my $contig     = shift;
+
+    my $contiglen  = $contig->get_sequencelength();
+
+    my $annotlist  = $contig->get_annotations() || [];
     
     ($wstart, $wend) = ($wend, $wstart) if $wend < $wstart;
 
@@ -3214,11 +3223,15 @@ sub WhatOverlapsThis {
         my $startline = $annotation->get_startline();
         my $start     = $annotation->get_startpos();
         my $end       = $annotation->get_endpos();
-        ($start,$end) = ($end,$start) if $end < $start;
+        my $dir       = $annotation->get_direction() || "==>";
+
+        my ($ostart,$oend) = ($start,$end); # strandless interval
+           ($ostart,$oend) = ($end,$start) if $end < $start;
 
         if ($type eq "G") {
-            next if $end < $wstart || $start > $wend; # No overlap? next
-            push(@$groups, [ [ $start, $end, $annotation ] ] );
+            next unless # No overlap? next
+                &OverlappingRegions($contiglen,$start,$end,$dir,$wstart,$wend,">"); # real dir of orf not important
+            push(@$groups, [ [ $ostart, $oend, $annotation ] ] );
             next;
         }
 
@@ -3227,9 +3240,12 @@ sub WhatOverlapsThis {
             my $geneinfo = $group->[0]; # first entry of group is always a gene object
             my $gi_name  = $geneinfo->[2]->get_genename();
             next unless $gi_name eq $genename;
-            my ($gstart,$gend) = @$geneinfo;
-            next if $end < $gstart || $start > $gend; # if E or I is outside of gene
-            push(@$group, [ $start, $end, $annotation ] );
+            my $gstart = $geneinfo->[2]->get_startpos();
+            my $gend   = $geneinfo->[2]->get_endpos();
+            my $gdir   = $geneinfo->[2]->get_direction();
+            next unless # if E or I is outside of gene
+                &OverlappingRegions($contiglen,$start,$end,$dir,$gstart,$gend,$gdir);
+            push(@$group, [ $ostart, $oend, $annotation ] );
             #  last; # commented out in case for some reason an exon overlap multiple genes with the same names!
         }
     }
@@ -3280,7 +3296,7 @@ sub RenumberFeatures {
 
     my $contigs = $pirmaster->get_contigs(); 	# get the masterfiles contigs
     foreach my $contig (@$contigs) {                	# parse all the contig
-        my $contiglen = length($contig->get_sequence());
+        my $contiglen = $contig->get_sequencelength();
 
         my $annotations = $contig->get_annotations();
         my @GEI_annots = grep( $_->get_type() =~ m#^[GEI]$# , @$annotations);
@@ -3426,8 +3442,7 @@ sub OverlappingRegions { # Works even for circular genomes and regions that span
     ($start2,$end2) = ($end2,$start2) if $start2 > $end2;
 
     # Test for overlap
-    return 1 if $start1 >= $start2 && $start1 <= $end2;
-    return 1 if $end1   >= $start2 && $end1   <= $end2;
+    return 1 if ! ($end1 < $start2 || $start1 > $end2);
 
     return 0 if $spansgap1 == $spansgap2; # same spanning sit -> we're done
 
@@ -3442,10 +3457,9 @@ sub OverlappingRegions { # Works even for circular genomes and regions that span
     }
 
     # Test for overlap again, new situation
-    return 1 if $start1 >= $start2 && $start1 <= $end2;
-    return 1 if $end1   >= $start2 && $end1   <= $end2;
+    return 1 if ! ($end1 < $start2 || $start1 > $end2);
 
-    return 0;
+    return 0; # really, no overlap
 }
 
 # Substitutes, in a G- annotation line, the numbered suffix _1 _2 etc (which
