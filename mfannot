@@ -25,11 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.71 2007/06/18 21:04:44 riouxp Exp $
+#    $Id: mfannot,v 1.72 2007/06/18 21:53:41 riouxp Exp $
 #
 #    $Log: mfannot,v $
-#    Revision 1.71  2007/06/18 21:04:44  riouxp
-#    Fixed overlapping region detection code.
+#    Revision 1.72  2007/06/18 21:53:41  riouxp
+#    Removed all references to the old %ANNOTSEEN hash; adjusted naming
+#    of orfs to not include the stop codon.
 #
 #    Revision 1.70  2007/06/18 18:52:19  riouxp
 #    Commented out all the old %ANNOTSEEN-based renumbering mechanism
@@ -312,7 +313,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.71 2007/06/18 21:04:44 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.72 2007/06/18 21:53:41 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -333,7 +334,6 @@ my $ANNOT_STATS      = {
                        };
 my $EMPTYORFS;                                  #  An array containing, EmptyOrf object. It means ORFs having
                                                 #  no corresponding genes
-my $ANNOTSEEN        = {};                      #  An array storing annotations that have been seen before
 my %PENAMEDISPLAY;                              #  An hash array, containing the name to display, associate with peplibraries and pepfiles
 
 
@@ -601,8 +601,6 @@ print "Number of contigs in Masterfile : $numbercontigs\n",
 
 print LOGFILE "Number of contigs in Masterfile : $numbercontigs\n",
               "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
-
-&InitializeANNOTSEEN ($pirmaster);   # Initialise the work variables, to know how many copies per genes there are
 
 #-------------------START THE PROCESS----------------------#
 
@@ -1497,27 +1495,18 @@ $long = $start_orf - $end_orf + 1  if $isMinus;
       ### Creating an annotation object for storing in the masterfile
       my $orfsize = ($end_orf - $start_orf + 1)/3  if  !$isMinus;
       	 $orfsize = ($start_orf - $end_orf + 1)/3  if   $isMinus;
+         $orfsize--; # minus 1 for the stop codon
       my $GenenameORF = "orf". $orfsize;
 
       #-------------------------------------------------------------------------------------
       #  Treatment to add a number after the genename ______________________________________
       #-------------------------------------------------------------------------------------
-      #my $numberofannotforthisorf = $ANNOTSEEN->{$GenenameORF} || 0;
-      #$numberofannotforthisorf ++;
       my $startline = "";
       my $endline = "";
-      #if ($numberofannotforthisorf >= 2) {
-      #    $startline   = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow start";
-      #    $startline  .= " ;; MFFEAT=$TAGNAME, empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-      #    $endline     = ";     G-$GenenameORF"."_$numberofannotforthisorf"." $arrow end";
-      #    $endline    .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;       # add comments if option is activated
-      #}
-      #else {
-           $startline  = ";     G-$GenenameORF $arrow start";
-           $startline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
-           $endline    = ";     G-$GenenameORF $arrow end";
-           $endline   .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
-      #}
+      $startline  = ";     G-$GenenameORF $arrow start";
+      $startline .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # add comments if option is activated
+      $endline    = ";     G-$GenenameORF $arrow end";
+      $endline   .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
       #________________________________________________________________________________
    
       my $orfannot = new PirObject::AnnotPair(
@@ -1536,21 +1525,6 @@ $long = $start_orf - $end_orf + 1  if $isMinus;
       } # END OF IF
   } # END OF FOR EACH EMPTY ORFS
 } # End function AnnotateEmptyOrfs
-
-sub InitializeANNOTSEEN {   # this function initilaise the hash array
-                            # After the masterfile has been opened
-                            # This one contain how many annotation per genname
-    my $pirmaster = shift;
-    my $contigs   = $pirmaster->get_contigs;
-    foreach my $contig (@$contigs) {
-        my $annotations = $contig->get_annotations;
-        foreach my $annotation (@$annotations) {
-            if ($annotation->type eq "G") {
-                 $ANNOTSEEN->{$annotation->genename} += 1; 
-            } 
-        } # next annotation
-    } # next contig 
-}
 
 sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from the blast results
 
@@ -1632,11 +1606,7 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 
 
 	#annot the gene
-        #my $numberofthisannot = $ANNOTSEEN->{$name} || 0;  # get the number for each annot  
-        #$numberofthisannot   += 1;                         # increase by one, because it's current
         my $linename          = $name;                     # the name gene in start and endline
-        ## If there is more than one, add this at the end
-        #$linename            .= "_$numberofthisannot" if ($numberofthisannot >= 2);
 	my $startline 	      = "";
 
         $startline           .= ";     G-$linename $arrow start ;; Warning : $warning" if $warning ne "";
@@ -2736,13 +2706,7 @@ sub UseRNAweasel{
                                                    startpos  => $ac_begin,
                                                    );
 
-            #my $number    = $ANNOTSEEN->{$annot->genename} || 0;
             my $arnname   = $genename;
-
-            #$number      += 1;
-            #if ($number > 1) { 
-            #        $arnname .= "_$number";
-            #}
 
 	    $acodon = $result->get_anti_codon;
 	    $acodon       =~ tr/UTCGAutcga/uucgauucga/;
@@ -2862,13 +2826,7 @@ sub old_AddGeneFeatureUsingtRNAscanSE {
                                                       direction => $arrow,
                                                     );
 
-            #my $number    = $ANNOTSEEN->{$annot->genename} || 0;
             my $arnname   = $genename;
-
-            #$number      += 1;
-            #if ($number > 1) { 
-            #    $arnname .= "_$number";
-            #}
 
             $acodon       =~ tr/UTCGAutcga/uucgauucga/;
             $arnname     .= "($acodon)";
@@ -3016,7 +2974,6 @@ sub AddAnnotToPirMaster {
     if ($FORCEANNOT) { # If Force annot, you can add a new one
         $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
         push (@$annotations, $annot);
-        $ANNOTSEEN->{$annot->genename} += 1;
         return 1;
     }
 
@@ -3033,7 +2990,6 @@ sub AddAnnotToPirMaster {
       #  It means, force annot but this annotations doesn't seems to have an other copy
 
      $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
-     $ANNOTSEEN->{$annot->genename} += 1;
      push (@$annotations, $annot);
      return 1;
 }
