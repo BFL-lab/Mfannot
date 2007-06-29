@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.73 2007/06/19 19:10:14 nbeck Exp $
+#    $Id: mfannot,v 1.74 2007/06/29 19:36:07 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.74  2007/06/29 19:36:07  nbeck
+#    Fixed bug for annotation of intronic ORF in circular genome
+#
 #    Revision 1.73  2007/06/19 19:10:14  nbeck
 #    Supported intronic ORF
 #
@@ -316,7 +319,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.73 2007/06/19 19:10:14 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.74 2007/06/29 19:36:07 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -952,6 +955,18 @@ sub FindExonsInHypProtArray
 	####################In order to have the contig sequence#################
 	my $protein = $PROT_FOR_EXONERATE[$i]->[2];
 	my $strand  = $PROT_FOR_EXONERATE[$i]->[3];
+	
+	my $length = 0;
+	my @tab_prot = split(/\n/, $protein);
+	for (my $i = 0 ; $i <= $#tab_prot ; $i++)
+	{
+		if (!($tab_prot[$i] =~ /^>/)){
+		$length += length($tab_prot[$i]);
+		}
+	}
+	$length = $length - 1;
+	my $overlappe_authorized = ((5*$length)/100);
+
 
 
         # WRITE PROTEIN AND GENE IN FASTA FILES
@@ -1005,11 +1020,21 @@ sub FindExonsInHypProtArray
 	foreach my $ExoReport (@$ExoReports){
 	my $query_range			= $ExoReport->query_range;
 	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
-	my $pair_start_end 	= [ $start_query, $end_query ];
+	my $pair_start_end 	= [ $start_query, $end_query, $query_range];
 	push(@start_end_query, $pair_start_end);					#@start_end_query contain information about query with start end of each C4 alignement
 	push(@report_memory, $ExoReport);
 	}
 
+	@start_end_query = sort { $a->[0] <=> $b->[0] } @start_end_query;	#sort start_end_query
+	my @report_memory_1 = @report_memory;
+	foreach my $report( @report_memory_1 ) {
+	    for (my $i = 0; $i < @start_end_query; $i++){
+	        if ($start_end_query[$i]->[2] eq $report->query_range){
+		    $report_memory[$i] = $report;
+		}
+		}
+	}
+	
 	my @report_tab;
 	my @add_report;
 	if (@start_end_query-1 == 0) {
@@ -1017,20 +1042,20 @@ sub FindExonsInHypProtArray
 	}
 	else{
 	for (my $i = 0; $i < (@start_end_query-1); $i++){
-		if (($start_end_query[$i]->[1] < $start_end_query[$i+1]->[0]) || ($start_end_query[$i+1]->[1] < $start_end_query[$i]->[0])){		#non overlapp
+		if (abs($start_end_query[$i]->[1] - $start_end_query[$i+1]->[0]) > $overlappe_authorized ){	#an overlappe is OK if it's smaller than overlappe_authorized 
 			push (@add_report, $report_memory[$i]);
-			push (@report_tab, [@add_report]);
+			push (@report_tab, [@add_report]) if ($i != @start_end_query-2);
+			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
+			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
 			@add_report = ();
-			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
-			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
-		}
-		else {																	#overlappe	
-			push(@add_report, $report_memory[$i]);
-			push (@report_tab, [@add_report]);
-			@add_report = ();							
-			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
-			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
 
+		}
+		else {
+			push (@add_report, $report_memory[$i]);
+			push (@report_tab, [@add_report]) if ($i != @start_end_query-2);
+			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
+			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
+			@add_report = ();
 		}
 	}
 	}
@@ -1464,16 +1489,40 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
 			    
 			    if ($features_who_overlap->[2]->type eq "I"){			#Just in order to name the intronic ORF
 			        if (!$isMinus){
-				    if ($start_orf >= $features_who_overlap->[0]
-				    &&  $end_orf   <= $features_who_overlap->[1]){
+				    if ($features_who_overlap->[2]->startpos <  $features_who_overlap->[2]->endpos){
+			                if ($start_orf >= $features_who_overlap->[2]->startpos
+				        &&  $end_orf   <= $features_who_overlap->[2]->endpos){
 				        ($prefix) = $features_who_overlap->[2]->endline =~ /;\s+G-(\S+)/;
+				        }
 				    }
+				        else{							#Intron is cut because we have circular genome
+					if (
+					    (($start_orf >= $features_who_overlap->[2]->startpos)
+					  && ($end_orf <= length($seq) || $end_orf <= $features_who_overlap->[2]->endpos))
+					                              ||
+				             ($start_orf >= 0 && $end_orf <= $features_who_overlap->[2]->endpos)
+					    ){
+			        	        ($prefix) = $features_who_overlap->[2]->endline =~ /;\s+G-(\S+)/;
+					    }
+					}
 				}
 				if ($isMinus){
-				     if ($start_orf <= $features_who_overlap->[1]
-				    &&  $end_orf    >= $features_who_overlap->[0]){
+				     if ($features_who_overlap->[2]->startpos >  $features_who_overlap->[2]->endpos){
+			                if ($start_orf <= $features_who_overlap->[2]->startpos
+				        &&  $end_orf   >= $features_who_overlap->[2]->endpos){
 				        ($prefix) = $features_who_overlap->[2]->endline =~ /;\s+G-(\S+)/;
+				        }
 				    }
+				        else{							#Intron is cut because we have circular genome
+					if (
+					    (($start_orf <= $features_who_overlap->[2]->startpos)
+					  && ($end_orf >= 0 || $end_orf >= $features_who_overlap->[2]->endpos))
+					                              ||
+				             ($start_orf <= length($seq) && $end_orf >= $features_who_overlap->[2]->endpos)
+					    ){
+			        	        ($prefix) = $features_who_overlap->[2]->endline =~ /;\s+G-(\S+)/;
+					    }
+					}
 				}
 			    }
 			    $annotIsOk++;
@@ -2293,6 +2342,9 @@ sub Select_protein								#This function is create in order to selection the pro
 
 			   if ($strand{1} && $strand{-1}){
 				print "The gene coding for $name is probably transpliced\n";
+		               # my $info = [$name, $contigname, $prot, 2];
+			       # push(@PROT_FOR_EXONERATE, $info);
+			       # push(@index, $compt);
 			   }
 
 			   elsif ($strand{1} || $strand{-1}){
