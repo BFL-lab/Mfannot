@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.74 2007/06/29 19:36:07 nbeck Exp $
+#    $Id: mfannot,v 1.75 2007/07/10 13:38:11 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.75  2007/07/10 13:38:11  nbeck
+#    Add comment for annotation of transpliced genes.
+#
 #    Revision 1.74  2007/06/29 19:36:07  nbeck
 #    Fixed bug for annotation of intronic ORF in circular genome
 #
@@ -293,6 +296,8 @@ use Bio::SeqUtils;                                    #  Some biological tools
 use Bio::Tools::CodonTable;                           #  To create a codon table, to be used with genewise 
 use List::Util qw(max);
 use List::Util qw(min);
+use File::Copy;
+use Term::ANSIColor;
 
 BEGIN {
 #---General Objects
@@ -319,7 +324,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.74 2007/06/29 19:36:07 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.75 2007/07/10 13:38:11 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -384,7 +389,6 @@ my $WITHMAP;                                    #  the allowed extension for the
 my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
 my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
 my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
-
 
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
@@ -471,6 +475,7 @@ my $header = "\n".
 
 print $header;
 print LOGFILE $header if $ISLOGFILE;
+my $add_text_in_header = "";
 
 ##---------------OPTIONS OF THE PROGRAM------------------------------------------------
 my $options ="----------------------------------\n".
@@ -967,8 +972,6 @@ sub FindExonsInHypProtArray
 	$length = $length - 1;
 	my $overlappe_authorized = ((5*$length)/100);
 
-
-
         # WRITE PROTEIN AND GENE IN FASTA FILES
         my $fileprot = "$TMPDIR/prot_for_exonerate$count"."_"."$flag";
         my $filegene = "$TMPDIR/gene_for_exonerate"."_"."$flag";
@@ -1013,74 +1016,91 @@ sub FindExonsInHypProtArray
 	$flobj->FillFeaturesFromTextOutput(\@tab);
 
 	my $ExoReports 		= $flobj->report;				#One report contain information about one C4 section present in exonerate Output
-	#my $reports 		= $flobj->report;	
 
-	my @start_end_query	= ();
-	my @report_memory       = ();
-	foreach my $ExoReport (@$ExoReports){
-	my $query_range			= $ExoReport->query_range;
-	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
-	my $pair_start_end 	= [ $start_query, $end_query, $query_range];
-	push(@start_end_query, $pair_start_end);					#@start_end_query contain information about query with start end of each C4 alignement
-	push(@report_memory, $ExoReport);
-	}
+	my @sorted_report  = sort { $a->get_query_start() <=> $b->get_query_start()
+			       ||   $a->get_query_stop()   <=> $b->get_query_stop()   } @$ExoReports;
 
-	@start_end_query = sort { $a->[0] <=> $b->[0] } @start_end_query;	#sort start_end_query
-	my @report_memory_1 = @report_memory;
-	foreach my $report( @report_memory_1 ) {
-	    for (my $i = 0; $i < @start_end_query; $i++){
-	        if ($start_end_query[$i]->[2] eq $report->query_range){
-		    $report_memory[$i] = $report;
-		}
-		}
-	}
 	
-	my @report_tab;
-	my @add_report;
-	if (@start_end_query-1 == 0) {
-		push(@report_tab, [ $report_memory[0] ] );
-	}
-	else{
-	for (my $i = 0; $i < (@start_end_query-1); $i++){
-		if (abs($start_end_query[$i]->[1] - $start_end_query[$i+1]->[0]) > $overlappe_authorized ){	#an overlappe is OK if it's smaller than overlappe_authorized 
-			push (@add_report, $report_memory[$i]);
-			push (@report_tab, [@add_report]) if ($i != @start_end_query-2);
-			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
-			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
-			@add_report = ();
+        my $FirstC4Report = shift(@sorted_report);
+        my @report_tab = ( [ $FirstC4Report ] );
 
-		}
-		else {
-			push (@add_report, $report_memory[$i]);
-			push (@report_tab, [@add_report]) if ($i != @start_end_query-2);
-			push (@add_report, $report_memory[$i+1]) if ($i == @start_end_query-2);
-			push (@report_tab, [@add_report]) if ($i == @start_end_query-2);
-			@add_report = ();
-		}
-	}
-	}
+        while (@sorted_report) {
+            my $NextC4Report     = shift(@sorted_report);
+            my $PreviousGroup    = $report_tab[-1];
+            my $PreviousC4Report = $PreviousGroup->[-1];
+
+            my $NextStart    = $NextC4Report->get_query_start();
+            my $PreviousStop = $PreviousC4Report->get_query_stop();
+
+            if ($NextStart > $PreviousStop || $PreviousStop-$NextStart < $overlappe_authorized) {
+                push(@$PreviousGroup,$NextC4Report);
+            } else {
+                push(@report_tab, [ $NextC4Report ]); # A brand new group is created
+            }
+        }
 
 	foreach  my $reports (@report_tab) {
 	my @exon_start_end	= ();						#tab with information about start and end of all exons present in Exonerte Output
+	my %strand;
 	foreach my $report (@$reports){
 	my $features = $report->dnafeatures;					#$features contains all information present in the part GFF DNA per lines
 	my $query_range			= $report->query_range;
 	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
-	my $isMinus = ($strand == 1 ? 0 : 1);
 	foreach my $lineobj (@$features) {
-		my $start 	= $lineobj->start;
-		$start 		= $lineobj->end   if $isMinus;
-		my $end		= $lineobj->end;
-		$end 		= $lineobj->start if $isMinus;
-		my $strand_exon = $lineobj->strand;
-		my $feat 	= $lineobj->feature;
-		if ($feat eq "exon"){
-		my $pair_start_end 	= [ $start, $end, $strand_exon, $start_query ];
+            my $feat 	= $lineobj->feature;
+	    if ($feat eq "exon"){
+	    my $strand_exon = $lineobj->strand;
+	    $strand{1}++ if  $strand_exon eq "+";				#Just in order to know if we have a transpliced gene
+	    $strand{-1}++ if $strand_exon eq "-";
+	    }
+	}
+
+	my $isMinus = (($strand{1} && !$strand{-1}) ? 0 : 1);
+	$strand = 1 if  !$isMinus;
+	$strand = -1 if $isMinus;
+	foreach my $lineobj (@$features) {
+            my $start 	= $lineobj->start;
+	    $start 		= $lineobj->end   if $isMinus;
+	    my $end		= $lineobj->end;
+	    $end 		= $lineobj->start if $isMinus;
+	    my $strand_exon = $lineobj->strand;
+	    my $feat 	= $lineobj->feature;
+	    if ($feat eq "exon"){
+	        my $pair_start_end 	= [ $start, $end, $strand_exon, $start_query ];
 		push(@exon_start_end, $pair_start_end);				#@exon_start_end contain information about exon with start end and strand of each exons
 		}
 	}
 	}
+	
 
+	if ($strand{1} && $strand{-1}){						#If we have a transpliced gene 
+	    my $path 		= $OUTPUTFILE;
+	    my $dirname  	= dirname($path);					#We must add condition in order to know if it isn't 2 genes
+	    my $new_file 	= "$path".".Exonerate_"."$name";
+	    my $number = 1;
+	    foreach my $exon (@exon_start_end){
+	    my $start_exon 	= $exon->[0];
+	    my $end_exon 	= $exon->[1];
+	    my $strand_exon     = $exon->[2];
+	    my $arrow = "==>" if $strand_exon eq "+";
+	       $arrow = "<==" if $strand_exon eq "-";
+	    my $start_line      = ";; $name-E$number $arrow start";
+ 	    my $end_line        = ";; $name-E$number $arrow end";
+            my $hyp_prot = new PirObject::AnnotPair(
+                                               type      => "C",  
+                                               genename  => $name,
+                                               startpos  => $start_exon,
+                                               endpos    => $end_exon,
+                                               direction => $arrow,
+                                               startline => $start_line,
+                                               endline   => $end_line,
+                                             );
+            &AddAnnotToPirMaster($pirmaster,$contigname,$hyp_prot);
+	    $number++;
+	    }
+	    $add_text_in_header .= ";; The gene coding for $name is probably transpliced (see annotation in comments)\n";
+	    next;
+	   }
 
 	@exon_start_end = sort {    ($a->[3] <=> $b->[3])
 				||  ($a->[0] <=> $b->[0])} @exon_start_end if $strand != -1;	#sort exons_start_end by start brin-
@@ -1088,7 +1108,7 @@ sub FindExonsInHypProtArray
 	@exon_start_end = sort {    ($a->[3] <=> $b->[3]) 
 				||  ($b->[0] <=> $a->[0])} @exon_start_end if $strand == -1;	#sort exons_start_end by start brin+
 
-	($exon_start_end[0]->[0] = $exon_start_end[0]->[0] - ($exon_start_end[0]->[3]*3)) if ($strand != -1 && $exon_start_end[0]->[3] != 0  && ($exon_start_end[0]->[0] - ($exon_start_end[0]->[3]*3) > 0)); 	#correction about start of protein
+	($exon_start_end[0]->[0] = $exon_start_end[0]->[0] - ($exon_start_end[0]->[3]*3)) if ($strand != -1 && $exon_start_end[0]->[3] != 0  && ($exon_start_end[0]->[0] - ($exon_start_end[0]->[3]*3) > 0)); 		   #correction about start of protein
 	($exon_start_end[0]->[0] = $exon_start_end[0]->[0] + ($exon_start_end[0]->[3]*3)) if ($strand  == -1 && $exon_start_end[0]->[3] != 0 && ($exon_start_end[0]->[0] + ($exon_start_end[0]->[3]*3) < length($seq)) );  #correction about start of protein
 
 ##########################################correction about start and end of exon if two exons is overlapping####################################
@@ -1137,7 +1157,7 @@ sub FindExonsInHypProtArray
 	 }
 
 ##########################################correction about start and end of exon if two exons is overlapping####################################
-
+	
 	my @intron_start_end;							#Define the tab of intron with the information about exons localisation
  	for (my $i = 0; $i < (@exon_start_end-1); $i++){
          	 my $start 	   = $exon_start_end[$i]->[1] + 1;
@@ -1181,7 +1201,6 @@ sub FindExonsInHypProtArray
                                                   );
 						   push (@$newhypprotexonarray, $hypprotexon); 
         }
-
 
 	my $newhypprotintronarray = $newhypprot->introns;
 	for (my $i = 0; $i < @intron_start_end; $i++){
@@ -1628,19 +1647,19 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
 	my $warning	      = $hyprot->warning || "";
 	if ($warning eq "" && $length_protein < $length_min)
 	{
-		$warning = "The sequence is too small they make $length_protein aa and the protein of reference makes $length aa";
+		$warning = "Sequence is too small";
 	}
 	elsif ($warning ne "" && $length_protein < $length_min)
 	{
-		$warning .= " and the sequence is too small they make $length_protein aa and the protein of reference makes $length aa"; 
+		$warning .= " and sequence is too small"; 
 	}
 	elsif ($warning eq "" && $length_protein > $length_max)
 	{
-		$warning = "The sequence is too large they make $length_protein aa and the protein of reference makes $length aa";
+		$warning = "Sequence is too large";
 	}
 	elsif ($warning ne "" && $length_protein > $length_max)
 	{
-		$warning .= " and the sequence is too large they make $length_protein aa and the protein of reference makes $length aa";
+		$warning .= " and Sequence is too large";
 	}
 	else
 	{
@@ -1927,7 +1946,7 @@ if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)
 	}
 }
 
-else { $newstartpos = $oldstartpos; $new_warning .= "The start position is the position of blast match they have no start $STARTBEFORE aa before and no start $STARTAFTER aa after"}
+else { $newstartpos = $oldstartpos; $new_warning .= "See for start codon"}
 
         $hypprot->set_start ($newstartpos);  # set the new start to the protein
 	$hypprot->set_warning ($new_warning);
@@ -2280,6 +2299,8 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
     my $description = shift;
     my $pepfile     = shift;
     my $protein     = "";
+    
+    #print "search $pepfile $description\n";
 
     die "Impossible to read $pepfile" if (not (-f $PEPFILE));
 
@@ -2287,6 +2308,9 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
 
     # Parse the file, containing pep sequences
     my $parsebegin = 0;  
+
+    $description =~ s/([^\w\s])/\\$1/g;
+    $description =~ s/\s+/\\s+/g;
 
     while (my $line = <PEPFILE>) { #Treat each line
         chomp $line;
@@ -2306,6 +2330,8 @@ sub TakeProteinFromPepfile {  # this function takes a protein from the blast res
             $protein .= "\n";
         }    
     }
+    
+    die "Cannot find protein for $description in $PEPFILE\n" if $protein eq "";
     return $protein;
 }
 
@@ -2325,7 +2351,7 @@ sub Select_protein								#This function is create in order to selection the pro
 		  { 
 			  next; # impossible but ..........
 		  }
-
+		  
 		  if ($number_orfs > 1)
 		  {
 			  my @prot_score;							#tab for score of blast and protein
@@ -2341,10 +2367,10 @@ sub Select_protein								#This function is create in order to selection the pro
 			   my $prot = $prot_score[0]->[1];							#protein who have bigger score
 
 			   if ($strand{1} && $strand{-1}){
-				print "The gene coding for $name is probably transpliced\n";
-		               # my $info = [$name, $contigname, $prot, 2];
-			       # push(@PROT_FOR_EXONERATE, $info);
-			       # push(@index, $compt);
+				#print "The gene coding for $name is probably transpliced\n";
+		                my $info = [$name, $contigname, $prot, 2];
+			        push(@PROT_FOR_EXONERATE, $info);
+			        push(@index, $compt);
 			   }
 
 			   elsif ($strand{1} || $strand{-1}){
@@ -2455,11 +2481,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
 
              foreach my $orf(@$orfs) {
                 #    Now the thing is to create a new hyp prot if the conditions are not required
-                #    First : if the $currentprot is not defined
-
-		#Redefinir un start qui servira au start de la newhyprot si necessaire partir 
-		#sur le meme ppe que dans la redefinition du start pour les protein sur lesquelles ont fait touirner 
-		#Exonerate		
+                #    First : if the $currentprot is not defined	
 
 		my $start_cor;
 		my $start_bl = $orf->startBlast;
@@ -3156,7 +3178,7 @@ sub LogInfo
     push (@$header, ";;    - New annotations labeled with: MFFEAT=$TAGNAME") 
         if $ADDCOMMENTS;  # we only put this sentence if option addcomments is activated
     push (@$header, @report, ";;",);
-
+    push(@$header, $add_text_in_header) if $add_text_in_header ne "";
     $pirmaster->set_header($header);
 }
 
