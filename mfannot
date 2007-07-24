@@ -19,15 +19,18 @@
 #                                                                            #
 #                       CONFIDENTIAL & PROPRIETARY                           #
 #       Nothing herein is to be disclosed in any way without the prior       #
-#           express written permission of Pierre Rioux                       #
+#           express written permission of Franz Lang                         #
 #                                                                            #
-#          Copyright 2004 Pierre Rioux, All rights reserved.                 #
+#          Copyright 2004 Franz Lang lab, All rights reserved.               #
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.77 2007/07/24 19:07:38 nbeck Exp $
+#    $Id: mfannot,v 1.78 2007/07/24 19:52:13 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.78  2007/07/24 19:52:13  riouxp
+#    Fixed attributions.
+#
 #    Revision 1.77  2007/07/24 19:07:38  nbeck
 #    fixed bug for annotation of intronical ORF
 #
@@ -331,7 +334,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.77 2007/07/24 19:07:38 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.78 2007/07/24 19:52:13 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -477,7 +480,7 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMME                       \n".
              "VERSION $VERSION                                                      \n".
-             "Programmed by Thomas Hoellinger and Pierre Rioux\n".
+             "Programmed by P. Rioux, T. Hoellinger, D. To and N. Beck\n" .
              "######################################################################\n\n";
 
 print $header;
