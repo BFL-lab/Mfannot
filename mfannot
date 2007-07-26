@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.79 2007/07/25 14:10:57 nbeck Exp $
+#    $Id: mfannot,v 1.80 2007/07/26 19:28:53 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.80  2007/07/26 19:28:53  nbeck
+#    fixed bug for Exonerate
+#
 #    Revision 1.79  2007/07/25 14:10:57  nbeck
 #    Add safe of Exonerate Output in temporary file
 #
@@ -337,7 +340,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.79 2007/07/25 14:10:57 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.80 2007/07/26 19:28:53 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1141,7 +1144,7 @@ sub FindExonsInHypProtArray
 			$start			= $exon_start_end[$i+1]->[0] if $boolean;	#if E2_end > E1_start
 			$end  			= $exon_start_end[$i]->[1]   if $boolean;	#if E2_end > E1_start
 			my $strand_exon		= $exon_start_end[$i]->[2];
-			my $quad_start_end 	= [ $start, $end, $strand_exon, $i ];		#start, end strand and index 
+			my $quad_start_end 	= [ $start, $end, $strand_exon, $i , $exon_start_end[$i]->[3]];		#start, end strand and index 
 			push(@exon_start_end_cor, $quad_start_end);
 		}
 		}
@@ -1154,7 +1157,7 @@ sub FindExonsInHypProtArray
 			$start 			= $exon_start_end[$i+1]->[0] if $boolean;	#if E1_start > E2_end
 			$end  			= $exon_start_end[$i]->[1]   if $boolean;	#if E1_start > E2_end
 			my $strand_exon		= $exon_start_end[$i]->[2];
-			my $quad_start_end 	= [ $start, $end, $strand_exon, $i ];		#start, end strand and index 
+			my $quad_start_end 	= [ $start, $end, $strand_exon, $i, $exon_start_end[$i]->[3]];		#start, end strand and index 
 			push(@exon_start_end_cor, $quad_start_end);
 		}
 		}
@@ -1170,10 +1173,13 @@ sub FindExonsInHypProtArray
 		 my $start 	 = $exon_start_end_cor[$i]->[0];
 		 my $end 	 = $exon_start_end_cor[$i]->[1];
 		 my $strand_exon = $exon_start_end_cor[$i]->[2];
-		 my $tri = [ $start, $end, $strand_exon];			#start and end and strand
+		 my $start_query = $exon_start_end_cor[$i]->[4];
+		 my $tri = [ $start, $end, $strand_exon, $start_query];			#start and end and strand
 		 push(@exon_start_end, $tri );					#push information about the exon corrected into @exons_start_end
 	 }
-
+	 
+	 @exon_start_end = sort { $a->[3] <=> $b->[3] || $a->[0] <=> $b->[0] || $a->[1] <=> $b->[1] } @exon_start_end if $strand != -1;
+	 @exon_start_end = sort { $a->[3] <=> $b->[3] || $b->[0] <=> $a->[0] || $b->[1] <=> $a->[1] } @exon_start_end if $strand == -1;
 ##########################################correction about start and end of exon if two exons is overlapping####################################
 	
 	my @intron_start_end;							#Define the tab of intron with the information about exons localisation
