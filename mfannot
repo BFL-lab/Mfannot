@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.80 2007/07/26 19:28:53 nbeck Exp $
+#    $Id: mfannot,v 1.81 2007/08/10 19:37:20 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.81  2007/08/10 19:37:20  nbeck
+#    Added support for calling external anlasys programs
+#
 #    Revision 1.80  2007/07/26 19:28:53  nbeck
 #    fixed bug for Exonerate
 #
@@ -314,6 +317,7 @@ use List::Util qw(max);
 use List::Util qw(min);
 use File::Copy;
 use Term::ANSIColor;
+use PirObject qw( MfAnnotExternalProgs AnnotPairCollection );
 
 BEGIN {
 #---General Objects
@@ -340,7 +344,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.80 2007/07/26 19:28:53 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.81 2007/08/10 19:37:20 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -371,6 +375,7 @@ my $FLIPPATH         = "/share/supported/apps/ogmp/bin/flip";
 my $GENEWISEPATH     = "/share/supported/apps/wise_2.2.0/src/bin/genewise";
 my $TRNASCANPATH     = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
 my $RNAWEASELPATH    = "/share/supported/bin/RNAweasel_cl";
+my $HMMWEASELPATH    = "";
 my $MF2XMLPATH       = "/share/supported/apps/mf2xml/bin/mf2xml";
 my $CGVIEWPATH       = "/share/supported/apps/cgview/bin/cgview";
 my $EXONERATEPATH    = "/share/supported/bin/exonerate";
@@ -405,6 +410,7 @@ my $WITHMAP;                                    #  the allowed extension for the
 my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
 my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
 my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
+my $CONFIGFILE;					#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
@@ -518,6 +524,7 @@ $options .= "Usage of RNAweasel\n";
 $options .= "Search of start $STARTBEFORE aa before the start of blast match\n";
 $options .= "Search of start $STARTAFTER aa after the start of blast match\n";
 $options .= "Warning if the protein make +/- $SIZE pourcent of homologous protein\n";
+$options .= "The Path of configfile is : $CONFIGFILE";
 
 if ($SIMILARITYSEARCH) 
 {
@@ -708,9 +715,14 @@ if ($SIMILARITYSEARCH)
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
 	
 	# Annotate tRNA -> Use RNAweasel
-	print "$step) Annotate with RNAweasel...\n";
+	print "$step) Annotate of tRNA with RNAweasel...\n";
 	$step += 1; 
 	&UseRNAweasel ($pirmaster);
+	
+	# Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
+	print "$step) Annotate rRNA with RNAweasel and HMMweasel...\n"; 
+        $step += 1; 
+        &Annotate_rRNA ($pirmaster);
 	
 	# Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
         if ($ORFPROCESS) 
@@ -720,6 +732,7 @@ if ($SIMILARITYSEARCH)
             &AnnotateEmptyOrfs ($pirmaster);
         }
 	
+	# Process intronical ORF -> annotate intronicale ORF not detected by Blast
 	print "$step) Process intronic ORFs...\n"; 
         $step += 1; 
         &AnnotateIntronicOrfs ($pirmaster);
@@ -814,6 +827,7 @@ sub GetOptions
     $MASTERFILE        = $option->masterfile;    #  Path for Masterfile
     $INPUTPEPFILES     = $option->inputfile;     #  Path for the peptide file used
     $OUTPUTFILE        = $option->outputfile;    #  Path for the new
+    $CONFIGFILE	       = $option->configfile;    # Path for configfile
     my $count = "";
     my $name = $OUTPUTFILE;
     # Checking to see if the path to the output file is writable
@@ -1805,6 +1819,7 @@ sub choice_orf{
 	my $num 	     = $searchio->result_count;
 	die "We have most of 1 blast result for 1 orf " if $num > 1;
 	my @hits 	     = $result->hits();               # Bio::Search::Hit::HitI
+	next if !@hits;
 	my $best_evalue      = $hits[0]->significance;
 	$orf->[1]->set_score ($best_evalue);
 	my $start = $orf->[1]->get_start();
@@ -2022,57 +2037,6 @@ sub AnnotateMfFromHYPPROTSArray { # This function annotates the masterfile from 
             my $res       = &AddAnnotToPirMaster($pirmaster,$contigname,$intron_annot);
         }
     }
-}
-
-sub FindNewStart {  # This function is assuming to return the new start codon,  
-
-    # arg1, sequence
-    # arg2, start,
-    # arg3, end
-    # arg4, strand
-
-    my $possiblestarts = ['ATG', 'AUG'];
-    my $seq            = shift;          # the sequence where to look
-    my $oldstartpos    = shift;          # Get the old start position
-    my $newstartpos    = $oldstartpos;             
-    my $currentpos     = $oldstartpos;
-    my $end            = shift;          # the end of the gene
-    my $strand         = shift;          # the strand of the gene
-    my $found          = 0;
-
-    #### Two cases
-    if ($strand == 1) { # Right strand
-        while (not ($found) and ($currentpos < $end)) {
-            my $codon = uc (substr($seq, $currentpos-1, 3));
-            $codon =~ tr/ATUGCatugc/ATTGCATTGC/;
-            if (ValueIsIn($possiblestarts, $codon) == 1) {
-                $found       = 1;
-                $newstartpos = $currentpos;
-                next;
-            }
-            else {
-                $currentpos += 1;
-                next;
-            }
-        }
-    }
-    else { #Complementary strand
-        while (not ($found) and ($currentpos-3 > $end)) {
-            my $codon = uc (substr($seq, $currentpos-3-1, 3));
-            $codon    =~ tr/ATUGCatugc/TAACGTAACG/;
-            $codon    = reverse ($codon);#Reverse and complementary
-            if (ValueIsIn($possiblestarts, $codon) == 1) {
-                $found       = 1;
-                $newstartpos = $currentpos-1;
-                next;
-            }
-            else {
-                $currentpos -= 1;
-                next;
-            }
-        }
-    }
-    return $newstartpos;
 }
 
 sub OrganiseHYPPROTSArray { # This function is supposing to find the real start and recreating exon if necessary
@@ -2931,7 +2895,6 @@ sub GetFlipBlastProtByNAmeAndContigName {
 
 }
 
-#######################
 sub UseRNAweasel{
 	#Description of the sub
 	#1st : put the dna sequence into a temporary fastafile
@@ -3055,7 +3018,60 @@ sub UseRNAweasel{
     } # each contig    
 }
 
-############################
+sub Annotate_rRNA {
+    my $pirmaster = shift;
+    my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($CONFIGFILE);
+    my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommands>
+     foreach my $genename (sort keys %$genelist) {
+         my $commandobject = $genelist->{$genename};
+	 my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
+	 my $substitutions = {
+         "OUTFILE"        => "$outfile_gene",
+         "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
+         "MASTERFILE"     => "$MASTERFILE",
+         "DEBUG"          => $DEBUG ? "#" : "", 	     #(see the config file text)
+         "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
+         "TMPDIR"         => "$TMPDIR",     		     #(mfannot's tmp dir)
+         };
+
+	 my ($outfile,$errfile) = $commandobject->Execute(
+             "$TMPDIR",
+             "$TMPDIR",
+             $substitutions,
+         );
+	 my $infh = new IO::File "<$outfile_gene"; # which shoudl be your %OUTFILE%
+	 if (! $infh){ 
+	     print "Cannot read result for '$genename'\n";  
+	     next;
+	 }
+         for (;;) {
+            my $annotcollection = PirObject->FileHandleToObject($infh);
+            last if ! $annotcollection;
+	    my $header   	= $annotcollection->get_contigname();
+	    my ($contigname)   = ($header =~ m#^>\s*(\S+).*#)
+            or die "Can't parse header line '$header'\n";
+            # ANNOTATE THE RESULTS, using the annotpairlist field of
+            # your annotcollection (an AnnotPairCollection object).
+            my $annotpairs = $annotcollection->get_annotpairlist();
+            foreach my $annot (@$annotpairs){
+	    my $arrow = "==>" if $annot->get_startpos() < $annot->get_endpos();
+	       $arrow = "<==" if $annot->get_startpos() > $annot->get_endpos();
+	    my $start_line      = "; G-$genename $arrow start";
+ 	    my $end_line        = "; G-$genename $arrow end";
+            my $gene = new PirObject::AnnotPair(
+                                               type      => "G",  
+                                               genename  => $genename,
+                                               startpos  => $annot->get_startpos(),
+                                               endpos    => $annot->get_endpos(),
+                                               direction => $arrow,
+                                               startline => $start_line,
+                                               endline   => $end_line,
+                                             );
+            &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
+	    }
+        }
+     }
+}
 
 sub old_AddGeneFeatureUsingtRNAscanSE {
 
