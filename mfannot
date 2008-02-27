@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.83 2008/02/26 20:12:00 riouxp Exp $
+#    $Id: mfannot,v 1.84 2008/02/27 21:26:19 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.84  2008/02/27 21:26:19  nbeck
+#    Improved mechanism for executing external programs (API).
+#
 #    Revision 1.83  2008/02/26 20:12:00  riouxp
 #    Made endpos optional for AnnotPairs returned by external programs.
 #
@@ -352,7 +355,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.83 2008/02/26 20:12:00 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.84 2008/02/27 21:26:19 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -431,7 +434,7 @@ my $TRNACUTOFF;                                 #  The cutoff for the tRNAs anno
 my $MININTRONSIZE;                              #  opposite of MAXLENGTHFORGROUPINGORF. Minimum size for intron
 my $MINEXONSIZE;                                #  Minimum exon size for intron. In genewise.
 my $MATRIX;                                     #  The matrix used in genewise alignement
-my %CODE_GEN;					#  Hashtable with genetic code
+my %CODE_GEN;			                #  Hashtable with genetic code
 my $NBCONTIGS=0;                                #  The number of contigs
 
 my $RNAweasel_training  = "/share/supported/data/RNAmodels/tRNA.epn"; # training set for RNAweasel
@@ -723,14 +726,14 @@ if ($SIMILARITYSEARCH)
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
 	
 	# Annotate tRNA -> Use RNAweasel
-	print "$step) Annotate of tRNA with RNAweasel...\n";
-	$step += 1; 
-	&UseRNAweasel ($pirmaster);
+	#print "$step) Annotate of tRNA with RNAweasel...\n";
+	#$step += 1; 
+	#&Old_UseRNAweasel ($pirmaster);
 	
 	# Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
-	print "$step) Annotate rRNA with RNAweasel and HMMweasel...\n"; 
+	print "$step) Annotation with external programs...\n"; 
         $step += 1; 
-        &Annotate_rRNA ($pirmaster);
+        &Annotate_Using_external_programs($pirmaster);
 	
 	# Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
         if ($ORFPROCESS) 
@@ -835,7 +838,7 @@ sub GetOptions
     $MASTERFILE        = $option->masterfile;    #  Path for Masterfile
     $INPUTPEPFILES     = $option->inputfile;     #  Path for the peptide file used
     $OUTPUTFILE        = $option->outputfile;    #  Path for the new
-    $CONFIGFILE	       = $option->configfile;    # Path for configfile
+    $CONFIGFILE	       = $option->configfile;    #  Path for configfile
     my $count = "";
     my $name = $OUTPUTFILE;
     # Checking to see if the path to the output file is writable
@@ -946,9 +949,6 @@ sub CreateCodonTableWithGeneticId
     my $codontable     = Bio::Tools::CodonTable->new( -id => $geneid );
     ###############
 
-    # open the future file containing the codon table
-    open (CODONTABLE, ">$codontablefile") or die "Impossible to open Codon Table file : $codontablefile\n"; 
-    print CODONTABLE "! Codon table for genetic code $geneid\n";     # print a short header for description 
 
     # Process declaration
     #####################
@@ -968,15 +968,25 @@ sub CreateCodonTableWithGeneticId
 	    {
                 my $codon = $letter[$i].$letter[$j].$letter[$z];
                 my $aa    = $codontable->translate($codon);
-                print CODONTABLE "$codon $aa\n";
-		$CODE_GEN{$codon} = $aa;
+	         	$CODE_GEN{$codon} = $aa;
                 $z++;
             }
             $j++;
         }
         $i++;
     }
-    close (CODONTABLE) or die "Impossible to close Codon Table file : $codontablefile\n";
+	
+	if ($DEBUG) {
+        # open the future file containing the codon table
+        open (CODONTABLE, ">$codontablefile") or die "Impossible to open Codon Table file : $codontablefile\n"; 
+        print CODONTABLE "! Codon table for genetic code $geneid\n";     # print a short header for description 
+    	foreach my $codon ( sort keys %CODE_GEN) {
+	    	my $aa = $CODE_GEN{$codon};
+	        print CODONTABLE "$codon $aa\n";
+        }
+        close (CODONTABLE) or die "Impossible to close Codon Table file : $codontablefile\n";
+	}
+	
 }  
 
 sub FindExonsInHypProtArray 
@@ -2648,7 +2658,7 @@ sub Select_protein								#This function is create in order to selection the pro
 				   }
 				   else
 				   	{
-				     print "The gene coding for $name present probably a frameshift\n"; 
+				     print "   The gene coding for $name present probably a frameshift\n"; 
 					}
 				}
 			}
@@ -2903,7 +2913,7 @@ sub GetFlipBlastProtByNAmeAndContigName {
 
 }
 
-sub UseRNAweasel{
+sub Old_UseRNAweasel{
 	#Description of the sub
 	#1st : put the dna sequence into a temporary fastafile
 	#2nd : run RNAweasel with the temporary fasta file  
@@ -2916,9 +2926,9 @@ sub UseRNAweasel{
 	  my $contigs     = $pirmaster->get_contigs(); 		# get the masterfiles contigs
 	  my $countcontig = 1;
 
-          system("/bin/cp","$RNAweasel_training","$TMPDIR/tRNA.epn");
+      system("/bin/cp","$RNAweasel_training","$TMPDIR/tRNA.epn");
 
-  	  foreach my $contig (@$contigs) {                	# parse all the contig
+  	  foreach my $contig (@$contigs) {             	# parse all the contig
 		  my $name    = $contig->get_name();       	# get the name for the contig
 		  my $seq     = $contig->get_sequence();   	# get the sequence for each contig
 		  $seq        =~ s/[^atcgATCGnN]//g;
@@ -2937,15 +2947,17 @@ sub UseRNAweasel{
         }
 
 	my $RNAweaselcmd = "$RNAWEASELPATH \"$TMPDIR/tRNA.epn\" $fastatmp $RNAweasel_parameter >/dev/null 2>/dev/null";
-        print "$RNAweaselcmd\n" if $DEBUG;
-        my $resRNAweasel = system ($RNAweaselcmd);
+	print "$RNAweaselcmd\n" if $DEBUG;
+	my $resRNAweasel = system ($RNAweaselcmd);
+
+	print "   Processing contig '$name' ($countcontig/$numbercontigs) \n";
 
 	my $dh = new IO::Dir "$TMPDIR" or die "Cannot opendir \"$TMPDIR\": !$\n";		#
-	my @files = $dh->read();								#	Take the file
-	$dh->close();										#	which is use by
-	@files = grep( m/\.fullalignment$/, @files);						#	RNAweaelparser
-	die "Cannot find .fullalignment file from RNAweasel?!?\n" unless @files == 1;		#
-	my $fullalign = $files[0];								#
+	my @files = $dh->read();														#	Take the file
+	$dh->close();																	#	which is use by
+	@files = grep( m/\.fullalignment$/, @files);									#	RNAweaelparser
+	die "Cannot find .fullalignment file from RNAweasel?!?\n" unless @files == 1;	#
+	my $fullalign = $files[0];														#
 
 	#3rd Parsing RNAweasel output
         my $parser  = new PirObject::RNAweaselparser();       					# Open the parser for RNAweasel
@@ -2954,12 +2966,12 @@ sub UseRNAweasel{
         unlink("$TMPDIR/$fullalign.log");
 
 	my @annotat = $parser->get_annotations;
-        my $table   = $parser->get_annotations;              					#this is a reference to an array
+    my $table   = $parser->get_annotations;              					#this is a reference to an array
         #my $cmp = 0;
 
 	foreach my $result (@$table) { 								#Correspond to the tRNAweasel annotation 
-            my $start;
-            my $end;
+        my $start;
+        my $end;
 	    my $strand;
 	    my $ac_begin = $result->get_begin_ac;
 	    $strand = $result->get_strand;
@@ -2967,25 +2979,25 @@ sub UseRNAweasel{
 	    my $fullseq = $contig->get_sequence();
 	    #########################################
 	    #	Allows the define the symbol of     #
-	    #		the Amino acid		    #
+	    #		the Amino acid		            #
 	    #########################################
-	    my $acodon	 = $result->get_anti_codon;						
-            $acodon      =~ tr/UTCGAutcga/AAGCTAAGCT/;								
-	    $acodon	 =~ s/(\w+)/reverse $1/ge;   
-	    my $aaSymbol =  $CODE_GEN{$acodon};							
+	    my $acodon	 = $result->get_anti_codon;
+           $acodon   =~ tr/UTCGAutcga/AAGCTAAGCT/;
+	       $acodon	 =~ s/(\w+)/reverse $1/ge;   
+	    my $aaSymbol =  $CODE_GEN{$acodon};
 
 	    #########################################
 	    #	    Use to define the strand        #
 	    #########################################
 	   if ($strand eq "RC") {		
-                $arrow = "<==";
-		$start = $result->get_end;
-		$end   = $result->get_begin - 1;
+            $arrow = "<==";
+			$start = $result->get_end;
+			$end   = $result->get_begin - 1;
             }
-            else {
-                $arrow = "==>";
-		$start = $result->get_begin;
-		$end   = $result->get_end + 1;
+       else {
+            $arrow = "==>";
+			$start = $result->get_begin;
+			$end   = $result->get_end + 1;
             } 
 
 	    if($aaSymbol eq "H")
@@ -2996,18 +3008,18 @@ sub UseRNAweasel{
 	    # 4th ----- Create annotation -----#
             my $genename = "trn$aaSymbol"; # ."_"."$cmp";
             my $annot    = new PirObject::AnnotPair (
-                                                      type      => "G", 
-                                                      genename  => "$genename", # Before : genename  => "tRNA-$type($acodon)",
-                                                      startpos  => $start,
-                                                      endpos    => $end,
-                                                      direction => $arrow,
-                                                    );
+                                                  type      => "G", 
+                                                  genename  => "$genename", # Before : genename  => "tRNA-$type($acodon)",
+                                                  startpos  => $start,
+                                                  endpos    => $end,
+                                                  direction => $arrow,
+                                                  );
 
-           #					$cmp++;
-	   my $annot_ac    = new PirObject::AnnotPair (
+	    #					$cmp++;
+	    my $annot_ac    = new PirObject::AnnotPair (
                                                    type      => "AC", 
-						   genename  => "!anticodon!",
-                                                   startpos  => $ac_begin,
+		                        	   genename  => "!anticodon!",
+                                                   startpos  => $ac_begin, 
                                                    );
 
             my $arnname   = $genename;
@@ -3026,11 +3038,12 @@ sub UseRNAweasel{
     } # each contig    
 }
 
-sub Annotate_rRNA {
+sub Annotate_Using_external_programs {
     my $pirmaster = shift;
     my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($CONFIGFILE);
     my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommands>
-     foreach my $genename (sort keys %$genelist) {
+    foreach my $genename (sort keys %$genelist) {
+	 print "   Using external programs for '$genename'...\n";
          my $commandobject = $genelist->{$genename};
 	 my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
 	 my $substitutions = {
@@ -3040,14 +3053,16 @@ sub Annotate_rRNA {
          "DEBUG"          => $DEBUG ? "#" : "", 	     #(see the config file text)
          "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
          "TMPDIR"         => "$TMPDIR",     		     #(mfannot's tmp dir)
+	 "GENCODE"        => "$GENCODE",
          };
 
+	 $commandobject->set_debug($DEBUG);
 	 my ($outfile,$errfile) = $commandobject->Execute(
              "$TMPDIR",
              "$TMPDIR",
              $substitutions,
          );
-	 my $infh = new IO::File "<$outfile_gene"; # which should be your %OUTFILE%
+	 my $infh = new IO::File "<$outfile_gene"; # which shoudl be your %OUTFILE%
 	 if (! $infh){ 
 	     print "Cannot read result for '$genename'\n";  
 	     next;
@@ -3057,43 +3072,37 @@ sub Annotate_rRNA {
             last if ! $annotcollection;
 	    my $header   	= $annotcollection->get_contigname();
 	    my ($contigname)   = ($header =~ m#^>?\s*(\S+)#)
-                or die "Can't parse contigname line '$header'\n";
-
+                 or die "Can't parse header line '$header'\n";
             # ANNOTATE THE RESULTS, using the annotpairlist field of
             # your annotcollection (an AnnotPairCollection object).
             my $annotpairs = $annotcollection->get_annotpairlist();
             foreach my $annot (@$annotpairs){
-
-                my $type       = $annot->get_type()       || "G";
+	        my $type       = $annot->get_type()       || "G";
                 my $a_genename = $annot->get_genename()   || $genename;
-
                 my $startpos   = $annot->get_startpos()
                    || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
                 my $endpos     = $annot->get_endpos();
                    #|| die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
 
                 my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
-	           $arrow = "$arrow>" if $startpos < $endpos;
-	           $arrow = "<$arrow" if $startpos > $endpos;
-
+                   $arrow = "$arrow>" if $startpos < $endpos;
+                   $arrow = "<$arrow" if $startpos > $endpos;
                 my $direction  = $annot->get_direction()  || $arrow;
-	        my $start_line = $annot->get_start_line();
+                my $start_line = $annot->get_startline();
                    $start_line = "; G-$genename $arrow start" if !defined($start_line);
- 	        my $end_line   = $annot->get_end_line();
+                my $end_line   = $annot->get_endline(); 
                    $end_line   = "; G-$genename $arrow end"   if !defined($end_line);
-
-                my $gene = new PirObject::AnnotPair(
-                               type      => $type,  
-                               genename  => $a_genename,
-                               startpos  => $startpos,
-                               endpos    => $endpos,
-                               direction => $direction,
-                               startline => $start_line,
-                               endline   => $end_line,
-                               );
-
-                &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
-	    }
+		my $gene = new PirObject::AnnotPair(
+                                 type      => $type,
+                                 genename  => $a_genename,
+                                 startpos  => $startpos,
+                                 endpos    => $endpos,
+                                 direction => $direction,
+                                 startline => $start_line,
+                                 endline   => $end_line,
+                                             );
+		&AddAnnotToPirMaster($pirmaster,$contigname,$gene);
+		}
         }
      }
 }
@@ -3240,49 +3249,49 @@ sub old_AddGeneFeatureUsingtRNAscanSE {
 ##############################################################################
 
 sub Histidine_Case {
-	    my $arrow = shift; 
-	    my $seq   = shift;
-	    my $begin = shift;
-	    my $end   = shift;
-	    my $start = shift;  
-	    my %compl = ( 'A' => ['T'], 'T' => ['A', 'G'], 'C' => ['G'], 'G' => ['C', 'T'] );
-	    my( $nuc1, $nuc2 );
+    my $arrow = shift; 
+    my $seq   = shift;
+    my $begin = shift;
+    my $end   = shift;
+    my $start = shift;  
+    my %compl = ( 'A' => ['T'], 'T' => ['A', 'G'], 'C' => ['G'], 'G' => ['C', 'T'] );
+    my( $nuc1, $nuc2 );
 
     if ($arrow eq "==>")
     {            
     	if ($start == 1 )
 	{
-	print "Cannot test histidine case, trna starts at 1";
+	    print "Cannot test histidine case, trna starts at 1";
 	} # if ($aaSymbol eq "H" && $result->get_begin == 1)
 	elsif ( $start != 1 )
 	{
-	$nuc1 = uc substr( $seq, $begin - 2, 1 );
-	$nuc2 = uc substr( $seq, $end   - 1, 1 );
-		 if( grep($nuc2, @{ $compl{$nuc1} } ) )
-		 {
-			 $start--;
-		 } # if ( grep($nuc2, @{ $compl{$nuc1} } ) )
+	    $nuc1 = uc substr( $seq, $begin - 2, 1 );
+	    $nuc2 = uc substr( $seq, $end   - 1, 1 );
+	    if( grep($nuc2, @{ $compl{$nuc1} } ) )
+	    {
+	       $start--;
+	    } # if ( grep($nuc2, @{ $compl{$nuc1} } ) )
 	} # elsif ($aaSymbol eq "H" && $result->get_begin != 1 )
     } # if ($arrow eq "==>")
-           else {
-		    if ( $start == length($seq))
-		    {
-			    print "Cannot test histidine case, trna ends at the last nucleotide of the contig";
-		    } # if ($aaSymbol eq "H" && $result->get_end == length($seq))
-		    elsif ( $start != length($seq))
-		    {
-			    $nuc1 = uc substr( $seq, $begin , 1 );
-			    $nuc2 = uc substr( $seq, $end   - 1, 1 );
-			    $nuc1 =~ tr/ACGT/TGCA/;
-			    $nuc2 =~ tr/ACGT/TGCA/;
-			    if( grep($nuc2, @{ $compl{$nuc1} } ) )
-			    {
-				    $start++;
-			    } # if( grep($nuc2, @{ $compl{$nuc1} } ) )
-		    } # elsif ($aaSymbol eq "H" && $result->get_end != length($seq))
-	    } # else 
-	    return $start;
-}                   
+    else {
+	if ( $start == length($seq))
+	{
+	    print "Cannot test histidine case, trna ends at the last nucleotide of the contig";
+	} # if ($aaSymbol eq "H" && $result->get_end == length($seq))
+	elsif ( $start != length($seq))
+	{
+	    $nuc1 = uc substr( $seq, $begin , 1 );
+	    $nuc2 = uc substr( $seq, $end   - 1, 1 );
+	    $nuc1 =~ tr/ACGT/TGCA/;
+	    $nuc2 =~ tr/ACGT/TGCA/;
+	    if( grep($nuc2, @{ $compl{$nuc1} } ) )
+	    {
+		    $start++;
+	    } # if( grep($nuc2, @{ $compl{$nuc1} } ) )
+         } # elsif ($aaSymbol eq "H" && $result->get_end != length($seq))
+     } # else 
+    return $start;
+}
 
 
 sub AddAnnotToPirMaster {
