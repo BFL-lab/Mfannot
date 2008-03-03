@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.84 2008/02/27 21:26:19 nbeck Exp $
+#    $Id: mfannot,v 1.85 2008/03/03 16:56:26 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.85  2008/03/03 16:56:26  nbeck
+#    Fixed protein name for exonerate.
+#
 #    Revision 1.84  2008/02/27 21:26:19  nbeck
 #    Improved mechanism for executing external programs (API).
 #
@@ -355,7 +358,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.84 2008/02/27 21:26:19 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.85 2008/03/03 16:56:26 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1000,9 +1003,10 @@ sub FindExonsInHypProtArray
     ########################
 
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) 
-    {        
+    {
         # HYPOTHETICAL PROTEIN FEATURE
         my $name    = $PROT_FOR_EXONERATE[$i]->[0];
+	$name = $1 if ($name =~ /^\/(\w+)/);
 	my $contigname = $PROT_FOR_EXONERATE[$i]->[1];
 	####################In order to have the contig sequence#################
         my $contig  = $pirmaster->GetContigByName ($PROT_FOR_EXONERATE[$i]->[1]);
