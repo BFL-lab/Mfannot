@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.85 2008/03/03 16:56:26 nbeck Exp $
+#    $Id: mfannot,v 1.86 2008/03/04 19:47:26 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.86  2008/03/04 19:47:26  nbeck
+#    Fixed bug : set a default value for evalue in subroutine ChoiceORF.
+#
 #    Revision 1.85  2008/03/03 16:56:26  nbeck
 #    Fixed protein name for exonerate.
 #
@@ -358,7 +361,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.85 2008/03/03 16:56:26 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.86 2008/03/04 19:47:26 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1610,6 +1613,7 @@ sub AnnotateIntronicOrfs {
 		 my $diff		= $max_pos - $min_pos + 1;
 		 my $intronic_sequence  = substr($seq, $min_pos -1, $diff);
 		 my $modulo	  	= length($intronic_sequence) % 3;
+		 $intronic_sequence     =~ tr/acgt/ACGT/;
 		 $intronic_sequence 	=~ tr/ACGT/TGCA/ if $direction eq "<==";
 		 $intronic_sequence 	= reverse $intronic_sequence if $direction eq "<==";
 		 $intronic_sequence 	= substr($intronic_sequence,0, length($intronic_sequence)-$modulo);
@@ -1791,7 +1795,7 @@ sub AnnotateIntronicOrfs {
 }
 
 sub choice_orf{
-    my $orfs	= shift;
+    my $orfs	= shift;  # ref to array of pairs [ idx, Orf_object ]
     my $lib     = "/share/supported/apps/ogmp/lib/mfannot/intronic_orfs.pep";
 
     if (!(-e "$TMPDIR/fdb_intronic_orf.log")){
@@ -1815,8 +1819,8 @@ sub choice_orf{
 	my $name_of_file = "$TMPDIR/orf_".$orf->[0];
 	my $orf_seq	 = $orf->[1]->get_seq();
 	my $orf_num 	 = $orf->[0];
-	my $output     = "$TMPDIR/blastoutput_orf_".$orf->[0];
-	my $type        = 'PROT';
+	my $output       = "$TMPDIR/blastoutput_orf_".$orf->[0];
+	my $type         = 'PROT';
 	if (!(-e "$name_of_file")){
 	    open(ORFFILE,">$name_of_file") || die ("Can not open the orffile");
 	    print ORFFILE ">ORF_$orf_num\n";
@@ -1841,11 +1845,10 @@ sub choice_orf{
 	my $num 	     = $searchio->result_count;
 	die "We have most of 1 blast result for 1 orf " if $num > 1;
 	my @hits 	     = $result->hits();               # Bio::Search::Hit::HitI
+	$orf->[1]->set_score (9999); # really bad evalue by default
 	next if !@hits;
 	my $best_evalue      = $hits[0]->significance;
 	$orf->[1]->set_score ($best_evalue);
-	my $start = $orf->[1]->get_start();
-	my $end   = $orf->[1]->get_end();
     }
     
     my @orfs_sorted = sort
