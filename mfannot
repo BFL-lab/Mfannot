@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.86 2008/03/04 19:47:26 nbeck Exp $
+#    $Id: mfannot,v 1.87 2008/03/06 20:59:09 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.87  2008/03/06 20:59:09  nbeck
+#    Adding an option to choose which external programs to run.
+#
 #    Revision 1.86  2008/03/04 19:47:26  nbeck
 #    Fixed bug : set a default value for evalue in subroutine ChoiceORF.
 #
@@ -361,7 +364,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.86 2008/03/04 19:47:26 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.87 2008/03/06 20:59:09 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -427,8 +430,8 @@ my $WITHMAP;                                    #  the allowed extension for the
 my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
 my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
 my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
-my $CONFIGFILE;					#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
-
+my $EXTCONFIGFILE;					#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
+my $EXTSELECTPROG;					#  List of name for external programs.
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
 my $BLASTEVALUECUTOFF;                          #  Cutoff value for the blast
@@ -541,7 +544,7 @@ $options .= "Usage of RNAweasel\n";
 $options .= "Search of start $STARTBEFORE aa before the start of blast match\n";
 $options .= "Search of start $STARTAFTER aa after the start of blast match\n";
 $options .= "Warning if the protein make +/- $SIZE pourcent of homologous protein\n";
-$options .= "The Path of configfile is : $CONFIGFILE";
+$options .= "The Path of configfile is : $EXTCONFIGFILE";
 
 if ($SIMILARITYSEARCH) 
 {
@@ -844,7 +847,8 @@ sub GetOptions
     $MASTERFILE        = $option->masterfile;    #  Path for Masterfile
     $INPUTPEPFILES     = $option->inputfile;     #  Path for the peptide file used
     $OUTPUTFILE        = $option->outputfile;    #  Path for the new
-    $CONFIGFILE	       = $option->configfile;    #  Path for configfile
+    $EXTCONFIGFILE     = $option->ext_config;    #  Path for configfile
+    $EXTSELECTPROG     = $option->ext_select;    #  List of names for external prog
     my $count = "";
     my $name = $OUTPUTFILE;
     # Checking to see if the path to the output file is writable
@@ -3046,72 +3050,82 @@ sub Old_UseRNAweasel{
 }
 
 sub Annotate_Using_external_programs {
-    my $pirmaster = shift;
-    my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($CONFIGFILE);
-    my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommands>
-    foreach my $genename (sort keys %$genelist) {
-	 print "   Using external programs for '$genename'...\n";
-         my $commandobject = $genelist->{$genename};
-	 my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
-	 my $substitutions = {
-         "OUTFILE"        => "$outfile_gene",
-         "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
-         "MASTERFILE"     => "$MASTERFILE",
-         "DEBUG"          => $DEBUG ? "#" : "", 	     #(see the config file text)
-         "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
-         "TMPDIR"         => "$TMPDIR",     		     #(mfannot's tmp dir)
-	 "GENCODE"        => "$GENCODE",
-         };
+   my $pirmaster = shift;
+   my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
+   my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommands>
+   my @tab_for_ext_progs   = split(/\s*,\s*/, $EXTSELECTPROG); # this is a tab with names : for run external programs
+   my %hash_for_ext_progs  = map {   lc $_, 1  } @tab_for_ext_progs; # this is a hash with names : for run external programs
+   my $we_have_a_list_of_progs = scalar(keys %hash_for_ext_progs); # true or false
+   
+   my %allprogs = map {   lc $_, 1  } keys %$genelist;
+   foreach my $prog (sort keys %hash_for_ext_progs) {
+       print "   Warning: no external programs specified for '$prog' in '$EXTCONFIGFILE'\n" unless $allprogs{$prog};
+   }
+   
+   foreach my $genename (sort keys %$genelist) {
+      next if $we_have_a_list_of_progs    &&    ! $hash_for_ext_progs {lc $genename};
+      print "   Using external programs for '$genename'...\n";
+      my $commandobject = $genelist->{$genename};
+      my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
+      my $substitutions = {
+	  "OUTFILE"        => "$outfile_gene",
+          "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
+          "MASTERFILE"     => "$MASTERFILE",
+          "DEBUG"          => $DEBUG ? "#" : "", 	     #(see the config file text)
+          "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
+          "TMPDIR"         => "$TMPDIR",     		     #(mfannot's tmp dir)
+	  "GENCODE"        => "$GENCODE",
+          };
 
-	 $commandobject->set_debug($DEBUG);
-	 my ($outfile,$errfile) = $commandobject->Execute(
+      $commandobject->set_debug($DEBUG);
+      my ($outfile,$errfile) = $commandobject->Execute(
              "$TMPDIR",
              "$TMPDIR",
              $substitutions,
          );
-	 my $infh = new IO::File "<$outfile_gene"; # which shoudl be your %OUTFILE%
-	 if (! $infh){ 
-	     print "Cannot read result for '$genename'\n";  
-	     next;
-	 }
-         for (;;) {
-            my $annotcollection = PirObject->FileHandleToObject($infh);
-            last if ! $annotcollection;
-	    my $header   	= $annotcollection->get_contigname();
-	    my ($contigname)   = ($header =~ m#^>?\s*(\S+)#)
-                 or die "Can't parse header line '$header'\n";
-            # ANNOTATE THE RESULTS, using the annotpairlist field of
-            # your annotcollection (an AnnotPairCollection object).
-            my $annotpairs = $annotcollection->get_annotpairlist();
-            foreach my $annot (@$annotpairs){
-	        my $type       = $annot->get_type()       || "G";
-                my $a_genename = $annot->get_genename()   || $genename;
-                my $startpos   = $annot->get_startpos()
-                   || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
-                my $endpos     = $annot->get_endpos();
-                   #|| die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
+      my $infh = new IO::File "<$outfile_gene"; # which shoudl be your %OUTFILE%
+      if (! $infh){ 
+          print "Cannot read result for '$genename'\n";  
+          next;
+	  }
+      for (;;) {
+          my $annotcollection = PirObject->FileHandleToObject($infh);
+          last if ! $annotcollection;
+	  my $header   	= $annotcollection->get_contigname();
+	  my ($contigname)   = ($header =~ m#^>?\s*(\S+)#)
+              or die "Can't parse header line '$header'\n";
+          # ANNOTATE THE RESULTS, using the annotpairlist field of
+          # your annotcollection (an AnnotPairCollection object).
+          my $annotpairs = $annotcollection->get_annotpairlist();
+          foreach my $annot (@$annotpairs){
+	      my $type       = $annot->get_type()       || "G";
+              my $a_genename = $annot->get_genename()   || $genename;
+              my $startpos   = $annot->get_startpos()
+                 || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
+              my $endpos     = $annot->get_endpos();
+                 #|| die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
 
-                my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
-                   $arrow = "$arrow>" if $startpos < $endpos;
-                   $arrow = "<$arrow" if $startpos > $endpos;
-                my $direction  = $annot->get_direction()  || $arrow;
-                my $start_line = $annot->get_startline();
-                   $start_line = "; G-$genename $arrow start" if !defined($start_line);
-                my $end_line   = $annot->get_endline(); 
-                   $end_line   = "; G-$genename $arrow end"   if !defined($end_line);
-		my $gene = new PirObject::AnnotPair(
-                                 type      => $type,
-                                 genename  => $a_genename,
-                                 startpos  => $startpos,
-                                 endpos    => $endpos,
-                                 direction => $direction,
-                                 startline => $start_line,
-                                 endline   => $end_line,
-                                             );
-		&AddAnnotToPirMaster($pirmaster,$contigname,$gene);
-		}
-        }
-     }
+              my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
+                 $arrow = "$arrow>" if $startpos < $endpos;
+                 $arrow = "<$arrow" if $startpos > $endpos;
+              my $direction  = $annot->get_direction()  || $arrow;
+              my $start_line = $annot->get_startline();
+                 $start_line = "; G-$genename $arrow start" if !defined($start_line);
+              my $end_line   = $annot->get_endline(); 
+                 $end_line   = "; G-$genename $arrow end"   if !defined($end_line);
+	      my $gene = new PirObject::AnnotPair(
+                                  type      => $type,
+                                  genename  => $a_genename,
+                                  startpos  => $startpos,
+                                  endpos    => $endpos,
+                                  direction => $direction,
+                                  startline => $start_line,
+                                  endline   => $end_line,
+                                              );
+	      &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
+	 }
+       }
+   }
 }
 
 sub old_AddGeneFeatureUsingtRNAscanSE {

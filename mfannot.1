@@ -47,6 +47,18 @@ OPTIONS
               It will instead appear in the Masterfile as ncorf (non
               corresponding ORF).
               Default: 100
+
+    --ext_config 
+    	     It's a file used in order to call external programs. 
+	     Use for annotation of different genes like rnpB, rns and rnl.
+	     Default: '/share/analysis/control/mfannot/external_programs.conf'.
+	     
+    --ext_select
+    	     It's a list of names used in order to select external programs. 
+	     Use for annotation of different genes like rnpB, rns and rnl.
+	     The different names should be separated by a comma : like 'rnpB,rns'.
+             See also the option for the config files for external programs,
+             --ext_config
     
     -f, --force
               This option allows more than one copy of the same gene in
@@ -272,7 +284,8 @@ VERSION
   1.1
   
 AUTHORS
+  Natacha BECK,
   David TO,
-  Pierre RIOUX
-  Franz LANG (Project Manager)
-  Thomas HOELLINGER
+  Pierre RIOUX,
+  Franz LANG (Project Manager),
+  Thomas HOELLINGER.
