@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.87 2008/03/06 20:59:09 nbeck Exp $
+#    $Id: mfannot,v 1.88 2008/03/18 21:40:47 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.88  2008/03/18 21:40:47  nbeck
+#    Add annotation of Intron using external programs.
+#    Fixed bug for annotation of ORF.
+#
 #    Revision 1.87  2008/03/06 20:59:09  nbeck
 #    Adding an option to choose which external programs to run.
 #
@@ -364,7 +368,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.87 2008/03/06 20:59:09 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.88 2008/03/18 21:40:47 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -395,7 +399,6 @@ my $FLIPPATH         = "/share/supported/apps/ogmp/bin/flip";
 my $GENEWISEPATH     = "/share/supported/apps/wise_2.2.0/src/bin/genewise";
 my $TRNASCANPATH     = "/share/supported/apps/tRNAscan-SE/bin/tRNAscan-SE";
 my $RNAWEASELPATH    = "/share/supported/bin/RNAweasel_cl";
-my $HMMWEASELPATH    = "";
 my $MF2XMLPATH       = "/share/supported/apps/mf2xml/bin/mf2xml";
 my $CGVIEWPATH       = "/share/supported/apps/cgview/bin/cgview";
 my $EXONERATEPATH    = "/share/supported/bin/exonerate";
@@ -430,8 +433,8 @@ my $WITHMAP;                                    #  the allowed extension for the
 my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
 my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
 my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
-my $EXTCONFIGFILE;					#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
-my $EXTSELECTPROG;					#  List of name for external programs.
+my $EXTCONFIGFILE;				#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
+my $EXTSELECTPROG;				#  List of name for external programs.
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
 my $BLASTEVALUECUTOFF;                          #  Cutoff value for the blast
@@ -469,21 +472,6 @@ TestFile($TRNASCANPATH);
 TestFile($RNAWEASELPATH);
 TestFile($EXONERATEPATH);
 
-##################
-# HELP AND USAGE #
-##################
-
-
-sub Help 
-{
-    print "Help for mfannot.pl\n";
-    print "-------------------\n";
-    #&Usage;
-}
-
-# END
-
-
 ################
 # Trap Signals #
 ################
@@ -512,7 +500,7 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMME                       \n".
              "VERSION $VERSION                                                      \n".
-             "Programmed by P. Rioux, T. Hoellinger, D. To and N. Beck\n" .
+             "Programmed by P. Rioux, T. Hoellinger, D. To and N. Beck              \n".
              "######################################################################\n\n";
 
 print $header;
@@ -1328,13 +1316,13 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         next EMPTYORF if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) && $strand_orf != 1;  #  Size Verification 
 
         # OTHER CHECKING, SUCH AS OVERLAPPING..........
-	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+#	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
 	
 	my $isMinus = ($strand_orf == 1 ? 0 : 1);
 	my $posOffset = ($isMinus ? -3 : 3);	
 	
 	my $annotIsOK_gene_without_intron = 0;
-	if (!@$annot_who_overlap){
+	
 	  for (;;$start_orf += $posOffset) {
             last if $start_orf >= $end_orf && !$isMinus;
 	    last if $end_orf >= $start_orf && $isMinus;
@@ -1348,7 +1336,10 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
 	    $annotIsOK_gene_without_intron = 1;
 	    last;
 	  }
-	}
+
+        next EMPTYORF if $annotIsOK_gene_without_intron == 0;
+	
+	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
 	
 	my $annotIsOk = 0;
 	my $number_of_annot = 0;
@@ -1667,7 +1658,7 @@ sub AnnotateIntronicOrfs {
 	my $end_orf		= $intronic_orf->get_end();
 	my $direction 		= $intronic_orf->get_strand();
 	my $contigname		= $intronic_orf->get_contigname();
-	my $prefix		= $intronic_orf->get_prefix();
+	my $prefix		= $intronic_orf->get_prefix(); 
 	my $contig            	= $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
 	my $seq                 = $contig->sequence;              # Get the sequence
         $seq                    =~ s/!//g;                        # Remove ! from the sequence
@@ -1770,7 +1761,7 @@ sub AnnotateIntronicOrfs {
 	#-------------------------------------------------------------------------------------
 	my $GenenameORF		= "orf".$selected_orf->get_size();
 	my $direction 		= $selected_orf->get_strand();
-	my $prefix 		= $selected_orf->get_prefix();
+	my $prefix 		= $selected_orf->get_prefix(); 
 	my $contigname		= $selected_orf->get_contigname();
 	my $startline  		= ";     G-$GenenameORF $direction start";
 	   $startline  		= ";     G-$prefix-"."$GenenameORF $direction start" if $prefix ne "";
@@ -3053,17 +3044,30 @@ sub Annotate_Using_external_programs {
    my $pirmaster = shift;
    my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
    my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommands>
-   my @tab_for_ext_progs   = split(/\s*,\s*/, $EXTSELECTPROG); # this is a tab with names : for run external programs
-   my %hash_for_ext_progs  = map {   lc $_, 1  } @tab_for_ext_progs; # this is a hash with names : for run external programs
-   my $we_have_a_list_of_progs = scalar(keys %hash_for_ext_progs); # true or false
    
-   my %allprogs = map {   lc $_, 1  } keys %$genelist;
+   
+   
+   my %hash_for_ext_progs  = map {   lc $_, 1  } keys %$genelist; # this is a hash with names : for run external programs
+   
+   my @tab_for_ext_progs   = split(/\s*,\s*/, $EXTSELECTPROG); # this is a tab with names : for run external programs
+   my @no_ext = grep(/^no/,@tab_for_ext_progs);
+   if (@no_ext) {
+       foreach my $noext (@no_ext) {
+           $noext =~ s/^no//;
+	   delete $hash_for_ext_progs{lc $noext};
+	   }
+   } 
+   elsif (@tab_for_ext_progs) {
+       %hash_for_ext_progs = map { lc $_ => 1 } @tab_for_ext_progs;
+   } # no else needed
+   
+   my %allprogs = map { lc $_ => 1  } keys %$genelist;
    foreach my $prog (sort keys %hash_for_ext_progs) {
        print "   Warning: no external programs specified for '$prog' in '$EXTCONFIGFILE'\n" unless $allprogs{$prog};
    }
    
    foreach my $genename (sort keys %$genelist) {
-      next if $we_have_a_list_of_progs    &&    ! $hash_for_ext_progs {lc $genename};
+      next if ! $hash_for_ext_progs{lc $genename};
       print "   Using external programs for '$genename'...\n";
       my $commandobject = $genelist->{$genename};
       my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
@@ -3071,9 +3075,9 @@ sub Annotate_Using_external_programs {
 	  "OUTFILE"        => "$outfile_gene",
           "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
           "MASTERFILE"     => "$MASTERFILE",
-          "DEBUG"          => $DEBUG ? "#" : "", 	     #(see the config file text)
+          "DEBUG"          => $DEBUG ? "#" : "", 	      #(see the config file text)
           "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
-          "TMPDIR"         => "$TMPDIR",     		     #(mfannot's tmp dir)
+          "TMPDIR"         => "$TMPDIR",     		      #(mfannot's tmp dir)
 	  "GENCODE"        => "$GENCODE",
           };
 
@@ -3472,7 +3476,7 @@ sub LogInfo
     {
 	    if ($genename =~ /^[^!]/)
 	    {
-		    my($e,$i) = ($added->{$genename}->{'E'},$added->{$genename}->{'I'});
+		    my($e,$i) = (($added->{$genename}->{'E'} || 0),($added->{$genename}->{'I'} || 0)); 
 		    $rep      = ";;     " if !$cnt;
 		    $rep     .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
 		    $cnt++;
