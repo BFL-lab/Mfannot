@@ -49,16 +49,20 @@ OPTIONS
               Default: 100
 
     --ext_config 
-    	     It's a file used in order to call external programs. 
-	     Use for annotation of different genes like rnpB, rns and rnl.
-	     Default: '/share/analysis/control/mfannot/external_programs.conf'.
-	     
+             It's a file used in order to call external programs. 
+             Use for annotation of different genes like rnpB, rns and rnl.
+             Default: '/share/analysis/control/mfannot/external_programs.conf'.
+         
     --ext_select
-    	     It's a list of names used in order to select external programs. 
-	     Use for annotation of different genes like rnpB, rns and rnl.
-	     The different names should be separated by a comma : like 'rnpB,rns'.
-             See also the option for the config files for external programs,
-             --ext_config
+             A list of names used to select or unselect which external programs
+             to run (as specified in the --ext_config option above).
+             The different names should be separated by a comma as in 'rnpB,rns',
+             in this case ONLY the external programs needed to annotate 'rnpB' and
+             'rns' will be executed. If you want unselect an external programs you
+             must add no before the name of external programs : 'nornpB'; in this
+             case all programs run except those specified with a 'no' prefix.
+             Specifying a mixed set of 'no' and non-'no' programs has the same
+             effect as specifying only the programs with 'no'.
     
     -f, --force
               This option allows more than one copy of the same gene in
