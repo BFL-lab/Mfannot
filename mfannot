@@ -25,9 +25,14 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.89 2008/03/19 21:49:58 riouxp Exp $
+#    $Id: mfannot,v 1.90 2008/03/20 20:10:32 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.90  2008/03/20 20:10:32  riouxp
+#    Added support for multiple genenames supplied on the GeneName
+#    directive of the external programs configuration file. The
+#    directive can now also be rewritten as "GeneNames" (with an S).
+#
 #    Revision 1.89  2008/03/19 21:49:58  riouxp
 #    Added ability to run external programs in multiple distinct blocks
 #    of commands, where the first one that returns a useful result is
@@ -374,7 +379,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.89 2008/03/19 21:49:58 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.90 2008/03/20 20:10:32 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3047,43 +3052,48 @@ sub Old_UseRNAweasel{
 }
 
 sub Annotate_Using_external_programs {
-    my $pirmaster = shift;
-    my $conf_file = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
-    my $genelist = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommandSet>
+    my $pirmaster   = shift;
+    my $conf_file   = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
+    my $genecomsets = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommandSet>
    
     # Here we build a list of external programs to run; by default all
     # of them are executed, but this can be modified by the option --ext_select, which
     # we parse here.
 
     # Default: all of them
-    my %hash_for_ext_progs  = map {   lc $_, 1  } keys %$genelist; # this is a hash with names : for run external programs
+    my @allprogs      = map { split(/\s*,\s*/,$_) } keys %$genecomsets;
+    my %allprogs      = map { lc($_) => 1  }        @allprogs;
+    my %progs_to_run  = %allprogs; # copy, which will be adjusted
    
     # What do we have in --ext_select? Parse it
-    my @tab_for_ext_progs   = split(/\s*,\s*/, $EXTSELECTPROG); # this is a tab with names : for run external programs
-    my @no_ext = grep(/^no/,@tab_for_ext_progs);
+    my @ext_selected  = split(/\s*,\s*/, $EXTSELECTPROG);
+
+    my @no_ext = grep(/^no/,@ext_selected);
     if (@no_ext) { # there are some 'no', which means ( ALL minus the 'no's )
         foreach my $noext (@no_ext) {
             $noext =~ s/^no//;
-            delete $hash_for_ext_progs{lc $noext};
+            delete $progs_to_run{lc $noext};
         }
-    } elsif (@tab_for_ext_progs) { # there are no 'nos', which means --ext_select is the full list
-        %hash_for_ext_progs = map { lc $_ => 1 } @tab_for_ext_progs;
+    } elsif (@ext_selected) { # there are no 'nos', which means --ext_select is the full list
+        %progs_to_run = map { lc($_) => 1 } @ext_selected;
     } # no else needed
    
     # Print warnings about unknown names in --ext_select
-    my %allprogs = map { lc $_ => 1  } keys %$genelist;
-    foreach my $prog (sort keys %hash_for_ext_progs) {
-        print "   Warning: no external programs specified for '$prog' in '$EXTCONFIGFILE'\n" unless $allprogs{$prog};
+    foreach my $prog (sort keys %progs_to_run) {
+        print "   Warning: no external programs specified for '$prog' in '$EXTCONFIGFILE'\n"
+            unless $allprogs{lc $prog};
     }
    
     # Run each external program command set.
-    my @extgenenames = sort {
-        $genelist->{$a}->get_filerank() <=> $genelist->{$b}->get_filerank()
-    } keys %$genelist; # now sorted
-    foreach my $genename (@extgenenames) {
-        next if ! $hash_for_ext_progs{lc $genename};
+    my @extcomsets = sort {
+        $genecomsets->{$a}->get_filerank() <=> $genecomsets->{$b}->get_filerank()
+    } keys %$genecomsets; # now sorted; these are keys with possible MULTIPLE names, e.g. "rns,rnl"
+
+    foreach my $comsetnames (@extcomsets) {
+    foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
+        next if ! $progs_to_run{lc $genename};
         print "   Using external programs for '$genename'...\n";
-        my $commandobject = $genelist->{$genename};
+        my $commandobject = $genecomsets->{$comsetnames};
         my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
         my $substitutions = {
             "OUTFILE"        => "$outfile_gene",
@@ -3105,7 +3115,8 @@ sub Annotate_Using_external_programs {
         # Read back AnnotPairCollection s;
         my $infh = new IO::File "<$outfile_gene"; # which should be your %OUTFILE%
         if (! $infh){ 
-            print "Cannot read result for '$genename'; see outfile '$outfile' and errfile '$errfile'.\n";  
+            print "Cannot read result for '$genename'; maybe there were problems with the commands?\n";
+            print "See outfile '$outfile' and errfile '$errfile' for more info.\n" if $DEBUG;
             next;
         }
 
@@ -3148,7 +3159,8 @@ sub Annotate_Using_external_programs {
             } # foreach annotpair
         } # foreach annotpaircollection (one per contig)
         $infh->close();
-    }
+    } # foreach genename1, genename2, ...
+    } # foreach "genename1,genename2"
 }
 
 sub old_AddGeneFeatureUsingtRNAscanSE {
