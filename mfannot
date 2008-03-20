@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.90 2008/03/20 20:10:32 riouxp Exp $
+#    $Id: mfannot,v 1.91 2008/03/20 20:20:20 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.91  2008/03/20 20:20:20  riouxp
+#    Fixed tiny bug in support of multiple GeneNames args.
+#
 #    Revision 1.90  2008/03/20 20:10:32  riouxp
 #    Added support for multiple genenames supplied on the GeneName
 #    directive of the external programs configuration file. The
@@ -379,7 +382,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.90 2008/03/20 20:10:32 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.91 2008/03/20 20:20:20 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3096,12 +3099,12 @@ sub Annotate_Using_external_programs {
         my $commandobject = $genecomsets->{$comsetnames};
         my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
         my $substitutions = {
-            "OUTFILE"        => "$outfile_gene",
+            "OUTFILE"        => "$outfile_gene",       # what will be created, a series of AnnotPairCollections
             "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
             "MASTERFILE"     => "$MASTERFILE",
-            "DEBUG"          => $DEBUG ? "#" : "",               #(see the config file text)
-            "GENENAME"       => $commandobject->get_genename(), #(optional; the Execute command use this but you can override it yourself)
-            "TMPDIR"         => "$TMPDIR",                                  #(mfannot's tmp dir)
+            "DEBUG"          => $DEBUG ? "#" : "",     # see the config file text
+            "GENENAME"       => $genename,             # optional; the Execute command use this but you can override it yourself)
+            "TMPDIR"         => "$TMPDIR",             # mfannot's tmp dir
             "GENCODE"        => "$GENCODE",
             };
 
@@ -3112,7 +3115,7 @@ sub Annotate_Using_external_programs {
             $substitutions,
         );
 
-        # Read back AnnotPairCollection s;
+        # Read back AnnotPairCollections;
         my $infh = new IO::File "<$outfile_gene"; # which should be your %OUTFILE%
         if (! $infh){ 
             print "Cannot read result for '$genename'; maybe there were problems with the commands?\n";
