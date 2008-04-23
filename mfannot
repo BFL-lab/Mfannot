@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.92 2008/03/20 21:04:56 nbeck Exp $
+#    $Id: mfannot,v 1.93 2008/04/23 20:07:33 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.93  2008/04/23 20:07:33  riouxp
+#    Improved API between external commands and mfannot.
+#
 #    Revision 1.92  2008/03/20 21:04:56  nbeck
 #    Cleaned old code.
 #
@@ -384,7 +387,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.92 2008/03/20 21:04:56 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.93 2008/04/23 20:07:33 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3016,13 +3019,13 @@ sub Annotate_Using_external_programs {
                    #|| die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
 
                 my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
-                   $arrow = "$arrow>" if $startpos < $endpos;
-                   $arrow = "<$arrow" if $startpos > $endpos;
+                   $arrow = "$arrow>" if defined($endpos) && $startpos < $endpos;
+                   $arrow = "<$arrow" if defined($endpos) && $startpos > $endpos;
                 my $direction  = $annot->get_direction()  || $arrow;
                 my $start_line = $annot->get_startline();
                    $start_line = "; G-$genename $arrow start" if !defined($start_line);
-                my $end_line   = $annot->get_endline(); 
-                   $end_line   = "; G-$genename $arrow end"   if !defined($end_line);
+                my $end_line   = $annot->get_endline();  # can be undef
+                   $end_line   = "; G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
                 my $gene = new PirObject::AnnotPair(
                                   type      => $type,
                                   genename  => $a_genename,
@@ -3031,6 +3034,8 @@ sub Annotate_Using_external_programs {
                                   direction => $direction,
                                   startline => $start_line,
                                   endline   => $end_line,
+                                  startlinenumber => $annot->get_startlinenumber(),  # optional; usually undef
+                                  endlinenumber   => $annot->get_endlinenumber(),  # optional; usually undef
                 );
                 &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
             } # foreach annotpair
