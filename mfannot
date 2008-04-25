@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.93 2008/04/23 20:07:33 riouxp Exp $
+#    $Id: mfannot,v 1.94 2008/04/25 17:01:40 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.94  2008/04/25 17:01:40  riouxp
+#    Added better handling of keyword 'none' for -ext_select.
+#
 #    Revision 1.93  2008/04/23 20:07:33  riouxp
 #    Improved API between external commands and mfannot.
 #
@@ -387,7 +390,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.93 2008/04/23 20:07:33 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.94 2008/04/25 17:01:40 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2948,7 +2951,7 @@ sub Annotate_Using_external_programs {
     # What do we have in --ext_select? Parse it
     my @ext_selected  = split(/\s*,\s*/, $EXTSELECTPROG);
 
-    my @no_ext = grep(/^no/,@ext_selected);
+    my @no_ext = grep(/^no/ && $_ ne "none",@ext_selected);
     if (@no_ext) { # there are some 'no', which means ( ALL minus the 'no's )
         foreach my $noext (@no_ext) {
             $noext =~ s/^no//;
