@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.94 2008/04/25 17:01:40 riouxp Exp $
+#    $Id: mfannot,v 1.95 2008/05/01 15:54:22 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.95  2008/05/01 15:54:22  riouxp
+#    Modularized subroutine for launching external programs.
+#
 #    Revision 1.94  2008/04/25 17:01:40  riouxp
 #    Added better handling of keyword 'none' for -ext_select.
 #
@@ -390,7 +393,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.94 2008/04/25 17:01:40 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.95 2008/05/01 15:54:22 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2973,15 +2976,28 @@ sub Annotate_Using_external_programs {
     } keys %$genecomsets; # now sorted; these are keys with possible MULTIPLE names, e.g. "rns,rnl"
 
     foreach my $comsetnames (@extcomsets) {
-    foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
-        next if ! $progs_to_run{lc $genename};
+        foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
+            next if ! $progs_to_run{lc $genename};
+            my $commandobject = $genecomsets->{$comsetnames};
+            my $annotpaircollection = &ExecuteExternalProgram($commandobject,$genename);
+            &AnnotateFromExternalAPC($pirmaster,$genename,$annotpaircollection);
+        } # foreach genename1, genename2, ...
+    } # foreach "genename1,genename2"
+}
+
+
+sub ExecuteExternalProgram {
+    my $commandobject             = shift;
+    my $genename                  = shift;
+    my $alternate_masterfile      = shift;
+    my $alternate_plainmasterfile = shift;
+
         print "   Using external programs for '$genename'...\n";
-        my $commandobject = $genecomsets->{$comsetnames};
         my $outfile_gene = "$TMPDIR/result_for_$genename.xml";
         my $substitutions = {
             "OUTFILE"        => "$outfile_gene",       # what will be created, a series of AnnotPairCollections
-            "PLAINFASTAFILE" => "$TMPDIR/mf_noCr.all",
-            "MASTERFILE"     => "$MASTERFILE",
+            "PLAINFASTAFILE" => ($alternate_plainmasterfile || "$TMPDIR/mf_noCr.all"),
+            "MASTERFILE"     => ($alternate_masterfile || "$MASTERFILE"),
             "DEBUG"          => $DEBUG ? "#" : "",     # see the config file text
             "GENENAME"       => $genename,             # optional; the Execute command use this but you can override it yourself)
             "TMPDIR"         => "$TMPDIR",             # mfannot's tmp dir
@@ -3003,10 +3019,19 @@ sub Annotate_Using_external_programs {
             next;
         }
 
+        my @annotpaircollections = PirObject->FileHandleToObject($infh);
+        $infh->close();
+
+    \ @annotpaircollections;
+}
+
+sub AnnotateFromExternalAPC {
+    my $pirmaster           = shift;
+    my $genename            = shift;
+    my $annotpaircollection = shift; # ref to array of APC
+
         # Process each AnnotPairCollection
-        for (;;) {
-            my $annotcollection = PirObject->FileHandleToObject($infh);
-            last if ! $annotcollection;
+        foreach my $annotcollection (@$annotpaircollection) {
             my $header           = $annotcollection->get_contigname();
             my ($contigname)   = ($header =~ m#^>?\s*(\S+)#)
                 or die "Can't parse header line '$header'\n";
@@ -3043,9 +3068,6 @@ sub Annotate_Using_external_programs {
                 &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
             } # foreach annotpair
         } # foreach annotpaircollection (one per contig)
-        $infh->close();
-    } # foreach genename1, genename2, ...
-    } # foreach "genename1,genename2"
 }
 
 sub AddAnnotToPirMaster {
