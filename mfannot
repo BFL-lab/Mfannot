@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 1.95 2008/05/01 15:54:22 riouxp Exp $
+#    $Id: mfannot,v 1.96 2008/06/03 20:16:37 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 1.96  2008/06/03 20:16:37  nbeck
+#    Add step to adjust exon/intron junction according to splice site models.
+#
 #    Revision 1.95  2008/05/01 15:54:22  riouxp
 #    Modularized subroutine for launching external programs.
 #
@@ -362,7 +365,8 @@ use File::Path;
 use PirObject;                                        #  Pir module treatment 
 use Bio::SearchIO;                                    #  Bioperl (used for parsing blast outout)
 use Bio::SeqUtils;                                    #  Some biological tools
-use Bio::Tools::CodonTable;                           #  To create a codon table, to be used with genewise 
+use Bio::Tools::CodonTable;                           #  To create a codon table, to be used with genewise
+use Bio::Matrix::IO;                                  #  Used for read matrix like PAM
 use List::Util qw(max);
 use List::Util qw(min);
 use File::Copy;
@@ -393,7 +397,7 @@ PirObject->LoadDataModel("EmptyOrf");                 #  Object containing Orfs 
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 1.95 2008/05/01 15:54:22 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 1.96 2008/06/03 20:16:37 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -428,6 +432,12 @@ my $MF2XMLPATH       = "/share/supported/apps/mf2xml/bin/mf2xml";
 my $CGVIEWPATH       = "/share/supported/apps/cgview/bin/cgview";
 my $EXONERATEPATH    = "/share/supported/bin/exonerate";
 
+#Initialization of matrix, here PAM70.
+my $parser           = new Bio::Matrix::IO(-format => 'scoring',
+                                 -file   => '/share/supported/apps/ncbi/data/PAM70');
+my $matrix           = $parser->next_matrix;
+
+
 # General options
 my $DEBUG;                                      #  Debug mode. If true, display message on the screen
 my $GENCODE          = undef;                   #  Genetique code
@@ -439,7 +449,7 @@ my $MASTERFILE       = undef;                   #  Path for Masterfile
 my $PEPFILE;                                    #  Path for the peptide file used
 my $TAKEINPUTFILE;                              
 my $FLIPBLASTPROTS;                             #  Array containing the Proteins predicted by Blast and Flip
-my @PROT_FOR_EXONERATE;				#  Array with homolog protein for Exonerate
+my @PROT_FOR_EXONERATE;                         #  Array with homolog protein for Exonerate
 my $HYPPROTS;                                   #  Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $OUTPUTFILE;                                 #  Path for the new
 my $USETRNASCANSE;                              #  T or F : use of tRNAscanSE in the annotation 
@@ -455,11 +465,12 @@ my $PEPLIBRARIES;                               #  The libraries, in input, by d
 my $INPUTPEPFILES;                              #  the input files
 my @PEPFILES;                                   #  the pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
 my $WITHMAP;                                    #  the allowed extension for the map. Png or svg
-my $SIZE;					#  The sensitivite of warning for the long protein, it's a pourcentage 
-my $STARTBEFORE;				#  The distance who is use in order to define the really start position before blast
-my $STARTAFTER;					#  The distance who is use in order to define the really start position after blast
-my $EXTCONFIGFILE;				#  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
-my $EXTSELECTPROG;				#  List of name for external programs.
+my $SIZE;                                       #  The sensitivite of warning for the long protein, it's a pourcentage 
+my $STARTBEFORE;                                #  The distance who is use in order to define the really start position before blast
+my $STARTAFTER;                                 #  The distance who is use in order to define the really start position after blast
+my $EXTCONFIGFILE;                              #  The path for configuration file, it's use for annotation of rnpB, rnl and rns;
+my $EXTSELECTPROG;                              #  List of name for external programs.
+my $ALL_INTRONS;                                #  Indicate if all introns detected by RNAweasel must be annotated
 # Specific for the annotation (parameters for flip, blastall and organization)
 my $BLASTOUTPUT       = "";                     #  The path for blast file results
 my $BLASTEVALUECUTOFF;                          #  Cutoff value for the blast
@@ -471,12 +482,13 @@ my $TRNACUTOFF;                                 #  The cutoff for the tRNAs anno
 my $MININTRONSIZE;                              #  opposite of MAXLENGTHFORGROUPINGORF. Minimum size for intron
 my $MINEXONSIZE;                                #  Minimum exon size for intron. In genewise.
 my $MATRIX;                                     #  The matrix used in genewise alignement
-my %CODE_GEN;			                #  Hashtable with genetic code
+my %CODE_GEN;                                   #  Hashtable with genetic code
 my $NBCONTIGS=0;                                #  The number of contigs
 
-my $RNAweasel_training  = "/share/supported/data/RNAmodels/tRNA.epn"; # training set for RNAweasel
-my $RNAweasel_parameter = "-1,19 -add 1 17 18 -add 11 12 14 -add 2 3 5 7 -logzero -5 -cutoff 2.9 8 20";	# parameter for RNAweasel
 my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --nosplicesignal T"; 
+
+# Two booleans used in order to know if annotation of introns has been made.
+my ($annotate_intron_typeI,$annotate_intron_typeII)  = (0,0);
 
 #############################
 # Environment Verifications #
@@ -575,7 +587,6 @@ else
     $options .=  "Any search in gene similarity for annotation\n";
 }
 
-
 if ($USETRNASCANSE == 0) 
 {
     $options .= "No usage of tRNAscanSE\n";
@@ -588,10 +599,8 @@ else
 print LOGFILE $options if $ISLOGFILE;           #Print options in the logfile
 print $options if $DEBUG;                       #Print the options on the screen 
 
-
 ##---------------CREATE THE TMPDIR---------------------------------------  
 mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
-
 
 #-----------------PEPFILES CREATION--------------------------------------
           #  Fill the variable @PEPFILES
@@ -657,10 +666,14 @@ my $numbercontigs = 0;                         # Number of contigs in the master
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
 $numbercontigs += scalar (@$contigs);
+my %Intron_are_already_annot = ();
 foreach my $contig ( @$contigs) 
 {
     my $annotations = $contig-> get_annotations();
     $numberannot += scalar (@$annotations);
+    foreach my $annot (@$annotations) {
+        $Intron_are_already_annot{$annot} = $annot if ($annot->type() eq "I");
+    }
 }
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
@@ -698,7 +711,7 @@ if ($SIMILARITYSEARCH)
 
         ## check the existenz ##
         if ((not -r  $PEPFILE) and $SIMILARITYSEARCH) 
-	{
+        {
             print "Unable to read $PEPFILE\n";
             next;
         }                          
@@ -722,8 +735,8 @@ if ($SIMILARITYSEARCH)
         $step += 1;
         &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
 
-     	#selection of protein
-     	print "$step) Select hypotetical protein for identification of protein with Exon/Intron (In order to run Exonerate)...\n";
+        # Selection of protein
+        print "$step) Select hypotetical protein for identification of protein with Exon/Intron (In order to run Exonerate)...\n";
         $step += 1; 
         &Select_protein;
 
@@ -737,7 +750,7 @@ if ($SIMILARITYSEARCH)
         $step += 1; 
         &FindExonsInHypProtArray ($pirmaster, $count);
 
-	# Organise the hypothetical proteins (find the real start)
+        # Organise the hypothetical proteins (find the real start)
         print "$step) Process ORFs => genes...\n"; 
         $step += 1; 
         &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
@@ -746,39 +759,36 @@ if ($SIMILARITYSEARCH)
         print "$step) Annotation in the masterfile...\n";
         $step += 1; 
         &AnnotateMfFromHYPPROTSArray ($pirmaster);
-	
-	# Annotate tRNA -> Use RNAweasel
-	#print "$step) Annotate of tRNA with RNAweasel...\n";
-	#$step += 1; 
-	#&Old_UseRNAweasel ($pirmaster);
-	
-	# Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
-	print "$step) Annotation with external programs...\n"; 
+
+        # Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
+        print "$step) Annotation with external programs...\n"; 
         $step += 1; 
-        &Annotate_Using_external_programs($pirmaster);
-	
-	# Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
+        &Annotate_Using_external_programs($pirmaster,$EXTSELECTPROG);
+
+        # Adjust intronic boundaries with rules for type I and type II 
+        print "$step) Adjust intronic boundaries...\n"; 
+        $step += 1; 
+        &Adjust_all_intronic_junctions($pirmaster,$contigs);
+
+        # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
         if ($ORFPROCESS) 
-	{
+        {
             print "$step) Process Empty ORFs...\n"; 
             $step += 1; 
             &AnnotateEmptyOrfs ($pirmaster);
         }
-	
-	# Process intronical ORF -> annotate intronicale ORF not detected by Blast
-	print "$step) Process intronic ORFs...\n"; 
+
+        # Process intronical ORF -> annotate intronicale ORF not detected by Blast
+        print "$step) Process intronic ORFs...\n"; 
         $step += 1; 
         &AnnotateIntronicOrfs ($pirmaster);
-  
+
         $count++;  # next pepfile
 
     }  #  End of each pepfile
-
 }
 
-
 #-------------PROGRAMME ENDING---------------
-
 
 print "----------------------------------\n",
       "       End of the Programme       \n",
@@ -834,6 +844,7 @@ sub GetOptions
     $STARTBEFORE       = $option->startbefore;
     $STARTAFTER        = $option->startafter;
     $SIZE              = $option->size;
+    $ALL_INTRONS       = $option->all_introns;
 
     my $gentable = Bio::Tools::CodonTable->new();
     if   (not $gentable->id($GENCODE)) 
@@ -851,7 +862,7 @@ sub GetOptions
       else 
       {
         print "\nThe path to your logfile \"" . ($option->logfile). "\" is not writable by you.\n";
-	print "No file logging will be performed\n";
+        print "No file logging will be performed\n";
         $ISLOGFILE       = 0;
         $LOGFILE         = undef;
       }
@@ -884,8 +895,8 @@ sub GetOptions
 
     if ($USETRNASCANSE) 
     {         
-    die "The current version of MFANNOT do not support any more tRNA-scan, it was replace by RNAweasel who is called automatically \n";			  	                                     # find the trna genes
-    #print "\nAnnotate with tRNAscanSE...\n";	       		     # by running trnascanSE
+    die "The current version of MFANNOT do not support any more tRNA-scan, it was replace by RNAweasel who is called automatically \n";
+    #print "\nAnnotate with tRNAscanSE...\n";                         # by running trnascanSE
     #&AddGeneFeatureUsingtRNAscanSE ($pirmaster, "trnascanSE");       # limited with a score for each case
     }    
 
@@ -941,17 +952,17 @@ sub CreatePepfileWithLibrary
     #concatenate all the file from the library
     foreach my $file (@files) 
     {
-	my $loc_file = "$library/$file";
-	open(PEPFILE,$loc_file) || die ("Can not open the pepfile");
-	while (<PEPFILE>) {
-	    if ($_ =~ /^>/){
+        my $loc_file = "$library/$file";
+        open(PEPFILE,$loc_file) || die ("Can not open the pepfile");
+        while (<PEPFILE>) {
+            if ($_ =~ /^>/){
                 if (!($_ =~ /\s*([\S]*)\s*;/)) {
-		die "The file $library"."$file haven't the good syntax\nThe line who haven't the good syntax is $_";
-		}
-	    }
-	}
+                die "The file $library"."$file haven't the good syntax\nThe line who haven't the good syntax is $_";
+                }
+            }
+        }
         system ("cat $library/$file >> $pepfile"); # Use the cat command to concatenate file in one
-	close(PEPFILE);
+        close(PEPFILE);
     }
     return $pepfile;
     exit 0;
@@ -984,32 +995,30 @@ sub CreateCodonTableWithGeneticId
     while ($i < scalar(@letter)) 
     {
         $j = 0;
-        while ($j < scalar(@letter)) 
-	{
+        while ($j < scalar(@letter)) {
             $z = 0;
-            while ($z < scalar(@letter)) 
-	    {
+            while ($z < scalar(@letter)) {
                 my $codon = $letter[$i].$letter[$j].$letter[$z];
                 my $aa    = $codontable->translate($codon);
-	         	$CODE_GEN{$codon} = $aa;
+                $CODE_GEN{$codon} = $aa;
                 $z++;
             }
             $j++;
         }
         $i++;
     }
-	
-	if ($DEBUG) {
+
+    if ($DEBUG) {
         # open the future file containing the codon table
         open (CODONTABLE, ">$codontablefile") or die "Impossible to open Codon Table file : $codontablefile\n"; 
         print CODONTABLE "! Codon table for genetic code $geneid\n";     # print a short header for description 
-    	foreach my $codon ( sort keys %CODE_GEN) {
-	    	my $aa = $CODE_GEN{$codon};
-	        print CODONTABLE "$codon $aa\n";
+        foreach my $codon ( sort keys %CODE_GEN) {
+            my $aa = $CODE_GEN{$codon};
+            print CODONTABLE "$codon $aa\n";
         }
         close (CODONTABLE) or die "Impossible to close Codon Table file : $codontablefile\n";
-	}
-	
+   }
+        
 }  
 
 sub FindExonsInHypProtArray 
@@ -1026,27 +1035,27 @@ sub FindExonsInHypProtArray
     {
         # HYPOTHETICAL PROTEIN FEATURE
         my $name    = $PROT_FOR_EXONERATE[$i]->[0];
-	$name = $1 if ($name =~ /^\/(\w+)/);
-	my $contigname = $PROT_FOR_EXONERATE[$i]->[1];
-	####################In order to have the contig sequence#################
+        $name = $1 if ($name =~ /^\/(\w+)/);
+        my $contigname = $PROT_FOR_EXONERATE[$i]->[1];
+        ####################In order to have the contig sequence#################
         my $contig  = $pirmaster->GetContigByName ($PROT_FOR_EXONERATE[$i]->[1]);
-	my $seq	    = ">sequence\n";
+        my $seq     = ">sequence\n";
         $seq        .= $contig->sequence;
         $seq        =~ s/\!//g;
-	####################In order to have the contig sequence#################
-	my $protein = $PROT_FOR_EXONERATE[$i]->[2];
-	my $strand  = $PROT_FOR_EXONERATE[$i]->[3];
-	
-	my $length = 0;
-	my @tab_prot = split(/\n/, $protein);
-	for (my $i = 0 ; $i <= $#tab_prot ; $i++)
-	{
-		if (!($tab_prot[$i] =~ /^>/)){
-		$length += length($tab_prot[$i]);
-		}
-	}
-	$length = $length - 1;
-	my $overlappe_authorized = ((5*$length)/100);
+        ####################In order to have the contig sequence#################
+        my $protein = $PROT_FOR_EXONERATE[$i]->[2];
+        my $strand  = $PROT_FOR_EXONERATE[$i]->[3];
+        
+        my $length = 0;
+        my @tab_prot = split(/\n/, $protein);
+        for (my $i = 0 ; $i <= $#tab_prot ; $i++)
+        {
+            if (!($tab_prot[$i] =~ /^>/)){
+                $length += length($tab_prot[$i]);
+            }
+        }
+        $length = $length - 1;
+        my $overlappe_authorized = ((5*$length)/100);
 
         # WRITE PROTEIN AND GENE IN FASTA FILES
         my $fileprot = "$TMPDIR/prot_for_exonerate$count"."_"."$flag";
@@ -1056,17 +1065,17 @@ sub FindExonsInHypProtArray
 
         # check if it exists
         if (-f $fileprot) 
-	{ # this file already exists
+        { # this file already exists
             unlink($fileprot) or die "Impossible to delete $fileprot\n";
         }
 
         if (-f $filegene) 
-	{ # this file already exists
+        { # this file already exists
             unlink($filegene) or die "Impossible to delete $filegene\n";
         }
 
         if (-f $exonerate_out) 
-	{ # this file already exists
+        { # this file already exists
             unlink($exonerate_out) or die "Impossible to delete $exonerate_out\n";
         }
 
@@ -1082,28 +1091,28 @@ sub FindExonsInHypProtArray
         close (FILEPROT) or die "Impossible to close $fileprot\n";
         close (FILEGENE) or die "Impossible to close $filegene\n";
 
-	my $cmd = "$EXONERATEPATH $Exonerate_parameter  --geneticcode $GENCODE $fileprot $filegene > $exonerate_out"; #$Exonerate_parameter $fileprot $filegene
-	print "\n$cmd\n" if $DEBUG;
+        my $cmd = "$EXONERATEPATH $Exonerate_parameter  --geneticcode $GENCODE $fileprot $filegene > $exonerate_out"; #$Exonerate_parameter $fileprot $filegene
+        print "\n$cmd\n" if $DEBUG;
 
-	my $resultat = system ("$cmd");
+        my $resultat = system ("$cmd");
 
-	my @tab = `cat "$TMPDIR/exonerate_$count"_"$flag"_"$name"`;			#@tab = the file result of exonerate
-	my $flobj = new PirObject::ExonerateOutput();
-	$flobj->FillFeaturesFromTextOutput(\@tab);
-	#$flobj->ObjectToFile("-");
+        my @tab = `cat "$TMPDIR/exonerate_$count"_"$flag"_"$name"`;                     #@tab = the file result of exonerate
+        my $flobj = new PirObject::ExonerateOutput();
+        $flobj->FillFeaturesFromTextOutput(\@tab);
+        #$flobj->ObjectToFile("-");
 
-	my $ExoReports 		= $flobj->report;				#One report contain information about one C4 section present in exonerate Output
+        my $ExoReports          = $flobj->report;                               #One report contain information about one C4 section present in exonerate Output
 
-	my @sorted_report  = sort { $a->get_query_start() <=> $b->get_query_start()
-			       ||   $a->get_query_stop()   <=> $b->get_query_stop()   } @$ExoReports;
+        my @sorted_report  = sort { $a->get_query_start() <=> $b->get_query_start()
+                               ||   $a->get_query_stop()   <=> $b->get_query_stop()   } @$ExoReports;
 
-	
+        
         my $FirstC4Report = shift(@sorted_report);
-        my @report_tab = ( [ $FirstC4Report ] );
+        my @grouped_reports = ( [ $FirstC4Report ] );
 
         while (@sorted_report) {
             my $NextC4Report     = shift(@sorted_report);
-            my $PreviousGroup    = $report_tab[-1];
+            my $PreviousGroup    = $grouped_reports[-1];
             my $PreviousC4Report = $PreviousGroup->[-1];
 
             my $NextStart    = $NextC4Report->get_query_start();
@@ -1112,14 +1121,29 @@ sub FindExonsInHypProtArray
             if ($NextStart > $PreviousStop || $PreviousStop-$NextStart < $overlappe_authorized) {
                 push(@$PreviousGroup,$NextC4Report);
             } else {
-                push(@report_tab, [ $NextC4Report ]); # A brand new group is created
+                push(@grouped_reports, [ $NextC4Report ]); # A brand new group is created
             }
         }
+        
+        my %group_len_covered = ();
+        foreach my $groupref (@grouped_reports) {
+           my $covered = 0;
+           foreach my $report (@$groupref) {
+               my $cover = abs($report->query_stop() - $report->query_start()) + 1;
+               $covered += $cover;
+           }
+           $group_len_covered{$groupref} = $covered;
+        }
+        
+        @grouped_reports = sort { $group_len_covered{$b} <=> $group_len_covered{$a}
+                                                         ||
+                                             scalar(@$a) <=> scalar(@$b)     
+                                } @grouped_reports;
 
-	foreach  my $reports (@report_tab) {
+	foreach my $group (@grouped_reports) {
 	my @exon_start_end	= ();						#tab with information about start and end of all exons present in Exonerte Output
 	my %strand;
-	foreach my $report (@$reports){
+	foreach my $report (@$group){
 	my $features = $report->dnafeatures;					#$features contains all information present in the part GFF DNA per lines
 	my $query_range			= $report->query_range;
 	my ($start_query,$end_query)	= ($query_range =~ m#(\d+)\s*->\s*(\d+)#);
@@ -1133,10 +1157,10 @@ sub FindExonsInHypProtArray
 	}
 
 	my $isMinus = (($strand{1} && !$strand{-1}) ? 0 : 1);
-	$strand = 1 if  !$isMinus;
-	$strand = -1 if $isMinus;
+	$strand     = 1  if  !$isMinus;
+	$strand     = -1 if $isMinus;
 	foreach my $lineobj (@$features) {
-            my $start 	= $lineobj->start;
+            my $start      	= $lineobj->start;
 	    $start 		= $lineobj->end   if $isMinus;
 	    my $end		= $lineobj->end;
 	    $end 		= $lineobj->start if $isMinus;
@@ -1341,7 +1365,7 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
         next EMPTYORF if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) && $strand_orf != 1;  #  Size Verification 
 
         # OTHER CHECKING, SUCH AS OVERLAPPING..........
-#	my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+        # my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
 	
 	my $isMinus = ($strand_orf == 1 ? 0 : 1);
 	my $posOffset = ($isMinus ? -3 : 3);	
@@ -1349,8 +1373,8 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
 	my $annotIsOK_gene_without_intron = 0;
 	
 	  for (;;$start_orf += $posOffset) {
-            last if $start_orf >= $end_orf && !$isMinus;
-	    last if $end_orf >= $start_orf && $isMinus;
+            last if $start_orf >= $end_orf   && !$isMinus;
+	    last if $end_orf   >= $start_orf && $isMinus;
 	    last if  (($end_orf - $start_orf + 1 ) < $minimumlengthorf) && !$isMinus;
 	    last if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) &&  $isMinus;  #  Size Verification 
 	    my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
@@ -1379,7 +1403,7 @@ sub AnnotateEmptyOrfs {    # This function takes the empty array of ORF and anno
 			    my $feature_endpos		= $features_who_overlap->[2]->endpos;
 			    my $feature_endline		= $features_who_overlap->[2]->endline;
 			    $number_of_annot++;
-		        for (;;$start_orf += $posOffset) {
+			    for (;;$start_orf += $posOffset) {
 			    last if $start_orf >= $end_orf && !$isMinus;
 			    last if $end_orf >= $start_orf && $isMinus;
 			    
@@ -1898,13 +1922,12 @@ sub adjust_code {
 
         # Look if all codons matching $regexp have the same aa
         $value = "";
-	$good = 1;
+		$good = 1;
         foreach( keys %$code_ref ){
-	  next unless /$reg_exp/;
-	  $value = $code_ref->{$_}, next unless $value;
-	  $good = 0, last if $value ne $code_ref->{$_};
-	}
-
+			next unless /$reg_exp/;
+			$value = $code_ref->{$_}, next unless $value;
+			$good = 0, last if $value ne $code_ref->{$_};
+		}
         $code_ref->{"$x$y$z"}  = $good ? $value : "X";
       }
     }
@@ -2096,9 +2119,9 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
     foreach my $hypprot (@$HYPPROTS) {
         my $oldstartpos = $hypprot->start; 					# Get the old start position
         my $newstartpos = $hypprot->start;
-	my $warning 	= $hypprot->warning;					#Get Warning
-	my $new_warning	= $hypprot->warning;
-	my $strand      = $hypprot->strand;
+        my $warning 	= $hypprot->warning;					#Get Warning
+        my $new_warning	= $hypprot->warning;
+        my $strand      = $hypprot->strand;
         my $found       = 0;
         my $contig      = $pirmaster->GetContigByName ($hypprot->contigname); 	# Get the contig
         my $seq         = $contig->sequence; 				      	# Get sequence
@@ -2108,173 +2131,142 @@ sub OrganiseHYPPROTSArray { # This function is supposing to find the real start 
 
 	##########initialization############
       	my %hash;
-	my @tab;
-	my @tab_ATG_pos;
-	my @tab_ATG_neg;
-	my @tab_ATG_neutre;
-	my @tab_GTG_pos;
-	my @tab_GTG_neg;
-	my @tab_GTG_neutre;
+		my @tab;
+		my @tab_ATG_pos;
+		my @tab_ATG_neg;
+		my @tab_ATG_neutre;
+		my @tab_GTG_pos;
+		my @tab_GTG_neg;
+		my @tab_GTG_neutre;
 
-	my $currentpos  = $hypprot->start;					
-	my $isMinus = ($hypprot->strand == 1 ? 0 : 1);
-	my $posOffset = ($isMinus ? -3 : 3);
-	my @i_start;
+		my $currentpos  = $hypprot->start;					
+		my $isMinus = ($hypprot->strand == 1 ? 0 : 1);
+		my $posOffset = ($isMinus ? -3 : 3);
+		my @i_start;
 
 
-	for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += $posOffset)
-		{
-		next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) < 0)) || ($isMinus && ($currentpos+($STARTBEFORE*3)-3 > length($seq)-3 )))  ;
-		next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) > length($seq)-3)) || ($isMinus && (($currentpos+($STARTBEFORE*3)-3) < 0 ) ) ) ;
-		$hash{$i}= uc (substr($seq, $currentpos-1-($STARTBEFORE*3), 3));
-		my $pos = $currentpos-1-($STARTBEFORE*3);
-		#print "i = $i pos = $pos start = $oldstartpos\n";
-		if ($isMinus) {							#Reverse complement case
+		for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += $posOffset) {
+			next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) < 0)) || ($isMinus && ($currentpos+($STARTBEFORE*3)-3 > length($seq)-3 )))  ;
+			next if ((!$isMinus && ($currentpos-1-($STARTBEFORE*3) > length($seq)-3)) || ($isMinus && (($currentpos+($STARTBEFORE*3)-3) < 0 ) ) ) ;
+			$hash{$i}= uc (substr($seq, $currentpos-1-($STARTBEFORE*3), 3));
+			my $pos = $currentpos-1-($STARTBEFORE*3);
+			if ($isMinus) {							#Reverse complement case
 	            my $codon = uc (substr($seq, $currentpos+($STARTBEFORE*3)-3, 3));
-		    #print "codon = $codon\n";
-		    $pos = $currentpos+($STARTBEFORE*3)-3;
-		    $codon =~ tr/ACGT/TGCA/;
-		    $codon = reverse $codon;
-		    $hash{$i} = $codon;
-	        }
-		#print "hash = $hash{$i}\n";
-		if (defined($CODE_GEN{$hash{$i}})  && $CODE_GEN{$hash{$i}} eq "*"){ push(@tab, $i);} 
-		push(@i_start, $i);
-		}
-
-        my $compt_i = $i_start[0];
-	my $compt_f = $i_start[-1];
-	$compt_i = $tab[-1]+1 if @tab;
-
-	for (my $i = $compt_i ; $i <= $compt_f; $i++)
-	{
-		#print "i = $i hash = $hash{$i}\n";
-		if ($hash{$i} eq "ATG")
-		{
-			if ($i > 0)
-			{
-				push(@tab_ATG_pos, $i);
+				$pos = $currentpos+($STARTBEFORE*3)-3;
+				$codon =~ tr/ACGT/TGCA/;
+				$codon = reverse $codon;
+				$hash{$i} = $codon;
+	       	 }
+			 if (defined($CODE_GEN{$hash{$i}})  && $CODE_GEN{$hash{$i}} eq "*"){ push(@tab, $i);} 
+			 push(@i_start, $i);
 			}
-			elsif ($i < 0) 
-			{
-				push(@tab_ATG_neg, $i);
+
+			my $compt_i = $i_start[0];
+			my $compt_f = $i_start[-1];
+			$compt_i = $tab[-1]+1 if @tab;
+
+			for (my $i = $compt_i ; $i <= $compt_f; $i++) {
+				if ($hash{$i} eq "ATG") {
+					if ($i > 0) {
+						push(@tab_ATG_pos, $i);
+					}
+					elsif ($i < 0) {
+						push(@tab_ATG_neg, $i);
+					}
+					elsif ($i ==0) {
+						push(@tab_ATG_neutre, $i);
+					}
+				}
+
+				elsif ($hash{$i} eq "GTG") {
+					if ($i > 0)	{
+						push(@tab_GTG_pos, $i);
+					}
+					elsif ($i < 0) {
+						push(@tab_GTG_neg, $i);
+					}
+					elsif ($i ==0) {
+						push(@tab_GTG_neutre, $i);
+					}
+				}		
 			}
-			elsif ($i ==0)
-			{
-				push(@tab_ATG_neutre, $i);
+
+			if ( ! (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)) {			#If not ATG look for GTG
+				@tab_ATG_pos = @tab_GTG_pos;
+				@tab_ATG_neg = @tab_GTG_neg;
+				@tab_ATG_neutre = @tab_GTG_neutre;
 			}
-		}
 
-		elsif ($hash{$i} eq "GTG")
-		{
-			if ($i > 0)
-			{
-				push(@tab_GTG_pos, $i);
+			if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg) { 	
+				if (@tab_ATG_neutre) {
+					$newstartpos = $oldstartpos;
+				}
+				elsif ( @tab_ATG_pos  && ! @tab_ATG_neg ) { #start en aval si brin +
+					$newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
+					$newstartpos = $oldstartpos - (3*$tab_ATG_pos[0])  if $isMinus;
+				}
+				elsif ( ! @tab_ATG_pos && @tab_ATG_neg ) { #start en amont si brin -
+					$newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
+					$newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
+				}
+				elsif ( @tab_ATG_pos  && @tab_ATG_neg ) {
+					if (abs($tab_ATG_neg[-1]/3) > $tab_ATG_pos[0]) {
+						$newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
+						$newstartpos = $oldstartpos - (3*$tab_ATG_pos[0]) if $isMinus;
+					} 
+					else {
+						$newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
+						$newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
+					}
+				}
 			}
-			elsif ($i < 0) 
-			{
-				push(@tab_GTG_neg, $i);
+
+			else { $newstartpos = $oldstartpos; $new_warning .= "See for start codon"}
+
+			$hypprot->set_start ($newstartpos);  # set the new start to the protein
+			$hypprot->set_warning ($new_warning);
+			my $name = $hypprot->name; 
+			my $exons = $hypprot->exons;
+
+			if (@$exons){
+				my $first_exon = $exons->[0];
+				my $end_exon   = $exons->[-1];
+				my $end = $end_exon->end;
+
+				if ($strand == 1){
+					for (my $i = -3;; $i += 3) {
+						my $length = length($seq);
+						last if $end+$i > length($seq)-3;
+						my $tri_nt      = uc (substr($seq, $end + $i, 3));
+						my $codon	= $CODE_GEN{$tri_nt};
+						next if $codon ne "*";
+						my $new_end	= $end + $i + 3;
+						$end_exon->end($new_end);
+						$hypprot->end($new_end);  # set the new end to the protein
+						last;	
+					}
+				}
+
+				elsif ($strand != 1){
+					for (my $i = 0;; $i -= 3) {
+						last if $end+$i-1 < 0;
+						my $tri_nt      = uc (substr($seq, $end + $i - 1 , 3));
+						$tri_nt    =~ tr/ATUGCatugc/TAACGTAACG/;
+						$tri_nt    = reverse ($tri_nt);#Reverse and complementary
+						my $codon	= $CODE_GEN{$tri_nt};
+						next if $codon ne "*";
+						my $new_end	= $end + $i;
+						$end_exon->end($new_end);
+						$hypprot->end($new_end);  # set the new end to the protein
+						last;	
+					}	
+				}
+				$first_exon->start($newstartpos);
 			}
-			elsif ($i ==0)
-			{
-				push(@tab_GTG_neutre, $i);
-			}
-		}		
 	}
-
-
-if ( ! (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)) {			#If not ATG look for GTG
-	@tab_ATG_pos = @tab_GTG_pos;
-	@tab_ATG_neg = @tab_GTG_neg;
-	@tab_ATG_neutre = @tab_GTG_neutre;
-}
-
-if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)
-{ 	
-	if (@tab_ATG_neutre)
-	{
-		$newstartpos = $oldstartpos;
-	}
-	elsif ( @tab_ATG_pos  && ! @tab_ATG_neg )  #start en aval si brin +
-	{
-		$newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-		$newstartpos = $oldstartpos - (3*$tab_ATG_pos[0])  if $isMinus;
-	}
-	elsif ( ! @tab_ATG_pos && @tab_ATG_neg )  #start en amont si brin -
-	{
-		$newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-		$newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
-	}
-	elsif ( @tab_ATG_pos  && @tab_ATG_neg ){
-		if (abs($tab_ATG_neg[-1]/3) > $tab_ATG_pos[0])
-		{
-			$newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-			$newstartpos = $oldstartpos - (3*$tab_ATG_pos[0]) if $isMinus;
-		} 
-		else
-		{
-		$newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-		$newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
-		}
-	}
-}
-
-else { $newstartpos = $oldstartpos; $new_warning .= "See for start codon"}
-
-        $hypprot->set_start ($newstartpos);  # set the new start to the protein
-	$hypprot->set_warning ($new_warning);
-	my $name = $hypprot->name; 
-	my $exons = $hypprot->exons;
-
-
-	if (@$exons){
-        my $first_exon = $exons->[0];
-	my $end_exon   = $exons->[-1];
-	my $end = $end_exon->end;
-
-	if ($strand == 1){
-		for (my $i = -3;; $i += 3)
-		{
-			my $length = length($seq);
-			#print length($seq)."\n";
-			last if $end+$i > length($seq)-3;
-			my $tri_nt      = uc (substr($seq, $end + $i, 3));
-			my $codon	= $CODE_GEN{$tri_nt};
-			next if $codon ne "*";
-			my $new_end	= $end + $i + 3;
-			$end_exon->end($new_end);
-			$hypprot->end($new_end);  # set the new end to the protein
-			last;	
-		}
-	}
-
-	elsif ($strand != 1){
-		for (my $i = 0;; $i -= 3)
-		{
-			#print "name=$name i=$i end=$end\n";
-			last if $end+$i-1 < 0;
-			my $tri_nt      = uc (substr($seq, $end + $i - 1 , 3));
-			#print "tri_nt_before=$tri_nt";
-			$tri_nt    =~ tr/ATUGCatugc/TAACGTAACG/;
-			$tri_nt    = reverse ($tri_nt);#Reverse and complementary
-			#print "tri_nt_after=$tri_nt\n";
-			my $codon	= $CODE_GEN{$tri_nt};
-			#print "codon=$codon";
-			next if $codon ne "*";
-			my $new_end	= $end + $i;
-			#print "new_end=$new_end\n";
-			$end_exon->end($new_end);
-			$hypprot->end($new_end);  # set the new end to the protein
-			last;	
-		}	
-	}
-	$first_exon->start($newstartpos);
-	}
-}
 } # End function
 
 sub ValueIsIn {  # check if a value is in an array
-
     my $array = shift;
     my $value = shift;
 
@@ -2283,7 +2275,6 @@ sub ValueIsIn {  # check if a value is in an array
             return 1;
         }
     }
-
     return -1;
 }
 
@@ -2321,7 +2312,8 @@ sub RunFlip { # This function run flip with the masterfile
         # relative
         $tmpMasterfile = "$cwd/$MASTERFILE";
     }
-# Need to remove CR from masterfile, so let's make a local copy
+
+    # Need to remove CR from masterfile, so let's make a local copy
     print "Making local copy of masterfile with no CRs.\n" if $DEBUG;
     my $ifh = new IO::File "<$tmpMasterfile"
         or die "Cannot read from masterfile '$tmpMasterfile': $!\n";
@@ -2718,7 +2710,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                        				  #    FLIPBLASTPROTS array (array of ORF and hsp)
 
     #    This is mainly the algorithm given by Franz
-    foreach my $flipblastprot (@$FLIPBLASTPROTS) {        #    For each fliup blast protein
+    foreach my $flipblastprot (@$FLIPBLASTPROTS) {        #    For each flip blast protein
         my $name       = $flipblastprot->name;
         my $contigname = $flipblastprot->contigname;
 
@@ -2841,8 +2833,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                         next;
                     }
                     else {
-                                            #    ++    
-                        push (@$HYPPROTS,  $newhypprot);            #    ++
+                        push (@$HYPPROTS,  $newhypprot);
                         #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
                         $newhypprot = new PirObject::HypProt (
                                                                name       => $name,
@@ -2897,8 +2888,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {    #    This function fill the HY
                         next;
                     }
                     else {
-                                                #    ++    
-                        push (@$HYPPROTS,  $newhypprot);            #    ++
+                        push (@$HYPPROTS,  $newhypprot);
                         #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
                         $newhypprot = new PirObject::HypProt (
                                                                name       => $name,
@@ -2934,14 +2924,13 @@ sub GetFlipBlastProtByNAmeAndContigName {
         }
     }
     return undef; # in the case where any object has been found
-
 }
 
 sub Annotate_Using_external_programs {
-    my $pirmaster   = shift;
-    my $conf_file   = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
-    my $genecomsets = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommandSet>
-   
+    my $pirmaster       = shift;
+    my $conf_file       = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
+    my $genecomsets     = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommandSet>
+    my $ext_select_prog = shift;
     # Here we build a list of external programs to run; by default all
     # of them are executed, but this can be modified by the option --ext_select, which
     # we parse here.
@@ -2952,7 +2941,8 @@ sub Annotate_Using_external_programs {
     my %progs_to_run  = %allprogs; # copy, which will be adjusted
    
     # What do we have in --ext_select? Parse it
-    my @ext_selected  = split(/\s*,\s*/, $EXTSELECTPROG);
+	$ext_select_prog="" if $ext_select_prog eq "all";
+    my @ext_selected  = split(/\s*,\s*/, $ext_select_prog);
 
     my @no_ext = grep(/^no/ && $_ ne "none",@ext_selected);
     if (@no_ext) { # there are some 'no', which means ( ALL minus the 'no's )
@@ -2979,12 +2969,13 @@ sub Annotate_Using_external_programs {
         foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
             next if ! $progs_to_run{lc $genename};
             my $commandobject = $genecomsets->{$comsetnames};
-            my $annotpaircollection = &ExecuteExternalProgram($commandobject,$genename);
-            &AnnotateFromExternalAPC($pirmaster,$genename,$annotpaircollection);
+	    my $annotpaircollection = &ExecuteExternalProgram($commandobject,$genename);
+	    &AnnotateFromExternalAPC($pirmaster,$genename,$annotpaircollection);
+	    $annotate_intron_typeI  = 1 if lc($genename) eq lc("IntronI");
+	    $annotate_intron_typeII = 1 if lc($genename) eq lc("IntronII"); 
         } # foreach genename1, genename2, ...
     } # foreach "genename1,genename2"
 }
-
 
 sub ExecuteExternalProgram {
     my $commandobject             = shift;
@@ -3022,18 +3013,18 @@ sub ExecuteExternalProgram {
         my @annotpaircollections = PirObject->FileHandleToObject($infh);
         $infh->close();
 
-    \ @annotpaircollections;
+    \   @annotpaircollections;
 }
 
 sub AnnotateFromExternalAPC {
     my $pirmaster           = shift;
     my $genename            = shift;
-    my $annotpaircollection = shift; # ref to array of APC
-
+    my $annotpaircollections = shift; # ref to array of APC
+    
         # Process each AnnotPairCollection
-        foreach my $annotcollection (@$annotpaircollection) {
-            my $header           = $annotcollection->get_contigname();
-            my ($contigname)   = ($header =~ m#^>?\s*(\S+)#)
+        foreach my $annotcollection (@$annotpaircollections) {
+            my $header       = $annotcollection->get_contigname();
+            my ($contigname) = ($header =~ m#^>?\s*(\S+)#)
                 or die "Can't parse header line '$header'\n";
             # ANNOTATE THE RESULTS, using the annotpairlist field of
             # your annotcollection (an AnnotPairCollection object).
@@ -3052,9 +3043,10 @@ sub AnnotateFromExternalAPC {
                 my $direction  = $annot->get_direction()  || $arrow;
                 my $start_line = $annot->get_startline();
                    $start_line = "; G-$genename $arrow start" if !defined($start_line);
+
                 my $end_line   = $annot->get_endline();  # can be undef
                    $end_line   = "; G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
-                my $gene = new PirObject::AnnotPair(
+                my $annot = new PirObject::AnnotPair(
                                   type      => $type,
                                   genename  => $a_genename,
                                   startpos  => $startpos,
@@ -3065,9 +3057,654 @@ sub AnnotateFromExternalAPC {
                                   startlinenumber => $annot->get_startlinenumber(),  # optional; usually undef
                                   endlinenumber   => $annot->get_endlinenumber(),  # optional; usually undef
                 );
-                &AddAnnotToPirMaster($pirmaster,$contigname,$gene);
+                my $add_external_annot = 1;
+                if ($genename eq "IntronII" || $genename eq "IntronI") {
+                    $add_external_annot = &AdjustIntronicAnnot_ForInitialAnnot($pirmaster,$contigname,$annot);
+                }
+                &AddAnnotToPirMaster($pirmaster,$contigname,$annot) if $add_external_annot == 1 ;
             } # foreach annotpair
         } # foreach annotpaircollection (one per contig)
+}
+
+sub AdjustIntronicAnnot_ForInitialAnnot {
+    my $pirmaster         = shift;
+    my $contigname        = shift;
+    my $annot             = shift; # Intron annot as recreated from external program output
+    
+    my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+    my $a_start           = $annot->startpos() || die "Start position is not defined in AnnotPair :\n ".$annot->ObjectToXML()."\n";
+    my $a_end             = $annot->endpos()   || die "End position is not defined in AnnotPair :\n ".$annot->ObjectToXML()."\n";
+    my $annot_who_overlap = &WhatOverlapsThis($a_start,$a_end,$contig);
+    
+    foreach my $info_who_overlap (@$annot_who_overlap){
+        FEATURE: foreach my $features_who_overlap (@$info_who_overlap ){
+            my $features_min    = $features_who_overlap->[0];
+            my $features_max    = $features_who_overlap->[1];
+            my $feature         = $features_who_overlap->[2];
+            
+            next if $feature->type ne 'I';
+            return 0 if defined $Intron_are_already_annot{$feature};
+            next if $features_min >  $a_start || $a_start > $features_max ||
+                    $features_min >  $a_end   || $a_end   > $features_max;
+
+            my $a_startline = $annot->startline();
+            my $type      = $1    if $a_startline =~ m#;;.*type\s*:\s*(.+)#;
+            die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
+
+            my $intron_type  = $feature->introntype() || "";
+            
+            $intron_type .= "," if $intron_type;
+            $intron_type .= $type;    
+            $feature->set_introntype($intron_type);
+                
+            my $feature_startline = $feature->startline();
+            my $feature_endline   = $feature->endline();
+            
+            $feature_startline =~ s/\s*\/\s*group\s*=\s*\S+//i;
+            $feature_endline   =~ s/\s*\/\s*group\s*=\s*\S+//i;
+            $feature_startline .= " /group=$intron_type";
+            $feature_endline   .= " /group=$intron_type";
+            $feature->set_startline($feature_startline);
+            $feature->set_endline($feature_endline);
+            return 0 if $ALL_INTRONS == 0;
+            return 1 if $ALL_INTRONS == 1;
+        }
+    }
+    return 1;
+}
+
+sub Adjust_all_intronic_junctions {
+    my $pirmaster   = shift;
+    my $contigs     = $pirmaster->get_contigs();
+    
+    my %adjustement = (   # this used to be a more complex table... 
+        -6 => [-6],
+        -5 => [-5],
+        -4 => [-4],
+        -3 => [-3],
+        -2 => [-2],
+        -1 => [-1],
+         0 => [0],
+         1 => [1],
+         2 => [2],
+         3 => [3],
+         4 => [4],
+         5 => [5],
+         6 => [6],
+    );
+
+    my @introns_info = ();
+   
+    foreach my $contig ( @$contigs) {
+        my $annotations = $contig-> get_annotations();
+        my $contig_name = $contig-> get_name();
+
+        foreach my $annot (@$annotations){
+            my $a_type = $annot->type();
+            next if $a_type ne "I";
+            next if defined $Intron_are_already_annot{$annot};
+            push (@introns_info,[$contig,$annot]);
+        }
+    }
+
+    return if !@introns_info;
+
+    # Research intron type II 
+    if ($annotate_intron_typeII  == 0) {
+        my %new_contig_for_intronII = ();
+        my $add_to_mf_for_intronII  = "";
+        foreach my $intron (@introns_info) {
+            my $contig = $intron->[0];
+            my $annot  = $intron->[1];
+            
+            next if defined($annot->introntype());
+            
+            my $contig_name = $contig-> get_name();
+            my $seq         = uc($contig->sequence());
+            $seq            =~ s/!//g;
+            
+            my $a_start     = $annot->startpos()   || next;
+            my $a_end       = $annot->endpos()     || next;
+            my $a_strand    = $annot->direction()  || next;
+            my $isMinus  = ($a_strand eq "==>" ? 0 : 1 );
+            ($a_start,$a_end) = ($a_end,$a_start) if $isMinus;
+            my $a_startline = $annot->startline()  || next;
+            my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
+            
+            my $intron_seq    = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
+            my $signature  = "$contig_name,$name_of_gene,$a_start,$a_end,$a_strand";
+            $new_contig_for_intronII{$count} = $signature;
+            $add_to_mf_for_intronII .= ">A$count\n$intron_seq\n\n";
+            $count++;
+        }
+        &Research_for_intron($pirmaster,$add_to_mf_for_intronII,\%new_contig_for_intronII,"IntronII") if $add_to_mf_for_intronII ne "";
+    }
+    
+    #Adjust intron type II
+    foreach my $intron (@introns_info) {
+        my $contig = $intron->[0];
+        my $annot  = $intron->[1];
+        
+        my $a_introntype = $annot->introntype() || "";
+        next if ($a_introntype ne "II");
+        &Adjust_TypeII($contig,$annot,\%adjustement);
+        $intron->[1] = undef; # This intron is done
+    }
+    
+    @introns_info = grep( defined($_->[1]) , @introns_info);
+    return if !@introns_info;
+    
+    # Add splicescore for other intron (maybe type I)
+    foreach my $intron (@introns_info) {
+        my $contig = $intron->[0];
+        my $annot  = $intron->[1];
+        
+        my $a_introntype = $annot->introntype() || "";
+        my $adjust_info = &Add_splicescore($contig,$annot,\%adjustement);
+        push(@$intron, $adjust_info);
+    }
+    
+    # Adjust intron if splicescore <= 20
+    foreach my $intron (@introns_info) {
+        my $contig = $intron->[0];
+        my $annot  = $intron->[1];
+        my $adjust_info = $intron->[2];
+        my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus) = @$adjust_info;
+        
+        my $a_splicescore = $annot->splicescore();
+        next if $a_splicescore <= 20;
+        &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus);
+        $intron->[1] = undef; # This intron is done
+    }
+    
+    @introns_info = grep( defined($_->[1]) , @introns_info);
+    return if !@introns_info;
+    
+    # Research intron type I
+    if ($annotate_intron_typeI  == 0) {
+        my %new_contig_for_intronI = ();
+        my $add_to_mf_for_intronI  = "";
+        foreach my $intron (@introns_info) {
+            my $contig = $intron->[0];
+            my $annot  = $intron->[1];
+            
+            next if defined($annot->introntype());
+            
+            my $contig_name = $contig-> get_name();
+            my $seq         = uc($contig->sequence());
+            $seq            =~ s/!//g;
+            
+            my $a_start     = $annot->startpos()   || next;
+            my $a_end       = $annot->endpos()     || next;
+            my $a_strand    = $annot->direction()  || next;
+            my $isMinus  = ($a_strand eq "==>" ? 0 : 1 );
+            ($a_start,$a_end) = ($a_end,$a_start) if $isMinus;
+            my $a_startline = $annot->startline()  || next;
+            my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
+            
+            my $intron_seq    = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
+            my $signature  = "$contig_name,$name_of_gene,$a_start,$a_end,$a_strand";
+            $new_contig_for_intronI{$count} = $signature;
+            $add_to_mf_for_intronI .= ">A$count\n$intron_seq\n\n";
+            $count++;
+        }
+        &Research_for_intron($pirmaster,$add_to_mf_for_intronI,\%new_contig_for_intronI,"IntronI") if $add_to_mf_for_intronI ne "";
+    }
+    
+    # Add comment if adjustement failed.
+    foreach my $intron (@introns_info) {
+        my $contig = $intron->[0];
+        my $annot  = $intron->[1];
+        my $adjust_info = $intron->[2];
+        my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus) = @$adjust_info;
+
+        my $a_splicescore = $annot->splicescore();
+        my $a_introntype = $annot->introntype() || "";
+        my @intron_type = split(/,/, $a_introntype);
+        my $nb_type  = @intron_type;
+        if ($nb_type == 0) {
+            &AddCommentToAnnotField($annot,"startline",";; Cannot adjust boundaries, no intron type identified");
+            &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries, no intron type identified");
+            }
+        elsif ($nb_type == 1 && $a_splicescore < 15) {
+            &AddCommentToAnnotField($annot,"startline",";; Cannot adjust boundaries");
+            &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries");
+            }
+        elsif ($nb_type > 1 ) {
+            &AddCommentToAnnotField($annot,"startline",";; Cannot adjust boundaries, more than two type of intron identified");
+            &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries, more than two type of intron identified");
+            }
+        else {
+            &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus);
+        }
+    }
+}
+
+sub Add_splicescore {
+    my $contig = shift;
+    my $annot  = shift;
+    my $adjustement = shift;
+    
+    my $contig_name = $contig-> get_name();
+    my $seq         = uc($contig->sequence());
+           $seq         =~ s/!//g;
+    my $reverse_seq = $seq;
+       $reverse_seq =~ tr/ACGT/TGCA/;
+       $reverse_seq = reverse $reverse_seq;
+    
+    my $a_start           = $annot->startpos()   || next;
+    my $a_end             = $annot->endpos()     || next;
+    my $a_startline       = $annot->startline()  || next;
+    my $a_endline         = $annot->endline()    || next;
+    my $a_strand          = $annot->direction()  || next;
+    my $isMinus           = ($a_strand eq "==>" ? 0 : 1 );
+    my $use_seq           = ($isMinus ? "$reverse_seq" : "$seq");
+    my ($name_intron , $num_intron)  = ($1,$2) if  $a_startline =~ m#;\s+(G-.+)-I(\d+).+#;
+    my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
+    my ($start_pos,$end_pos) = ($isMinus ? ((length($seq) + 1 - $a_start),(length($seq) + 1 - $a_end)) : ($a_start,$a_end));
+    
+    my $phase = &WhichPhase($annot, $num_intron, $contig);    
+    my $annot_who_overlap = &WhatOverlapsThis($a_start,$a_end,$contig);
+    
+    # View for previous and next exons
+    my $previous_exon_name  = $name_intron."-E".$num_intron;
+    my $next_exon_name      = $name_intron."-E".($num_intron+1);
+    my ($previous_exon_feat,$next_exon_feat) = &Previous_and_next_exons($previous_exon_name,$next_exon_name,$annot_who_overlap);
+    last if (!$previous_exon_feat || !$next_exon_feat);
+    
+    # Length of previous exon
+    my $previous_exon_length = &Length_annot($previous_exon_feat);
+    
+    # Length of next exon
+    my $next_exon_length = &Length_annot($next_exon_feat);
+    
+    my @tab_scores = ();
+    foreach my $adjust_start_pos (sort { $a <=> $b } keys %$adjustement) {
+        my $tab = $adjustement->{$adjust_start_pos};
+        foreach my $adjust_end_pos (@$tab){
+            my $key = $adjust_start_pos.','.$adjust_end_pos;
+            my $score_nt = 0;
+            my $scores   = undef;
+            
+            next if (($previous_exon_length + $adjust_start_pos) <= 5);
+            next if (($next_exon_length - $adjust_end_pos) <= 5);
+            
+            my $start_char_minus1 = substr($use_seq,$start_pos + $adjust_start_pos -2,1);  #each nt between -6 and 6 of feature_min
+            my $end_char_minus1   = substr($use_seq,$end_pos + $adjust_end_pos -1,1);
+            my $end_char_minus2   = substr($use_seq,$end_pos + $adjust_end_pos -2,1);
+            $score_nt += 10 if $start_char_minus1 eq 'T';
+            $score_nt += 15 if $end_char_minus1   eq 'G';
+            $score_nt += 5  if $end_char_minus2   eq 'T';
+            #$scores is a ref to quintuplet ($score_nt,$score_aa,abs($adjust_start),$adjust_start,$adjust_end) or undef if adjustment is invalid
+            $scores = &CheckForCorrespondance($phase, $start_pos, $end_pos, $use_seq, $key,$score_nt,$annot);
+            push (@tab_scores, $scores ) if defined $scores; 
+        }
+    }
+    
+    @tab_scores = sort { ($b->[0] - $b->[2]) <=> ($a->[0] - $a->[2]) 
+                                || $b->[1] <=> $a->[1]
+                      || $a->[2] <=> $b->[2]
+                       || $a->[3] <=> $b->[3]} @tab_scores;
+
+    if ($tab_scores[0]->[0] > 20 && $annotate_intron_typeI  == 0){
+        $annot->set_introntype("sigI");
+    }
+    $annot->set_splicescore($tab_scores[0]->[0]);
+    return [\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus];
+}
+
+sub Adjust_TypeII {
+    my $contig = shift;
+    my $annot  = shift;
+    my $adjustement = shift;
+    
+    my $contig_name = $contig-> get_name();
+    my $seq         = uc($contig->sequence());
+       $seq         =~ s/!//g;
+    my $reverse_seq = $seq;
+       $reverse_seq =~ tr/ACGT/TGCA/;
+       $reverse_seq = reverse $reverse_seq;
+    
+    my $a_start           = $annot->startpos()   || next;
+    my $a_end             = $annot->endpos()     || next;
+    my $a_startline       = $annot->startline()  || next;
+    my $a_endline         = $annot->endline()    || next;
+    my $a_strand          = $annot->direction()  || next;
+    my $isMinus           = ($a_strand eq "==>" ? 0 : 1 );
+    my $use_seq           = ($isMinus ? "$reverse_seq" : "$seq");
+    my ($name_intron , $num_intron)  = ($1,$2) if  $a_startline =~ m#;\s+(G-.+)-I(\d+).+#;
+    my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
+    my ($start_pos,$end_pos) = ($isMinus ? ((length($seq) + 1 - $a_start),(length($seq) + 1 - $a_end)) : ($a_start,$a_end));
+    
+    my $phase = &WhichPhase($annot, $num_intron, $contig);    
+    my $annot_who_overlap = &WhatOverlapsThis($a_start,$a_end,$contig);
+    
+    # View for previous and next exons
+    my $previous_exon_name  = $name_intron."-E".$num_intron;
+    my $next_exon_name      = $name_intron."-E".($num_intron+1);
+    my ($previous_exon_feat,$next_exon_feat) = &Previous_and_next_exons($previous_exon_name,$next_exon_name,$annot_who_overlap);
+    last if (!$previous_exon_feat || !$next_exon_feat);
+    
+    # Length of previous exon
+    my $previous_exon_length = &Length_annot($previous_exon_feat);
+    
+    # Length of next exon
+    my $next_exon_length = &Length_annot($next_exon_feat);
+
+    my @tab_scores = ();
+    foreach my $adjust_start_pos (sort { $a <=> $b } keys %$adjustement) {
+        my $tab = $adjustement->{$adjust_start_pos};
+        foreach my $adjust_end_pos (@$tab){
+            my $key = $adjust_start_pos.','.$adjust_end_pos;
+            my $score_nt = 0;
+            my $scores   = undef;
+            
+            next if (($previous_exon_length + $adjust_start_pos) <= 5);
+            next if (($next_exon_length - $adjust_end_pos) <= 5);
+            
+            my $start_char_plus1  = substr($use_seq,$start_pos + $adjust_start_pos - 1,1);  #each nt between -6 and 6 of feature_min
+            my $start_char_plus2  = substr($use_seq,$start_pos + $adjust_start_pos ,1);
+            my $start_char_plus3  = substr($use_seq,$start_pos + $adjust_start_pos + 1,1);
+            my $end_char_minus1   = substr($use_seq,$end_pos + $adjust_end_pos -1,1);
+            my $end_char_minus2   = substr($use_seq,$end_pos + $adjust_end_pos -2,1);
+            $score_nt += 15 if  $start_char_plus1   eq 'G';
+            $score_nt += 10 if ($start_char_plus2   eq 'T' || $start_char_plus2 eq 'G');
+            $score_nt += 15 if  $start_char_plus3   eq 'G';
+            $score_nt += 5  if ($end_char_minus1    eq 'C' || $end_char_minus1  eq 'T');
+            $score_nt += 5  if  $end_char_minus2    eq 'A';
+            $score_nt -= abs($adjust_start_pos);
+            #$scores is a ref to quintuplet ($score_nt,$score_aa,abs($adjust_start),$adjust_start,$adjust_end) or undef if adjustment is invalid
+            $scores = &CheckForCorrespondance($phase, $start_pos, $end_pos, $use_seq, $key,$score_nt,$annot);
+            push (@tab_scores, $scores ) if defined $scores; 
+        }
+    }
+    
+    @tab_scores = sort { ($b->[0] - $b->[2]) <=> ($a->[0] - $a->[2])
+                              || $b->[1] <=> $a->[1]
+                      || $a->[2] <=> $b->[2]
+                      || $a->[3] <=> $b->[3]} @tab_scores;
+
+    if ($tab_scores[0]->[0] < 35){
+        &AddCommentToAnnotField($annot,"startline",";;  Cannot adjust boundaries");
+             &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries");
+        return;
+    }
+    &AdjustBoundaries(\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus);
+}
+
+sub Length_annot {
+    my $annot = shift;
+    
+    my $start = $annot->startpos();
+    my $end   = $annot->endpos();
+    ($start,$end) = ($end,$start) if $annot->direction() eq "<=="; 
+    my $length = ($end - $start + 1);
+    return $length;
+}
+
+sub AddCommentToAnnotField {
+    my $annot   = shift;
+    my $method  = shift;
+    my $comment = shift;
+    
+    my $line_to_modify  = $annot->$method();
+    if ($line_to_modify !~ m#\Q$comment\E#) {
+        $line_to_modify .= " $comment";
+    }
+    $annot->$method($line_to_modify);
+}
+
+sub AdjustBoundaries {
+    my $tab_scores  = shift;
+    my $name_intron = shift;
+    my $num_intron  = shift;
+    my $annot_who_overlap = shift;
+    my $feature_intron    = shift;
+    my $isMinus     = shift;
+    
+    my ($adjust_start,$adjust_end) = ($tab_scores->[0]->[3],$tab_scores->[0]->[4]);
+    my $previous_exon_name  = $name_intron."-E".$num_intron;
+    my $next_exon_name      = $name_intron."-E".($num_intron+1);
+    
+    #Use to defined previous and next exon
+    my ($previous_exon_feat,$next_exon_feat) = &Previous_and_next_exons($previous_exon_name,$next_exon_name,$annot_who_overlap);
+    ($adjust_start,$adjust_end) = (-$adjust_start,-$adjust_end) if $isMinus;
+    
+    #Adjust intron
+    my $feature_intron_start = $feature_intron->get_startpos();
+    $feature_intron->set_startpos($feature_intron_start + $adjust_start);
+    
+    my $feature_intron_end   = $feature_intron->get_endpos();
+    $feature_intron->set_endpos($feature_intron_end + $adjust_end);
+    
+    #Adjust previous exon
+    if (defined $previous_exon_feat) {
+        my $previous_exon_end   = $previous_exon_feat->get_endpos();
+        $previous_exon_feat->set_endpos($previous_exon_end + $adjust_start);
+    }
+    
+    #Adjust next exon
+    if (defined $next_exon_feat) {
+        my $next_exon_start   = $next_exon_feat->get_startpos();
+        $next_exon_feat->set_startpos($next_exon_start + $adjust_end);
+    }
+}
+
+sub Previous_and_next_exons {
+    my $previous_exon_name = shift;
+    my $next_exon_name     = shift;
+    my $annot_who_overlap  = shift;
+    
+    my $previous_exon_feat = undef;
+    my $next_exon_feat     = undef;
+    
+    foreach my $annotation_who_overlap (@$annot_who_overlap){
+        foreach my $feature_overlap (@$annotation_who_overlap) {
+            my $feature            = $feature_overlap->[2];
+            my $feature_startline  = $feature->get_startline();
+            my ($annotname)        = ($feature_startline =~ m#^;\s+(\S+)#);
+            $previous_exon_feat    = $feature if ($annotname eq $previous_exon_name);
+            $next_exon_feat        = $feature if ($annotname eq $next_exon_name);
+            last if $previous_exon_feat && $next_exon_feat;
+        }
+    }
+    return($previous_exon_feat,$next_exon_feat);
+}
+
+sub WhichPhase {
+    my $annot       = shift;
+    my $num_intron  = shift;
+    my $contig      = shift;
+    
+    my $annot_who_overlap = &WhatOverlapsThis($annot->startpos(),$annot->endpos(),$contig);
+      
+    my $nb_nt = 0;     #length of all exon before the intron who studies
+    foreach my $annotation_who_overlap (@$annot_who_overlap){
+        foreach my $feature_who_overlap (@$annotation_who_overlap) {
+        my $feature_min = @$feature_who_overlap[0];
+        my $feature_max = @$feature_who_overlap[1];
+        my $feature     = @$feature_who_overlap[2];
+        next if !($feature->get_startline() =~ m#;\s+G-.+E(\d+).+#);
+        my $number = $1 if $feature->get_startline() =~ m#;\s+G-.+E(\d+).+#;
+        $nb_nt += abs($feature_max - $feature_min + 1 ) if $1 <= $num_intron;
+        }
+    }
+    my $phase = $nb_nt % 3 ;
+}
+
+sub CheckForCorrespondance {
+    my $phase     = shift;
+    my $start_pos = shift;   # bio coordinates
+    my $end_pos   = shift;   # bio coordinates
+    my $seq       = shift;
+    my $key       = shift; 
+    my $score_nt  = shift;
+    my $annot     = shift;
+    
+    my $startline = $annot->startline();
+    my $code_ref = &adjust_code( \%CODE_GEN );
+    
+    my ($adjust_start,$adjust_end) = split(/,/,$key);
+    my $old_substring1 = "";
+    my $old_substring2 = "";
+    my $new_substring1 = "";
+    my $new_substring2 = "";
+    
+    my $comp_phase     = $phase == 0 ? 0 : 3-$phase;
+    my $new_phase      = ($phase + $adjust_start) % 3;
+    my $comp_new_phase = $new_phase == 0 ? 0 : 3-$new_phase;
+    
+#    print "############### $phase = $key = $score_nt = $startline ###############\n";
+   
+   if ($adjust_start <= 0) {
+       my $from_old = $start_pos + $adjust_start - 1 - $new_phase;
+       my $len_old  = abs($adjust_start)+$new_phase;
+       my $from_new = $start_pos + $adjust_start - $new_phase - 1;
+#       print "For old_substring1 FROM $from_old LEN $len_old\n";
+#       print "For new_substring1 FROM $from_new LEN $new_phase\n";
+       $old_substring1 = substr($seq,$from_old,$len_old);
+       $new_substring1 = substr($seq,$from_new,$new_phase);
+        }
+    elsif ($adjust_start > 0) {
+        my $from_old = $start_pos - $phase - 1;
+        my $len_old  = $phase;
+        my $from_new = $start_pos - $phase - 1;
+        my $len_new  = $adjust_start + $phase;
+#        print "For old_substring1 FROM $from_old LEN $len_old\n";
+#        print "For new_substring1 FROM $from_new LEN $len_new\n";
+        $old_substring1 = substr($seq,$from_old,$len_old);
+        $new_substring1 = substr($seq,$from_new, $len_new);
+    }
+    
+#    print "OLD_SUBSTRING1=$old_substring1\n";
+#    print "NEW_SUBSTRING1=$new_substring1\n";
+
+    if ($adjust_end >= 0) {
+        my $from_old = $end_pos;
+        my $len_old  = $comp_new_phase + $adjust_end;
+        my $from_new = $end_pos + $adjust_end;
+        my $len_new  = $comp_new_phase;
+#        print "For old_substring2 FROM $from_old LEN $len_old\n";
+#        print "For new_substring2 FROM $from_new LEN $len_new\n";
+        $old_substring2   = substr($seq,$from_old, $len_old);
+        $new_substring2   = substr($seq,$from_new, $len_new);
+    }  
+    elsif ($adjust_end < 0) {
+        my $from_old = $end_pos ;
+        my $len_old  = $comp_phase;
+        my $from_new = $end_pos + $adjust_end;
+        my $len_new  = - $adjust_end + $comp_phase;
+#        print "For old_substring2 FROM $from_old LEN $len_old\n";
+#        print "For new_substring2 FROM $from_new LEN $len_new\n";
+        $old_substring2   = substr($seq,$from_old, $len_old);
+        $new_substring2 = substr($seq,$from_new,$len_new);
+    }
+  
+#    print "OLD_SUBSTRING2=$old_substring2\n";
+#    print "NEW_SUBSTRING2=$new_substring2\n";
+    
+    my $old_substring = "$old_substring1$old_substring2";
+    my $new_substring = "$new_substring1$new_substring2";
+
+    if (length($old_substring) != length($new_substring)){
+        print "   WARNING : Combination $adjust_start,$adjust_end not used for adjust boundaries because they add or delete amino acid \n";
+        return undef;
+    }
+    
+    if (length($new_substring)%3 != 0){
+        print "   WARNING : Combination $adjust_start,$adjust_end not used for adjust boundaries because they shift the initial readingframe\n
+                  Initial phase is $phase the new phase is $new_phase \n
+                  Sequence used at start of intron is $new_substring1 \n
+                  Sequence used at end of intron is $new_substring2 \n
+                  Whole sequence used for check for stop codon is $new_substring\n";
+        return undef;
+    }
+    
+#    print "Final old_substring : $old_substring Length: ",length($old_substring),"\n";
+#    print "Final new_substring : $new_substring Length: ",length($new_substring),"\n";
+
+    my @new_aa = ();
+    my @old_aa = ();
+    for (my $sub_start_pos = 0;  $sub_start_pos <= length($new_substring)-3; $sub_start_pos += 3){
+        my $new_codon = substr($new_substring,$sub_start_pos,3);
+        push (@new_aa, $code_ref->{$new_codon} );  # undef is OK here
+        my $old_codon = substr($old_substring,$sub_start_pos,3);
+        push (@old_aa, $code_ref->{$old_codon} );  # undef is OK here
+    }
+    
+    my $score_aa = 0;
+    for (my $i = 0;  $i < @new_aa; $i++){
+        my $old_aa    = $old_aa[$i] || "X";
+        my $new_aa    = $new_aa[$i] || "X";
+        $score_aa += $matrix->get_entry($old_aa,$new_aa);   
+        return undef if $score_aa < 0;
+#        print "Old aa = $old_aa New aa = $new_aa\n";
+#        print "Score intermediaire : ".$matrix->get_entry($old_aa,$new_aa)."\n";
+    }
+     
+    $score_aa = $score_aa / (@new_aa || 1);
+    $score_aa = 9999 if $adjust_start == 0 && $adjust_end == 0;  # 9999 is SUPER GOOD
+#    print "Score_final for aa : $score_aa \n";
+#    print "Score\t$score_nt\t$score_aa\t$key\told : @old_aa\tnew : @new_aa\n" if !($adjust_start == 0 && $adjust_end == 0);
+#    print "Score\t$score_nt\tini\t$key\n" if $adjust_start == 0 && $adjust_end == 0;
+    return [$score_nt,$score_aa,abs($adjust_start),$adjust_start,$adjust_end];
+}
+
+sub Research_for_intron {
+    my $pirmaster = shift;
+    my $add_to_masterfile = shift;
+    my $r_hash_of_new_contigname = shift;
+    my $intron_group  = shift;
+    
+    my $conf_file     = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
+    my $genecomsets   = $conf_file->get_geneprogs(); # this is a HASH genename => <MfAnnotGeneCommandSet>
+    my $commandobject = $genecomsets->{$intron_group};
+    
+    my $masterfile_for_introns = $TMPDIR . "/masterfile_for_". $intron_group ;
+    
+    my $MF = new IO::File ">$masterfile_for_introns" or die "Cannot open : $masterfile_for_introns\n";
+    print $MF $add_to_masterfile;
+    $MF->close();
+    my $annotpaircollections = &ExecuteExternalProgram($commandobject,$intron_group,undef,$masterfile_for_introns);
+    $annotpaircollections = &Adjust_coord_for_postannot($annotpaircollections,$r_hash_of_new_contigname);
+    &AnnotateFromExternalAPC($pirmaster,$intron_group,$annotpaircollections);
+}
+
+sub Adjust_coord_for_postannot {
+    my $annotpaircollections   = shift;
+    my $r_hash_of_new_contigname = shift;
+    
+    foreach my $annotpaircollection (@$annotpaircollections) {
+        my $contig = $annotpaircollection->get_contigname();
+       $contig =~ s/^>A//;
+       # signature is a quintuplet contig_name, name_of_gene, lower_pos, higher_pos, direction
+       my $signature = $r_hash_of_new_contigname->{$contig};
+       my @signature = split(/,/, $signature);
+       my $sig_contig = $signature[0];
+       my $lower_pos  = $signature[2];
+       my $higher_pos = $signature[3];
+       my $strand     = $signature[4];
+       $annotpaircollection->set_contigname(">$sig_contig");
+       my $annotpairs = $annotpaircollection->get_annotpairlist();
+    
+        my $new_ap = [];
+        foreach my $annot (@$annotpairs){
+            my $annot_strand   = $annot->direction();
+            next if $annot_strand ne $strand ;
+            my $annot_startpos = $annot->startpos();
+            my $annot_endpos   = $annot->endpos();
+        
+            my $isMinus     = ($annot_strand eq "==>" ? 0 : 1 );
+            $annot_startpos = $lower_pos + $annot_startpos  - 1;
+            $annot_endpos   = $lower_pos + $annot_endpos - 1;
+        
+            $annot->set_startpos($annot_startpos);
+            $annot->set_endpos($annot_endpos);
+            push(@$new_ap,$annot);
+        }
+    $annotpaircollection->set_annotpairlist($new_ap);
+    }
+    return $annotpaircollections;
 }
 
 sub AddAnnotToPirMaster {
@@ -3158,12 +3795,11 @@ sub AnnotAlreadyAtSamePlace {
 	my $start	= shift;
 	my $end 	= shift;
 	my $name	= shift;
-
+	
 	return if $name =~ /^!/;
 	($start,$end) = ($end,$start) if $start > $end; 
 	$name =~ s/_\d+$//;
 
-	#A refaire ici 
 	foreach my $annotation (@$annotations) {
 		next if $annotation->type eq "C";
 		next if $annotation->genename =~ /^!/;
@@ -3394,7 +4030,6 @@ sub WhatOverlapsThis {
 	    $maxexinfo->[4] = "LAST"; # this is the last exon of the group
         }
     }
-
     $groups;
 }
 
@@ -3467,7 +4102,7 @@ sub RenumberFeatures {
 
             my $genename  = $annotation->get_genename(); # does NOT contain the _1
             my $type      = $annotation->get_type();
-            my $startline = $annotation->get_startline();
+            my $startline = $annotation->get_startline() || "";
             my $start     = $annotation->get_startpos();
             my $end       = $annotation->get_endpos();
             my $dir       = $annotation->get_direction() || "==>";
@@ -3564,7 +4199,8 @@ sub RenumberFeatures {
 sub IsIntronicOrf {
     my $annot = shift;
     return 0 unless $annot->get_type() eq "G";
-    my $startline = $annot->get_startline();
+    my $startline = $annot->get_startline() || "";
+    print "WARNING NO START LINE IN OBJ:\n",$annot->ObjectToXML() if !defined($startline); 
     return 1 if $startline =~ m#G-\S+-I\d+-\S+#;
     0;
 }
