@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.1 2008/08/13 21:12:40 nbeck Exp $
+#    $Id: mfannot,v 2.2 2008/08/13 21:36:32 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.2  2008/08/13 21:36:32  nbeck
+#    Fixed problem with intron type annotation.
+#
 #    Revision 2.1  2008/08/13 21:12:40  nbeck
 #    Added identification of mini Exons.
 #    Adjusted start position for gene identified by Exonerate.
@@ -146,7 +149,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.1 2008/08/13 21:12:40 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.2 2008/08/13 21:36:32 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2376,7 +2379,7 @@ sub AddGroup {
         my $AP_startline = $AnnotPair->get_startline();
         my $AP_endline   = $AnnotPair->get_endline();
             
-        my $type        = $1    if $AP_startline =~ m#;;.*type\s*:\s*(.+)#;
+        my $type        = $1    if $AP_startline =~ m#;;.*start\s*:\s*(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
             
         my $intron_type  = $intron->get_type() || "";
@@ -2648,7 +2651,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_first_intron"}) { 
         my $first_intron            = $best_hyp_exon->{"ap_first_intron"};
         my $first_intron_startline  = $first_intron->get_startline();
-        my $type_first_intron       = $1    if $first_intron_startline =~ m#;;.*type\s*:\s*(.+)#;
+        my $type_first_intron       = $1    if $first_intron_startline =~ m#;;.*start\s*:\s*(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_first_intron;
         }
         
@@ -2659,7 +2662,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_second_intron"}) { 
         my $second_intron           = $best_hyp_exon->{"ap_second_intron"} if $best_hyp_exon->{"ap_second_intron"};
         my $second_intron_startline = $second_intron->get_startline();
-        my $type_second_intron      = $1    if $second_intron_startline =~ m#;;.*type\s*:\s*(.+)#;
+        my $type_second_intron      = $1    if $second_intron_startline =~ m#;;.*start\s*:\s*(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_second_intron;
         }
         
@@ -2745,7 +2748,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_first_intron];
         $apc1->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_first_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;.*type\s*:\s*(.+)#;
+        my $type       = $1    if $startline =~ m#;;.*start\s*:\s*(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $first_intron->set_type($type);
     }
@@ -2768,7 +2771,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_second_intron];
         $apc2->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_second_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;.*type\s*:\s*(.+)#;
+        my $type       = $1    if $startline =~ m#;;.*start\s*:\s*(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $second_intron->set_type($type);
     }
@@ -3170,7 +3173,7 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
                     $features_min >  $a_end   || $a_end   > $features_max;
 
             my $a_startline = $annot->startline();
-            my $type        = $1    if $a_startline =~ m#;;.*type\s*:\s*(.+)#;
+            my $type        = $1    if $a_startline =~ m#;;.*start\s*:\s*(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
 
             my $intron_type  = $feature->introntype() || "";
