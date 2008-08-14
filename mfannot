@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.2 2008/08/13 21:36:32 nbeck Exp $
+#    $Id: mfannot,v 2.3 2008/08/14 20:27:29 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.3  2008/08/14 20:27:29  nbeck
+#    Fixed adjustement of gene starts.
+#
 #    Revision 2.2  2008/08/13 21:36:32  nbeck
 #    Fixed problem with intron type annotation.
 #
@@ -149,7 +152,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.2 2008/08/13 21:36:32 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.3 2008/08/14 20:27:29 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1744,16 +1747,20 @@ sub OrganiseHYPPROTSArray {
 
     # The first thing is to look for the new star
     foreach my $hypprot (@$HYPPROTS) {
-        my $oldstartpos = $hypprot->start;
-        my $newstartpos = $hypprot->start;
-        my $warning     = $hypprot->warning;
-        my $new_warning = $hypprot->warning;
-        my $strand      = $hypprot->strand;
-        my $found       = 0;
-        my $contig      = $pirmaster->GetContigByName ($hypprot->contigname);  
-        my $seq         = $contig->sequence;                                   
+        my $oldstartpos = $hypprot->get_start();
+        my $newstartpos = $hypprot->get_start();
+        my $warning     = $hypprot->get_warning();
+        my $new_warning = $hypprot->get_warning();
+        my $strand      = $hypprot->get_strand();
+        my $isMinus     = ($strand == 1 ? 0 : 1);
+        my $contig      = $pirmaster->GetContigByName ($hypprot->get_contigname());  
+        
+        my $seq         = $contig->get_sequence();                                   
            $seq         =~ s/!//g;
-        my $end         = $hypprot->end;                                       
+        my $reverse_seq = $seq;
+           $reverse_seq =~ tr/ACGT/TGCA/;
+           $reverse_seq = reverse $reverse_seq;
+        my $use_seq     = ($isMinus ? "$reverse_seq" : "$seq");
 
         my %hash;
         my @tab;
@@ -1763,31 +1770,22 @@ sub OrganiseHYPPROTSArray {
         my @tab_GTG_pos;
         my @tab_GTG_neg;
         my @tab_GTG_neutre;
-
-        my $currentpos  = $hypprot->start;
-        my $isMinus = ($hypprot->strand == 1 ? 0 : 1);
-        my $posOffset = ($isMinus ? -3 : 3);
+        
+        my $len_seq     = length($seq);
+        my $currentpos  = $hypprot->get_start();
+           $currentpos  = $len_seq - $currentpos  + 1 if $isMinus;
+           $oldstartpos = $len_seq - $oldstartpos + 1 if $isMinus;
+           
         my @i_start;
-
-        for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += $posOffset) {
-            my $pos = $currentpos-1-($STARTBEFORE*3);
-
-            next if (!$isMinus && $pos   < 0             );
-            next if ( $isMinus && $pos-2 > length($seq)-3);
-
-            next if (!$isMinus && $pos   > length($seq)-3);
-            next if ( $isMinus && $pos-2 < 0             );
+        for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += 3 ) {
+            my $pos = $currentpos - 1 - ($STARTBEFORE*3);
             
-            my $tri_nt = uc (substr($seq, $pos, 3));
+            next if ( $pos < 0           );
+            next if ( $pos > $len_seq - 3);
+            
+            my $tri_nt = uc (substr($use_seq, $pos, 3));
             $hash{$i}  = $tri_nt;
             
-            if ($isMinus) {
-                # Reverse complement case
-                my $codon = uc (substr($seq, $pos-2, 3));
-                   $codon =~ tr/ACGT/TGCA/;
-                   $codon = reverse $codon;
-                   $hash{$i} = $codon;
-            }
             push(@tab, $i) if (defined($CODON_TABLE->{$hash{$i}})  && $CODON_TABLE->{$hash{$i}} eq "*");
             push(@i_start, $i);
         }
@@ -1818,53 +1816,58 @@ sub OrganiseHYPPROTSArray {
         if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg) {
             if (@tab_ATG_neutre) {
                 $newstartpos = $oldstartpos;
+                $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
             }
-            elsif ( @tab_ATG_pos  && ! @tab_ATG_neg ) { # Start before if is strand +
+            elsif ( @tab_ATG_pos  && !@tab_ATG_neg ) { # Start before if is strand +
                 $newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-                $newstartpos = $oldstartpos - (3*$tab_ATG_pos[0])  if $isMinus;
+                $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
             }
             elsif ( ! @tab_ATG_pos && @tab_ATG_neg ) { # Start after if is strand -
                 $newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-                $newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
+                $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
             }
-            elsif ( @tab_ATG_pos  && @tab_ATG_neg ) {
+            elsif ( @tab_ATG_pos && @tab_ATG_neg ) {
                if (abs($tab_ATG_neg[-1]/3) > $tab_ATG_pos[0]) {
                     $newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-                    $newstartpos = $oldstartpos - (3*$tab_ATG_pos[0]) if $isMinus;
+                    $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
                 }
                 else {
                     $newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-                    $newstartpos = $oldstartpos - (3*$tab_ATG_neg[-1]) if $isMinus;
+                    $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
                 }
             }
         }
 
-        else { $newstartpos = $oldstartpos; $new_warning .= "See for start codon"}
+        else { 
+            $newstartpos  = $oldstartpos;
+            $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
+            $new_warning .= "See for start codon";
+        }
 
         $hypprot->set_start ($newstartpos);  # Set the new start to the protein
         $hypprot->set_warning ($new_warning);
-        my $name = $hypprot->name; 
-        my $exons = $hypprot->exons;
-
+        
+        my $name  = $hypprot->get_name(); 
+        my $exons = $hypprot->get_exons();
         next if !(@$exons);
+        
         my $first_exon = $exons->[0];
         my $end_exon   = $exons->[-1];
-        my $end_e = $end_exon->dnaend;
+        my $end_e = $end_exon->get_dnaend();
 
-        if ($strand == 1) {
+        if (!$isMinus) {
             for (my $i = -3;; $i += 3) {
-                my $length = length($seq);
-                last if $end_e + $i > length($seq)-3;
+                last if $end_e + $i > $len_seq -3;
                 my $tri_nt  = uc (substr($seq, $end_e + $i, 3));
                 my $codon   = $CODON_TABLE->{$tri_nt};
                 next if $codon ne "*";
                 my $new_end = $end_e + $i + 3;
-                $end_exon->dnaend($new_end);
-                $hypprot->end($new_end);  # Set the new end to the protein
+                $end_exon->set_dnaend($new_end);
+                $hypprot->set_end($new_end);  # Set the new end to the protein
                 last; 
             }
         }
-        elsif ($strand != 1) {
+        elsif ($isMinus) {
             for (my $i = 0;; $i -= 3) {
                 last if $end_e +$i-1 < 0;
                 my $tri_nt = uc (substr($seq, $end_e + $i - 1 , 3));
@@ -1873,12 +1876,12 @@ sub OrganiseHYPPROTSArray {
                 my $codon  = $CODON_TABLE->{$tri_nt};
                 next if $codon ne "*";
                 my $new_end = $end_e + $i;
-                $end_exon->dnaend($new_end);
-                $hypprot->end($new_end);       # Set the new end to the protein
+                $end_exon->set_dnaend($new_end);
+                $hypprot->set_end($new_end);       # Set the new end to the protein
                 last; 
             }
         }
-        $first_exon->dnastart($newstartpos);
+        $first_exon->set_dnastart($newstartpos);
     } # End foreach $hypprot
 } # End function
 
@@ -1904,7 +1907,7 @@ sub AnnotateMiniExons {
         my $reverse_seq = $seq;
            $reverse_seq =~ tr/ACGT/TGCA/;
            $reverse_seq = reverse $reverse_seq;
-        
+           
         my $exons   = $hypprot->get_exons();
         my $introns = $hypprot->get_introns();
         next if scalar(@$exons) < 2;    # For protein with exon/intron
@@ -2818,7 +2821,8 @@ sub AddCommentsForOtherSolutions {
         my $end_line   = ";; Alternative solution for exon $number_exon, start next exon = $start_of_next_exon";
         
         my $ap = new PirObject::AnnotPair(
-                                      type      => "C",  
+                                      type      => "C",
+                                      genename  => "alternative",
                                       startpos  => $start_of_hyp_exon,
                                       endpos    => $end_of_hyp_exon,
                                       direction => $arrow,
@@ -4485,7 +4489,7 @@ sub AnnotAlreadyAtSamePlace {
         my $annot_name  = $annotation->genename;
         my $annot_start = $annotation->startpos;
         my $annot_end   = $annotation->endpos;
-        $annot_name =~ s/_\d+$//;  
+        $annot_name     =~ s/_\d+$//;  
         ($annot_start,$annot_end) = ($annot_end,$annot_start) if $annot_start > $annot_end; 
         return 1 if ( (!($end < $annot_start || $annot_end < $start)) && $name eq $annot_name);
     } # End foreach $annot
