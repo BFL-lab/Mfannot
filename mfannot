@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.4 2008/08/18 18:34:59 nbeck Exp $
+#    $Id: mfannot,v 2.5 2008/08/18 20:57:54 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.5  2008/08/18 20:57:54  riouxp
+#    Fixed bug with renumbering of gene sequences.
+#
 #    Revision 2.4  2008/08/18 18:34:59  nbeck
 #    Fixed annotation of intronic ORFs.
 #
@@ -155,7 +158,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.4 2008/08/18 18:34:59 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.5 2008/08/18 20:57:54 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -931,7 +934,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     
     my @homologous = ();
     for (my $i = 0 ; $i < 3; $i++) {
-	    last if !$hits[$i];
+        last if !$hits[$i];
         my $name        = $hits[$i]->name();
         my $description = $hits[$i]->description();
         my $evalue      = $hits[$i]->significance();
@@ -4702,7 +4705,7 @@ sub ApPosStrandFW {
     return ($ap_start,$ap_end);
 }
 #---------------------------------#
-# Subs used at the end of Mfannot  # 
+# Subs used at the end of Mfannot # 
 #---------------------------------#
 
 sub RenumberFeatures {
@@ -4728,6 +4731,7 @@ sub RenumberFeatures {
                                     $a->get_startpos() <=> $b->get_startpos();
                            } @GEI_annots;
 
+        my %local_genename2suffix = (); # the %genename2suffix local to the current contig.
         foreach my $annotation (@GEI_annots) {
             my $genename  = $annotation->get_genename(); # Does NOT contain the _1
             my $type      = $annotation->get_type();
@@ -4744,8 +4748,8 @@ sub RenumberFeatures {
             my $suffix = "";
                $suffix = $1 if $startline =~ m#(_\d+)#;
 
-            my $suffix2groups = $genename2suffix{$genename} ||= {};
-            my $groups        = $suffix2groups->{$suffix}   ||= [];
+            my $local_suffix2groups = $local_genename2suffix{$genename} ||= {};
+            my $groups              = $local_suffix2groups->{$suffix}   ||= [];
             my $addedToExistingGroup = 0;
             foreach my $group (@$groups) {
                 my $firstfeat = $group->[0];
@@ -4761,6 +4765,19 @@ sub RenumberFeatures {
             }
             push(@$groups, [ $annotation ]) if (!$addedToExistingGroup); 
         } # End foreach annotation
+
+        # Fusion %local_genename2suffix into the global %genename2suffix
+        # We need to do this to keeps each contig's group separate
+        foreach my $genename (keys %local_genename2suffix) {
+            my $local_suffix2groups = $local_genename2suffix{$genename};
+            my $suffix2groups       = $genename2suffix{$genename} ||= {};
+            foreach my $suffix (keys %$local_suffix2groups) {
+                my $local_groups = $local_suffix2groups->{$suffix};
+                my $groups       = $suffix2groups->{$suffix} ||= [];
+                push(@$groups, @$local_groups); # append to list
+            }
+        }
+
     } # End foreach contig
 
     # At this point, we've regrouped all G, E and I features in
