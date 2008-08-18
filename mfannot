@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.3 2008/08/14 20:27:29 nbeck Exp $
+#    $Id: mfannot,v 2.4 2008/08/18 18:34:59 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.4  2008/08/18 18:34:59  nbeck
+#    Fixed annotation of intronic ORFs.
+#
 #    Revision 2.3  2008/08/14 20:27:29  nbeck
 #    Fixed adjustement of gene starts.
 #
@@ -152,7 +155,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.3 2008/08/14 20:27:29 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.4 2008/08/18 18:34:59 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -452,7 +455,7 @@ if ($SIMILARITYSEARCH) {
         &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
 
         # Selection of protein
-        print "$step) Select hypotetical protein for identification of protein with Exon/Intron (In order to run Exonerate)...\n";
+        print "$step) Select hypotetical protein for Exonerate...\n";
         $step += 1; 
         &Select_protein;
 
@@ -1122,7 +1125,7 @@ sub Select_protein {
         my $orfs        = $flipblastprot->orfs;
         my $homologous  = $flipblastprot->homologous;
         my $number_orfs = scalar (@$orfs);
-        my %strand; # Hashtable with the number of each strand for one flipblastprot
+        my %strand;  # Hashtable with the number of each strand for one flipblastprot
 
         next if ($number_orfs < 1); # Impossible but ..........
         
@@ -3072,7 +3075,7 @@ sub ExecuteExternalProgram {
     my $alternate_outfile         = shift;
 
     my $outfile_gene = $alternate_outfile || "$TMPDIR/result_for_$genename.xml";
-    print "   Using external programs for '$genename'...\n"
+    print "    Using external programs for '$genename'...\n"
         if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
 
     my $substitutions = {
@@ -3097,7 +3100,7 @@ sub ExecuteExternalProgram {
     if (! $infh){ 
         print "Cannot read result for '$genename'; maybe there were problems with the commands?\n";
         print "See outfile '$outfile' and errfile '$errfile' for more info.\n" if $DEBUG;
-        next;
+        return \ [];
     }
 
     my @annotpaircollections = PirObject->FileHandleToObject($infh);
@@ -4228,10 +4231,11 @@ sub AnnotateIntronicOrfs {
     
     my %no_annotation;
     if ($potential_intronic_orfs) {
-        for (my $i = 0; $i < @$potential_intronic_orfs; $i++){
+        for (my $i = 0; $i < @$potential_intronic_orfs; $i++) {
             my $start_orf_1     = @$potential_intronic_orfs[$i]->get_start();
             my $end_orf_1       = @$potential_intronic_orfs[$i]->get_end();
             my $direction_orf_1 = @$potential_intronic_orfs[$i]->get_strand();
+            my $contig_orf_1    = @$potential_intronic_orfs[$i]->get_contigname();
             my $min_pos_orf_1   = ($direction_orf_1 eq "==>" ? $start_orf_1 : $end_orf_1);
             my $max_pos_orf_1   = ($direction_orf_1 eq "==>" ? $end_orf_1   : $start_orf_1);
             my @tab_for_choose_intron;
@@ -4239,6 +4243,8 @@ sub AnnotateIntronicOrfs {
             push(@tab_for_choose_intron, [$i, @$potential_intronic_orfs[$i]]); 
             for (my $j = 0; $j < @$potential_intronic_orfs; $j++) {
                 next if !($j != $i);
+                my $contig_orf_2    = @$potential_intronic_orfs[$j]->get_contigname();
+                next if ($contig_orf_1 ne $contig_orf_2);
                 my $start_orf_2     = @$potential_intronic_orfs[$j]->get_start();
                 my $end_orf_2       = @$potential_intronic_orfs[$j]->get_end();
                 my $direction_orf_2 = @$potential_intronic_orfs[$j]->get_strand();
