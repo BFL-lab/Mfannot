@@ -1,13 +1,11 @@
 genetic = 1
 minorflen = 40
-blast = 1e-11
+blast = 1e-10
 addcomments = 0
-trnascanse = 0
 debug = 0
 force = 0
 emptyorflen = 300
 overlapcut = 30
-trnacutoff = 20
 strict = 0
 allorfs = 0
 matrix = BLOSUM62
