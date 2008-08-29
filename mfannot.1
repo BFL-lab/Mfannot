@@ -7,7 +7,7 @@ SYNOPSIS
     mfannot [options] masterfile
 
 DESCRIPTION
-    mfannot is a tool to automatically annotate genome data stored in
+    Mfannot is a tool to automatically annotate genome data stored in
     masterfile format. Mfannot uses a number of methods to annotate the given
     genome. First it identifies ORFs using Flip. A value for a minimum size of
     these ORFs is changeable. These ORFs are then blasted using blastp against
@@ -15,11 +15,10 @@ DESCRIPTION
     Matches to the same protein which satify predetermined and user modifiable
     cutoffs and are located within close proximity are grouped together. After
     looking for a potential initiation codon, the genes are characterized.
-    Genewise is subsequently used to predict a internal gene structure by
+    Exonerate is subsequently used to predict a internal gene structure by
     aligning the predicted gene and the reference protein (from the peplibrary).
-    Another part of the programme uses tRNAscan-SE to detect tRNA genes. A
-    cutoff corresponding to the tRNAscan-SE score can filter the results. The 
-    resulting annotation is stored into an outputfile in Masterfile format.
+    Another part of the programme uses RNAweasel and HMMweasel to detect RNA genes.
+    The resulting annotation is stored into an outputfile in Masterfile format.
     
 OPTIONS
     
@@ -32,27 +31,35 @@ OPTIONS
               Display the all orf, even those wich are overlapping with other
               annotations.
               Default: false.
+      
+    --all_introns
+              Choose if only the introns who was not identified by Exonerate
+              must be annotated by RNAweasel or if all introns must be annotated
+              including those already discovered by Exonerate.
+              Default  is 1 : introns annotated by RNAweasel add in comments.
+              If value is 0 : introns annotated by RNAweasel not add in comments.
 
     --blast   Blast e-value cutoff
               This option allows the user to set the minimum signifiant e-value
               for ORF threshold.
-              Default: 1e-12
+              Default: 1e-10
     
     -d, --debug
-              Use debugging mode. Print debugging information 
+              Use debugging mode. Print debugging information
 
     --el, --emptyorflen  empty ORF minimum length     
               This option allows the users to supply the cutoff value for an
-              ORF (in amino acids), which is found not to correspond to a gene.
+              ORF (in nuceotide) they must be multiple of 3, which is found
+              not to correspond to a gene.
               It will instead appear in the Masterfile as ncorf (non
               corresponding ORF).
-              Default: 100
+              Default: 300
 
     --ext_config 
              It's a file used in order to call external programs. 
              Use for annotation of different genes like rnpB, rns and rnl.
              Default: '/share/analysis/control/mfannot/external_programs.conf'.
-         
+     
     --ext_select
              A list of names used to select or unselect which external programs
              to run (as specified in the --ext_config option above).
@@ -63,7 +70,7 @@ OPTIONS
              case all programs run except those specified with a 'no' prefix.
              Specifying a mixed set of 'no' and non-'no' programs has the same
              effect as specifying only the programs with 'no'.
-    
+        
     -f, --force
               This option allows more than one copy of the same gene in
               annotation.
@@ -89,12 +96,6 @@ OPTIONS
               21 => Trematode Mitochondrial
               22 => Scenedesmus Obliquus Mitochondrial
               23 => Thraustochytrium Mitochondrial
-              99 => OGMP: TAG-Leu (previously 16)
-              98 => OGMP: TGA-Trp with GTG-initiation (previously 17)
-              97 => OGMP: TGA-Trp (previously 18)
-              96 => OGMP: Tetrahymena Mitochondrial (previously 19)
-              95 => OGMP: Basic Mitochondrial (previously 20)
-              93 => OGMP: TTA-stop (previously 22)
               ---------------------------------
     
     -h, --help
@@ -118,12 +119,10 @@ OPTIONS
     
     --matrix  Matrix
               This allows the user to choose which alignment matrix is used
-              during the genewise internal  used for the alignment with
-              genewise. Below are a list of possible maticies that are
-              available;
+              during the blast
 
-              BLOSUM30.bla, BLOSUM45.bla, BLOSUM62.bla (default), BLOSUM80.bla,
-              gon120.bla, gon160.bla, gon200.bla, gon250.bla, gon350.bla
+              BLOSUM45, BLOSUM50, BLOSUM62 (default),BLOSUM62_20, BLOSUM 80, BLOSUM90,
+              PAM30, PAM70
 
     --maxis, --maxintronsize   Maximum intron size
               This option allows the user to modify the defualt maximum intron
@@ -143,7 +142,7 @@ OPTIONS
               This option allows the user to modify the default minimum intron
               size (in nucleotides) that mfannot uses during internal structure
               prediction. This value should be an integer.
-              Default: 10
+              Default: 142
 
     --minorflen   minumum ORF length
               This option allows the user to choose the size of the minumum ORFs
@@ -152,7 +151,7 @@ OPTIONS
               Default: 40
 
     --newrc, --newrcfile
-              This option will create a file called ".mfannotrc" based on the 
+              This option will create a file called '.mfannotrc' based on the 
               current selected and default options. If a such file exists, it
               will be replaced.
 
@@ -168,46 +167,46 @@ OPTIONS
               largest number appended to existing file.
 
     --oc, --overlapcut  Overlapping cutoff
-              This value is a cutoff percentage that represents the permitted
-              overlapping proportion of a non-corresponding ORF that overlaps
-              a predicted gene.
+              This value is a cutoff that represents the permitted overlapping
+              proportion of a non-corresponding ORF that overlaps a predicted
+              gene in nucleotide.
+              Default : 30
     
     -p, --pepdirectory  pepdirectory(ies)
               Path to the peptide directory containing peptide files. By
               default mfannot uses a collection of default peptide libraries.
               See below for more information. Peptide files must contain the
-              suffix ".pep".
+              suffix '.pep'.
 
     --rc, --rcfile       rcfile
               Load the options presented in the file. By default mfannot will
-              look for the file ".mfannotrc" in the current working directory.
+              look for the file '.mfannotrc' in the current working directory.
 
     -S
               Do not search for genes proteins coding genes.
-
+          
+    --startbefore	
+              The distance use to search start codon upstream the start define by blast
+              Default: 10
+    
+    --startafter
+              The distance use to search start codon downstream the start define by blast
+              Default: 5	
     --strict
               Strict masterfile loading.
-              Default: false    
+              Default: false
+    
+    --size	
+              Use in order to define the size of the homologous protein.
+              Use in order to put a Warning if the annotated protein is too 
+              small or too large. The annotated protein must make +/- size%
+              of the homologous protein
+              Default: 5
     
     -t, --tagname        tagname
               This option allows the insertion of a user defined tag in each
               annotation made by the mfannot.
               Default: None
-    
-    --tc, --trnacutoff       tRNAscanSE cutoff value
-              This option is passed cut off value in the form of an integer.
-              All results reported by tRNAscanSE that are below this value,
-              are filtered out from the annotation. The option to run
-              tRNAscaneSE must chosen for this option to work. (see next
-              option)
-              Default: 20
-    
-    --trna, --trnascanse
-              This option invokes the use of tRNAscanSE and inserts the results
-              it produces into the annotated masterfile.  
-              NOTE: This step with lengthen the duration of mfannot
-              considerably. 
-              Default: Not used
 
     --withmap [ svg | png ]
               This option requires an argument to determine the format of the
@@ -221,7 +220,7 @@ OPTIONS
               masterfiles which include more than one contig. The map file is
               has the same name as the output masterfile, but with the
               appropriate graphics format extension.
-              Default: No map produced
+              Default: No map produced.
 
 MORE 
     Masterfile:
@@ -246,7 +245,7 @@ MORE
         
             '>(Genus species) (name_of_protein_without_space); comments'
         If the protein name (in one piece) is not followed by ;, it will not be
-        recgnized.
+        recognized.
 
 CONFIGURATION FILE
         Mfannot automatically searches for a file called ".mfannot" in the
@@ -280,7 +279,8 @@ SEE ALSO
     blastall(1), flip(1),  formatdb(1), mf2xml(1)
     Bioperl:   http://www.bioperl.org/
     Cgview:    http://wishart.biology.ualberta.ca/cgview/
-    Genewise:  http://www.ebi.ac.uk/Wise2/
+    Exonerate: http://www.ebi.ac.uk/~guy/exonerate/
+    RNAweasel: http://megasun.bch.umontreal.ca/RNAweasel/
     Bioperl:   http://www.bioperl.org/
     pirobject: http://pirobject.sourceforge.net/
   
