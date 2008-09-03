@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.6 2008/08/29 19:11:50 nbeck Exp $
+#    $Id: mfannot,v 2.7 2008/09/03 15:51:20 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.7  2008/09/03 15:51:20  riouxp
+#    Adjusted routine that compares high precision floats.
+#
 #    Revision 2.6  2008/08/29 19:11:50  nbeck
 #    Added step to adjust gene starts position.
 #    Changed default parameters for Blast.
@@ -158,7 +161,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.6 2008/08/29 19:11:50 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.7 2008/09/03 15:51:20 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -858,38 +861,57 @@ sub ParseInformationFromBlastResult {
 } # End sub
 
 sub CompareHighPrecisionFloats {
-    #    Only for positive floats
-    #    Examples of different cases :
-    #    .2
-    #    1
-    #    1.
-    #    1.2
-    #    1.2e
-    #    1.2e3
-    #    1.2e-3
-    #    .2e-3
-    #    e-3
-    #    1e3
+    # Only for floats that are in NORMALIZED scientific form.
+    # Examples of different cases :
     #
+    #    .2     1     1.    1.2
+    #    1.2e   1.2e3 1.2e-3
+    #    .2e-3  e-3   1e3
+    #
+    # Each of these can optionally be prefixed with "+" or "-".
+    #
+    # Unlike Math::BigFloat, this routine handles "e-3".
+
     my ($x,$y) = @_;
     
     die "Unparsable number '$x'\n"
-        unless $x =~ m/^([\d\.]*)(e(-?\d*))?$/;
-    my ($xman,$xexp) = ($1,$3);
+        unless $x =~ m/^([\+\-]?)             # sign
+                        ([\d\.]*)             # significand
+                        (?:e(-?\d*))?         # exponent
+                       $/x;
+    my ($xsig,$xman,$xexp) = ($1,$2,$3);
     
     die "Unparsable number '$y'\n"
-        unless $y =~ m/^([\d\.]*)(e(-?\d*))?$/;
-    my ($yman,$yexp) = ($1,$3);
+        unless $y =~ m/^([\+\-]?)             # sign
+                        ([\d\.]*)             # significand
+                        (?:e(-?\d*))?         # exponent
+                       $/x;
+    my ($ysig,$yman,$yexp) = ($1,$2,$3);
     
+    # Define missing optional components of number representation
+    $xsig ||= "+";
+    $ysig ||= "+";
     $xman = 1 if !defined($xman) || $xman eq "";
-    $xexp = 0 if !defined($xexp) || $xexp eq "";
     $yman = 1 if !defined($yman) || $yman eq "";
+    $xexp = 0 if !defined($xexp) || $xexp eq "";
     $yexp = 0 if !defined($yexp) || $yexp eq "";  
     
     # Compare numbers when $x or $y are effectively zero
-    return  0 if $xman == 0 && $yman == 0;  # $x == 0 and $y == 0
-    return  1 if $xman != 0 && $yman == 0;  # $x  > 0 and $y == 0
-    return -1 if $xman == 0 && $yman != 0;  # $x == 0 and $y  > 0
+    return 0
+        if $xman == 0 && $yman == 0;  # $x == 0 and $y == 0
+    return ($xsig eq '-' ? -1 : +1)
+        if $xman != 0 && $yman == 0;  # $x != 0 and $y == 0
+    return ($ysig eq '-' ? +1 : -1)
+        if $xman == 0 && $yman != 0;  # $x == 0 and $y != 0
+    
+    # Easy comparisons when signs differ
+    if ($xsig ne $ysig) {
+        return $xsig eq '+' ? 1 : -1;
+    }
+
+    # Permutate X <=> Y if both signs are negative
+    ($xman,$xexp,$yman,$yexp) = ($yman,$yexp,$xman,$xexp)
+        if $xsig eq '-'; # $ysig is '-' too at this point.
     
     # At this point, $x and $y both have mantissas > 0
     return ($xexp <=> $yexp) if $xexp != $yexp;  # $x and $y have different EXP, so compare EXP
