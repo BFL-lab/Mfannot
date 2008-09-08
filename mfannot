@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.7 2008/09/03 15:51:20 riouxp Exp $
+#    $Id: mfannot,v 2.8 2008/09/08 22:06:29 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.8  2008/09/08 22:06:29  riouxp
+#    Defnesive programming when exonerate doesn't produce a report.
+#
 #    Revision 2.7  2008/09/03 15:51:20  riouxp
 #    Adjusted routine that compares high precision floats.
 #
@@ -161,7 +164,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.7 2008/09/03 15:51:20 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.8 2008/09/08 22:06:29 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -864,9 +867,9 @@ sub CompareHighPrecisionFloats {
     # Only for floats that are in NORMALIZED scientific form.
     # Examples of different cases :
     #
-    #    .2     1     1.    1.2
-    #    1.2e   1.2e3 1.2e-3
-    #    .2e-3  e-3   1e3
+    #    1       1.      1.2
+    #    1.2e    1.2e3   1.2e-3
+    #    e-3     1e3
     #
     # Each of these can optionally be prefixed with "+" or "-".
     #
