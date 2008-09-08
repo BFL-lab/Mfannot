@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.9 2008/09/08 22:17:39 riouxp Exp $
+#    $Id: mfannot,v 2.10 2008/09/08 22:26:36 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.10  2008/09/08 22:26:36  riouxp
+#    Properly ignores empty exonerate outputs.
+#
 #    Revision 2.9  2008/09/08 22:17:39  riouxp
 #    Real defensive code added.
 #
@@ -167,7 +170,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.9 2008/09/08 22:17:39 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.10 2008/09/08 22:26:36 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1529,8 +1532,8 @@ sub FindExonsInHypProtArray {
 
         
         my $FirstC4Report = shift(@sorted_report);
+        next if !defined $FirstC4Report;
         my @grouped_reports = ( [ $FirstC4Report ] );
-        @grouped_reports = ( [] ) if !defined($FirstC4Report); # defensive programming
 
         while (@sorted_report) {
             my $NextC4Report     = shift(@sorted_report);
