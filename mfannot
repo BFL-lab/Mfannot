@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.11 2008/09/09 16:49:59 nbeck Exp $
+#    $Id: mfannot,v 2.12 2008/09/09 20:30:36 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.12  2008/09/09 20:30:36  nbeck
+#    Added a comment when a gene presents a frameshift and skipped research of
+#    mini-exons for this case.
+#
 #    Revision 2.11  2008/09/09 16:49:59  nbeck
 #    Added option in order to annote partial or incomplete genome.
 #
@@ -173,7 +177,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.11 2008/09/09 16:49:59 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.12 2008/09/09 20:30:36 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1470,7 +1474,6 @@ sub FindExonsInHypProtArray {
     # The main is to find exons by making a local alignement
     my $pirmaster = shift;        # The masterfile object
     my $flag      = shift || "";  # A flag, assigned to each pepfile
-    my $count     = 1;              
 
     mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create work directory '$TMPDIR/Exonerate': $!\n";
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
@@ -1496,36 +1499,33 @@ sub FindExonsInHypProtArray {
         my $overlappe_authorized = ((5*$length)/100);
 
         # Write protein and gene in fasta files
-        my $fileprot      = "$TMPDIR/Exonerate/prot_for_exonerate$count"."_"."$flag";
-        my $filegene      = "$TMPDIR/Exonerate/gene_for_exonerate"."_"."$flag";
-        my $exonerate_out = "$TMPDIR/Exonerate/exonerate_$count"."_"."$flag"."_"."$name";
+        my $fileprot      = "$TMPDIR/Exonerate/prot_for_exonerate_${flag}";
+        my $filegene      = "$TMPDIR/Exonerate/gene_for_exonerate_${flag}";
+        my $exonerate_out = "$TMPDIR/Exonerate/exonerate_${flag}_${name}";
 
         # Check if it exists
         unlink($fileprot)      or die "Impossible to delete $fileprot\n"      if (-f $fileprot);
         unlink($filegene)      or die "Impossible to delete $filegene\n"      if (-f $filegene);
         unlink($exonerate_out) or die "Impossible to delete $exonerate_out\n" if (-f $exonerate_out);
 
-        # Open all the prot files and so on
+        # Create protein for exonerate
         my $FILEPROT = new IO::File ">$fileprot" or die "Impossible to open $fileprot\n";
-        my $FILEGENE = new IO::File ">$filegene" or die "Impossible to open $filegene\n";
-
-        # Write into the files
-        print $FILEPROT $protein, "\n" or die "Impossible to paste protein into $fileprot\n";
-        print $FILEGENE $seq,  "\n"    or die "Impossible to paste gene sequence into $filegene\n";
-
-        # Close the files
+        print $FILEPROT $protein, "\n";
         $FILEPROT->close() or die "Impossible to close $fileprot\n";
+
+        # Create genome for exonerate
+        my $FILEGENE = new IO::File ">$filegene" or die "Impossible to open $filegene\n";
+        print $FILEGENE $seq, "\n";
         $FILEGENE->close() or die "Impossible to close $filegene\n";
 
-        my $cmd = "$EXONERATEPATH $Exonerate_parameter  --geneticcode $GENCODE $fileprot $filegene > $exonerate_out"; # $Exonerate_parameter $fileprot $filegene
+        my $cmd = "$EXONERATEPATH $Exonerate_parameter --geneticcode $GENCODE $fileprot $filegene > $exonerate_out"; # $Exonerate_parameter $fileprot $filegene
         print "\n$cmd\n" if $DEBUG;
 
         my $resultat = system("$cmd");
         # TODO handle $resultat
 
-        #my @tab   = `cat "$TMPDIR/Exonerate/exonerate_$count"_"$flag"_"$name"`;           # @tab = the file result of exonerate
-        my $infh  = new IO::File "<$TMPDIR/Exonerate/exonerate_${count}_${flag}_${name}"
-            or die "Can't read from file '$TMPDIR/Exonerate/exonerate_${count}_${flag}_${name}': $!\n";
+        my $infh  = new IO::File "<$exonerate_out"
+            or die "Can't read from file '$exonerate_out': $!\n";
         my @tab   = <$infh>;
         $infh->close();
 
@@ -1592,14 +1592,15 @@ sub FindExonsInHypProtArray {
                  $strand     =  1 if  !$isMinus;
                  $strand     = -1 if   $isMinus;
                  foreach my $lineobj (@$features) {
-                     my $start       = $lineobj->start;
-                        $start       = $lineobj->end   if $isMinus;
-                     my $end         = $lineobj->end;
-                        $end         = $lineobj->start if $isMinus;
-                     my $strand_exon = $lineobj->strand;
-                     my $feat        = $lineobj->feature;
+                     my $feat        = $lineobj->get_feature();
                      next if $feat ne "exon";
-                     my $pair_start_end  = [ $start, $end, $strand_exon, $start_query ];
+                     
+                     my $start       = ($isMinus ? $lineobj->get_end() : $lineobj->get_start());
+                     my $end         = ($isMinus ? $lineobj->get_start() : $lineobj->get_end());
+                     my $strand_exon = $lineobj->get_strand();
+                     my $attributes  = $lineobj->get_attributes();
+                     
+                     my $pair_start_end  = [ $start, $end, $strand_exon, $start_query, $attributes ];
                      push(@exon_start_end, $pair_start_end);           # @exon_start_end contain information about exon with start end and strand of each exons
                  }
              }
@@ -1615,6 +1616,9 @@ sub FindExonsInHypProtArray {
                      my $start_exon  = $exon->[0];
                      my $end_exon    = $exon->[1];
                      my $strand_exon = $exon->[2];
+                     my $attributes  = $exon->[4];
+                     
+                     my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
     
                      my $arrow = "==>" if $strand_exon eq "+";
                         $arrow = "<==" if $strand_exon eq "-";
@@ -1630,6 +1634,9 @@ sub FindExonsInHypProtArray {
                                                              startline => $start_line,
                                                              endline   => $end_line,
                                                              );
+                                                             
+                     my $comment = ($frameshift_size ? ";; Frameshift of $frameshift_size nt" : undef);
+                     $hyp_prot->set_startmulticomment([$comment]) if $comment;
                      &AddAnnotToPirMaster($pirmaster,$contigname,$hyp_prot);
                      $number++;
                      }
@@ -1732,11 +1739,14 @@ sub FindExonsInHypProtArray {
 
             my $newhypprotexonarray = $newhypprot->exons;
             for (my $i = 0; $i < @exon_start_end; $i++){
+                my $attributes      = $exon_start_end[$i]->[4];
+                my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
                 # Fill information about exon
                 my $hypprotexon = new PirObject::Exon (
-                                                       dnastart  => $exon_start_end[$i]->[0],
-                                                       dnaend    => $exon_start_end[$i]->[1],
-                                                       strand    => $exon_start_end[$i]->[2],
+                                                       dnastart       => $exon_start_end[$i]->[0],
+                                                       dnaend         => $exon_start_end[$i]->[1],
+                                                       strand         => $exon_start_end[$i]->[2],
+                                                       frameshiftsize => $frameshift_size
                                                       );
                 push (@$newhypprotexonarray, $hypprotexon); 
             }
@@ -1964,11 +1974,9 @@ sub AnnotateMiniExons {
         next if scalar(@$exons) < 2;    # For protein with exon/intron
         
         my $prot_sequence      = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$name,$hypprot);
-           $prot_sequence      = substr($prot_sequence, 0, -1);
-           if (index($prot_sequence,"*") >= 0 ) {
-               #print "    Gene $name present a stop codon\n";
-               next;
-           }
+        next if $prot_sequence eq "Frame-Shift-Detected";
+        $prot_sequence      = substr($prot_sequence, 0, -1);
+        next if (index($prot_sequence,"*") >= 0 );
         
         my $file_for_alignment = &MakeFileForAlignment($hypprot);
         
@@ -2073,7 +2081,9 @@ sub GetProteinSequenceAndIntronsPos {
     my $dna_sequence = "";
     my $length_tot   = 0;
     for (my $i = 0 ; $i < scalar(@$exons) ; $i++) {
-        my $num_int       = $i +1; 
+        my $hasFrameshift = $exons->[$i]->frameshiftsize();
+        return "Frame-Shift-Detected" if $hasFrameshift;
+        my $num_int       = $i + 1; 
         my $start         = $exons->[$i]->dnastart()   || next;
         my $end           = $exons->[$i]->dnaend()     || next;
         my $isMinus       = ($exons->[$i]->strand eq "+" ? 0 : 1);
@@ -2936,22 +2946,16 @@ sub AnnotateMfFromHYPPROTSArray {
         # Put a warning if the length of protein is too small or too large
         my $tag           = $hyprot->remark;
         my $warning       = $hyprot->warning || "";
-        if ($warning eq "" && $length_protein < $length_min) {
-            $warning = "Sequence is too small";
+        
+        
+        if ($length_protein < $length_min) {
+            $warning .= $warning ? " and sequence is too small" : "Sequence is too small";
         }
-        elsif ($warning ne "" && $length_protein < $length_min) {
-            $warning .= " and Sequence is too small"; 
+        
+        if ($length_protein > $length_max) {
+            $warning .= $warning ? " and sequence is too large" : "Sequence is too large";
         }
-        elsif ($warning eq "" && $length_protein > $length_max) {
-            $warning = "Sequence is too large";
-        }
-        elsif ($warning ne "" && $length_protein > $length_max) {
-            $warning .= " and Sequence is too large";
-        }
-        else {
-            $warning = $warning;
-        }
-
+        
         # Annot the gene
         my $linename  = $name;                     # The name gene in start and endline
         my $startline = "";
@@ -2992,67 +2996,67 @@ sub AnnotateMfFromHYPPROTSArray {
         next if (scalar (@$exons) <= 1); # if there is only one exon, and if option is not checked, go to the next prot
         
         # Annotating exons
-        my $strand = $hyprot->strand;
         my $number = 1;
         foreach my $exon (@$exons) {
-            my $exon_start  = $exon->dnastart;
-            my $exon_end    = $exon->dnaend;
-            my $exon_strand = $exon->strand;
-
+            my $start           = $exon->get_dnastart();
+            my $end             = $exon->get_dnaend();
+            my $strand          = $exon->get_strand();
+            my $frameshift_size = $exon->get_frameshiftsize();
+            
             my $start_line  = ";     G-$linename-E$number $arrow start";
                $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
             my $end_line    = ";     G-$linename-E$number $arrow end";
                $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
 
-            my $exon_annot = new PirObject::AnnotPair (
+            my $annot = new PirObject::AnnotPair (
                                                        type      => "E",
                                                        genename  => "$name",
-                                                       startpos  => $exon_start,
-                                                       endpos    => $exon_end,
+                                                       startpos  => $start,
+                                                       endpos    => $end,
                                                        direction => $arrow,
                                                        startline => $start_line,
                                                        endline   => $end_line,
                                                      );
+            my $comment = ($frameshift_size ? ";; Frameshift of $frameshift_size nt" : undef);
+            $annot->set_startmulticomment([$comment]) if $comment;
             $number++;
-            my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$exon_annot);
+            my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$annot);
         } # End foreach $exon
 
         # Annotating introns
-        my $introns = $hyprot->introns;
+        my $introns = $hyprot->get_introns();
         $number = 1;
         foreach my $intron (@$introns) {
-            my $intron_start    = $intron->get_start();
-            my $intron_end      = $intron->get_end();
-            my $intron_strand   = $intron->get_strand();
-            my $intron_type     = $intron->get_type();
-            my $intron_idbyRNAw = $intron->get_idbyRNAw();
-            my $intron_comment  = $intron->get_comment() || "";
+            my $start    = $intron->get_start();
+            my $end      = $intron->get_end();
+            my $strand   = $intron->get_strand();
+            my $type     = $intron->get_type();
+            my $idbyRNAw = $intron->get_idbyRNAw();
+            my $comment  = $intron->get_comment() || "";
 
             my $start_line  = ";     G-$linename-I$number $arrow start";
-               $start_line .= " /group=$intron_type" if $intron_type;
+               $start_line .= " /group=$type" if $type;
                $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
             my $end_line    = ";     G-$linename-I$number $arrow end";
-               $end_line   .= " /group=$intron_type" if $intron_type;
+               $end_line   .= " /group=$type" if $type;
                $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
 
-            my $intron_annot = new PirObject::AnnotPair (
-                                                         type      => "I",
-                                                         genename  => "$name",
-                                                         startpos  => $intron_start,
-                                                         endpos    => $intron_end,
-                                                         direction => $arrow,
-                                                         startline => $start_line,
-                                                         endline   => $end_line,
-                                                         introntype => $intron_type
-                                                        );
-            my $start_multicomment = [$intron_comment] if $intron_comment;
-            my $end_multicomment   = [$intron_comment] if $intron_comment;
-            $intron_annot->set_startmulticomment($start_multicomment) if $intron_comment;
-            $intron_annot->set_endmulticomment($end_multicomment)     if $intron_comment;
+            my $annot = new PirObject::AnnotPair (
+                                                   type       => "I",
+                                                   genename   => "$name",
+                                                   startpos   => $start,
+                                                   endpos     => $end,
+                                                   direction  => $arrow,
+                                                   startline  => $start_line,
+                                                   endline    => $end_line,
+                                                   introntype => $type
+                                                   );
+            $annot->set_startmulticomment([$comment]) if $comment;
+            $annot->set_endmulticomment([$comment])   if $comment;
             $number++;
-            my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$intron_annot);
-            if ($intron_idbyRNAw && $ALL_INTRONS == 1) {
-                my $apc             = $intron_idbyRNAw;
+            my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$annot);
+            if ($idbyRNAw && $ALL_INTRONS == 1) {
+                my $apc             = $idbyRNAw;
                 my $apl             = $apc->get_annotpairlist();
                 foreach my $ap (@$apl) {
                     &AddAnnotToPirMaster($pirmaster,$contigname,$ap)
