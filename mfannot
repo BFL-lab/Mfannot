@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.10 2008/09/08 22:26:36 riouxp Exp $
+#    $Id: mfannot,v 2.11 2008/09/09 16:49:59 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.11  2008/09/09 16:49:59  nbeck
+#    Added option in order to annote partial or incomplete genome.
+#
 #    Revision 2.10  2008/09/08 22:26:36  riouxp
 #    Properly ignores empty exonerate outputs.
 #
@@ -170,7 +173,7 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.10 2008/09/08 22:26:36 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.11 2008/09/09 16:49:59 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -235,6 +238,7 @@ my $MINEXONSIZE;                                # Minimum exon size for intron. 
 my $MATRIX;                                     # The matrix used in genewise alignement
 my $CODON_TABLE;                                # Hashtable with genetic code
 my $NBCONTIGS        = 0;                       # The number of contigs
+my $PARTIAL;                                    # This will cause mfannot to only run a subset of all its built-in analysis
 
 my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --intronpenalty -35 --nosplicesignal T"; 
 
@@ -491,9 +495,11 @@ if ($SIMILARITYSEARCH) {
         &OrganiseHYPPROTSArray ($pirmaster);     #  Find the start codon.
         
         # Search mini exons
-        print "$step) Annotation of mini exons...\n";
-        $step += 1; 
-        &AnnotateMiniExons ($pirmaster);
+        if (!$PARTIAL) {
+            print "$step) Annotation of mini exons...\n";
+            $step += 1; 
+            &AnnotateMiniExons ($pirmaster);
+        }
         
         # Annotate -> change hypothetical proteins into an object annotation
         print "$step) Annotation in the masterfile...\n";
@@ -669,6 +675,7 @@ sub GetOptions {
     $MININTRONSIZE           = $option->minintronsize;     # Opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
     $MINEXONSIZE             = $option->minexonsize;       # Minimum exon size for intron. In genewise.
     $MATRIX                  = $option->matrix;            # The matrix used in genewise alignement
+    $PARTIAL                 = $option->partial;           # This will cause mfannot to only run a subset of all its built-in analysis
    
     my $gentable = Bio::Tools::CodonTable->new();
     die "Unexisting genetic id\n" if   (not $gentable->id($GENCODE));
@@ -3999,7 +4006,6 @@ sub AddCommentIfStartIsFindFar {
      my $isMinus    = shift;
     
     my $alternative_start = ($isMinus ? $len_seq - $start + 2 : $start);
-    print "$genename : $isMinus $start $alternative_start \n"; 
     my $arrow             = ($isMinus ? '<==' : '==>');
     my $startline         = ";;     G-$genename $arrow start  ;; Alternative start";
     my $Comment           = new PirObject::AnnotPair(
