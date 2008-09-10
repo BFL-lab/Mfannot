@@ -25,9 +25,17 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.12 2008/09/09 20:30:36 nbeck Exp $
+#    $Id: mfannot,v 2.13 2008/09/10 22:13:16 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.13  2008/09/10 22:13:16  riouxp
+#    Re-engineered the Blast Output parsing code; we know generate
+#    the blast reports in XML and use PirObject::BlastOutput as
+#    our model class instead of Bio::SearchIO. This improves efficiency
+#    by 4x ! Also, the internal routine to extract protein sequences
+#    from the library has been redesigned such that the sequences
+#    are cached in memory in the first place.
+#
 #    Revision 2.12  2008/09/09 20:30:36  nbeck
 #    Added a comment when a gene presents a frameshift and skipped research of
 #    mini-exons for this case.
@@ -150,7 +158,6 @@ use Cwd;
 use File::Basename;
 use File::Path;
 use PirObject;                                        # Pir module treatment 
-use Bio::SearchIO;                                    # Bioperl (used for parsing blast outout)
 use Bio::AlignIO;                                     # Bioperl (used for parsing alignement)
 use Bio::SeqUtils;                                    # Some biological tools
 use Bio::Tools::CodonTable;                           # To create a codon table, to be used with genewise
@@ -171,13 +178,14 @@ PirObject->LoadDataModel("HypProt");                  # Hypothetical protein : W
                                                       # organization of the results     
 PirObject->LoadDataModel("Option");                   # A module for options gestion
 PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs having no corresponding genes
+PirObject->LoadDataModel("BlastOutput");              # Model of blast results in XML (blastall -m 7)
 } # End Begin
 
 # Default umask
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.12 2008/09/09 20:30:36 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.13 2008/09/10 22:13:16 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -208,6 +216,7 @@ my $SIMILARITYSEARCH;                           # Usefull for running similariti
 my $ISLOGFILE        = 0;                       # Just to know if the $LOG_FILE is not empty (0 or 1)
 my $MASTERFILE       = undef;                   # Path for Masterfile
 my $PEPFILE;                                    # Path for the peptide file used
+my $CACHE_PEPLIBRARY = {};                      # Cache of all proteins in library
 my $TAKEINPUTFILE;                              
 my $FLIPBLASTPROTS;                             # Array containing the Proteins predicted by Blast and Flip
 my @PROT_FOR_EXONERATE;                         # Array with homolog protein for Exonerate
@@ -262,6 +271,9 @@ my $MF2XMLPATH    = "/share/supported/apps/mf2xml/bin/mf2xml";
 my $CGVIEWPATH    = "/share/supported/apps/cgview/bin/cgview";
 my $EXONERATEPATH = "/share/supported/bin/exonerate";
 my $CLUSTALWPATH  = "/share/supported/bin/clustalw";
+
+# Parameters that don't have (yet) options on the command-line
+my $SHORT_HSPS_MIN_EVALUE = "1e-11";
 
 #############################
 # Environment Verifications #
@@ -366,9 +378,9 @@ $CODON_TABLE        = &CacheCodonTableWithGeneticId ($BIOCODONTABLE);
 my $count = 1;  
 foreach my $library (@$PEPLIBRARIES) {
     next if (not -d $library);
-    my $namefile = "$TMPDIR/library_" . $count;
+    my $namefile = "$TMPDIR/library_$count.pep";
     $count++;
-    my $tmppepfile = &CreatePepfileWithLibrary ($library, $namefile);
+    $CACHE_PEPLIBRARY = &CreatePepfileWithLibrary($library, $namefile);
     push (@PEPFILES ,$namefile);
     $PENAMEDISPLAY{"$namefile"} = $library;                                 # Associate, the name of the library for each peplibraries
 }
@@ -611,29 +623,42 @@ sub CreatePepfileWithLibrary {
     my $pepfile = shift;         # The name of the file wanted.
                                  # This one contains after the all peptides from the library
 
-    opendir (DIR, $library) or die 'can not open directory\n';        # Open the directory
-    my @files = grep {/\.pep$/ and -f "$library/$_"} readdir (DIR);   # Keep the existing *.pep files
+    opendir (DIR, $library) or die "Can not open directory '$library': $!\n"; # Open the directory
+    my @files = grep((/\.pep$/ and -f "$library/$_"), readdir(DIR));   # Keep the existing *.pep files
     close (DIR);                                                      # Close the directory
 
-    # Delete an hyp. previous same. file
-    unlink($pepfile) if (-f $pepfile);
+    my $outfh = new IO::File ">$pepfile"
+        or die "Can't write to library file '$pepfile': $!\n";
 
+    my $desc_to_prot = {}; # Save all proteins 
     # Concatenate all the file from the library
+    my $desc = "";
     foreach my $file (@files) {
         my $loc_file = "$library/$file";
         
-        my $PEP_F = new IO::File "$loc_file" || die ("Can not open the pepfile");
+        my $PEP_F = new IO::File "<$loc_file" or die "Can not open the pepfile '$loc_file': $!\n";
         while (my $line = <$PEP_F>) {
+            next if $line =~ /^;|^\s*$/;
             if ($line =~ /^>/) {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: $_"
                     if (!($line =~ /\s*([\S]*)\s*;/));
+                $desc = $line;
+                $desc =~ s/^>?\s*//;
+                $desc =~ s/\s*$//;
+                print $outfh ">$desc\n";
+                die "Error in library $library: duplicated FASTA header '$desc'.\n"
+                    if exists $desc_to_prot->{$desc};
+                next;
             }
+            print $outfh $line; # seq line
+            $line =~ s/^\s*//; # cleanup seq line
+            $line =~ s/\s*$//;
+            $desc_to_prot->{$desc} .= $line;
         }
         $PEP_F->close();
-        
-        system ("cat '$loc_file' >> '$pepfile'"); # Use the cat command to concatenate file in one
     }
-    return $pepfile;
+
+    return $desc_to_prot; # cache of all proteins in library
 } # End sub
 
 sub GetOptions {
@@ -821,7 +846,7 @@ sub RunFlip {
 sub BlastFlipVSGene {
     # It runs blast with the flip results against file containing genes 
     my $flag         = shift || "";    # Something to recognize, what is the pepfile treated
-    $BLASTOUTPUT     = $TMPDIR . "/blastoutput_$flag";
+    $BLASTOUTPUT     = $TMPDIR . "/blastoutput_$flag.xml";
     my $file         = $PEPFILE;                                # Undef should never happen in fact.
     my $escaped_file = $file;
     $escaped_file    =~ s#'#'\\'#g;         
@@ -830,7 +855,7 @@ sub BlastFlipVSGene {
     my $resformatdb  = system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "$BLASTPATH -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 } # End sub
@@ -851,15 +876,14 @@ sub ParseInformationFromBlastResult {
     die "Error: can't find $type report from blastall ?!?\n"
         if (! -r $blastoutput); # It's supposed to be here at this point
         
-    my $searchio = new Bio::SearchIO (
-                                       -format => 'blast',
-                                       -file   => $blastoutput,
-                                     );
+    my $searchfh = new IO::File "<$blastoutput"
+        or die "Can't read from '$blastoutput': $!\n";
                                      
-    while (my $result = $searchio->next_result() ) {
-        my $num = $searchio->result_count;
+    while (my $result = PirObject::BlastOutput->FileHandleToObject($searchfh)) {
         &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$tag);
-    } # End while
+    }
+
+    $searchfh->close();
     
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {
         my $homologous = $flipblastprot->homologous();
@@ -938,79 +962,85 @@ sub CompareHighPrecisionFloats {
     return ($xman <=> $yman);                    # $x and $y have same EXP, so compare mantissas
 }
 
-
 sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $pirmaster = shift; # Pirmaster object
     my $type      = shift; # 'DNA' or 'PROT'
-    my $result    = shift; # An object implementing Bio::SearchIO::Result::ResultI
+    my $result    = shift; # An object implementing PirObject::BlastOutput
     my $tag       = shift || "bVwXyZ";
 
     return if (!$result);
 
-    my $contigname = $result->query_name()        || "Unknown ID";
-       $contigname =~ s/\;//g;                      # Delete false caracter
-    my $rdesc      = $result->query_description() || "Unknown Query Description";
-    my $dbname     = $result->database_name()     || "Unknown DB name";
-    my @hits       = $result->hits();               # Bio::Search::Hit::HitI        
+    my $rdesc = $result->BlastOutput_query_def()  || "Unknown Query Description";
+    $rdesc =~ m/^\s*(\S+)/;
+    my $contigname = $1                           || "Unknown contig name";
+    $contigname =~ s/;$//; # spurious semicolon introduced by flip
+
+    my @hits       = ();
+    my $iterations = $result->BlastOutput_iterations() || return;
+    foreach my $iteration (@$iterations) {
+         my $hits = $iteration->Iteration_hits();
+         push(@hits,@$hits);
+    }
+
     my $numhits    = scalar(@hits);                 # normally, only one! 
     return if $numhits < 1;
 
+    # Note: the significance() method is defined in Hit.pir
+    @hits = sort { &CompareHighPrecisionFloats($a->significance(), $b->significance() ) } @hits;     
+
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
-    my $arrow = '==>';
-    $arrow    = '<==' if !($strand eq 'orig');
     $strand   = ($strand eq 'orig' ? 1 : -1);
-    my $hit   = $hits[0];    
 
     # Quit the function if evalue is too weak #
-    if ($hit->significance > $BLASTEVALUECUTOFF) {
+    # Note: CompareHighPrecisionFloats(a,b) returns: 1 if a > b, -1 if a < b, 0 if a == b
+    my $hit   = $hits[0];    
+    if (&CompareHighPrecisionFloats($hit->significance(),$BLASTEVALUECUTOFF) == 1) { 
         # If the e-value is not enough for these ORF you can create an Empty ORF 
         my $newemptyorf = new PirObject::EmptyOrf (
-                                                   start  => $start,
-                                                   end    => $end,
-                                                   strand => $strand,
-                                                   score  => $hit->significance,
+                                                   start      => $start,
+                                                   end        => $end,
+                                                   strand     => $strand,
+                                                   score      => $hit->significance,
                                                    contigname => $contigname,
                                                   );
         push (@$EMPTYORFS, $newemptyorf);          # Put into the array, to be processed after   
         return;                                    # Exit the function, because there is no significant ORF 
     }
-
+    
     # Now we have the start, we have the end, the strand and we would like to know if more than one hit is allowed
     my @overlapping;
-    
+
     my @homologous = ();
     for (my $i = 0 ; $i < 3; $i++) {
-        last if !$hits[$i];
-        my $name        = $hits[$i]->name();
-        my $description = $hits[$i]->description();
-        my $evalue      = $hits[$i]->significance();
-        my $fullheader  = "$name $description";
+        my $hit         = $hits[$i] || last;
+        my $fullheader  = $hit->Hit_def();
+        my $evalue      = $hit->significance();
+        next if &CompareHighPrecisionFloats($evalue,$BLASTEVALUECUTOFF) == 1; # $eva > $BL
         my $prot        = &TakeProteinFromPepfile ($fullheader, $PEPFILE);
         my $newhomologous = new PirObject::Homologous (
                                                         similarprot      => $prot,
                                                         score            => $evalue,
-                                                       ) if !($evalue > $BLASTEVALUECUTOFF);
-       push(@homologous,$newhomologous) if $newhomologous;
+                                                       );
+        push(@homologous,$newhomologous);
     }
     
     HIT : foreach my $hit (@hits) {
-        my $desc         = $hit->description();  # Get the description of the query sequence    
-        my ($hypprotein) = ($desc =~ /\s*([\S]*)\s*;/); 
+        my $fullheader   = $hit->Hit_def();  # Get the description of the query sequence
+        my ($hypprotein) = ($fullheader =~ /\s*(\S+)\s*;/); # prot name is before the semicolon
         next HIT if (not (defined ($hypprotein)) or $hypprotein eq "");
         my $score        = $hit->score();        # Get the blast score
         my $evalue       = $hit->significance(); # Get the e-value
-        my @hsps         = $hit->hsps;           # High Scoring pairs : Bio::Search::HSP::BlastHSP
+        my @hsps         = @{$hit->Hit_hsps()};  # High Scoring pairs
         
-        return if ($evalue > $BLASTEVALUECUTOFF);
-        return if (scalar(@hsps) == 0); # An ORF that has a good evalue but no HSP => impossible but ...
-        return if $hsps[0]->frac_identical < 0.5 && $evalue > "1e-11";
+        last if (scalar(@hsps) == 0); # An ORF that has a good evalue but no HSP => impossible but ...
+        last if &CompareHighPrecisionFloats($evalue,$BLASTEVALUECUTOFF) == 1; # ev > $BL
+        last if $hsps[0]->frac_identical() < 0.5 && &CompareHighPrecisionFloats($evalue,$SHORT_HSPS_MIN_EVALUE) == 1;
         
-        my $fullheader = $hit->name() . " " . $hit->description();
         my $prot = &TakeProteinFromPepfile ($fullheader, $PEPFILE);   # Take the protein corresponding to the hit
        
         #------- Calculate a sort of frame to see what's the region covered by this ORF
-        #  Story : You can have, for some case, more than one protein per gen.
+        #  Story : You can have, for some case, more than one protein per gene.
         #  It's a sort of fusion protein.
         #  Each of both have a functional part
         #-----------------------------------------------------------------------------#
@@ -1020,11 +1050,11 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         # If there is, it's probably because many similar proteins corresponds to the same gene
         
         my $frame      = {};
-        my $framestart = $hsps[0]->start;
-        my $frameend   = $hsps[0]->end;
+        my ($framestart,$frameend) = ($hsps[0]->start,$hsps[0]->end);
 
         # We don't need to check for strand because HSP are sorted as if there were on the right strand
         foreach my $hsp (@hsps) {
+            next if &CompareHighPrecisionFloats($hsp->significance,$BLASTEVALUECUTOFF) == 1; # si > BL
             $framestart     = $hsp->start if ($hsp->start < $framestart);
             $frameend       = $hsp->end   if ($hsp->end   > $frameend);
         }
@@ -1043,7 +1073,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
             # 2)            |----------------|      first frame
             #        |-----------------|            second frame
 
-            # 2)          |---------|               first frame
+            # 3)          |---------|               first frame
             #        |-----------------|            second frame
 
             # 4)    |-----------------|             first frame
@@ -1054,10 +1084,11 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
             $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) and ($frame -> {"end"} >=  $currentframe->{"start"}));
             $isoverlapping = 1 if (($frame -> {"start"} <=  $currentframe->{"start"}) and ($currentframe -> {"end"} <=  $frame->{"end"})); 
             $isoverlapping = 1 if (($currentframe -> {"start"} <=  $frame->{"start"}) and ($frame -> {"end"} <=  $currentframe->{"end"}));  
+
             last CURRENTFRAME  if $isoverlapping == 1; # Go out of the loop if there is a overlapping frame  
         }
         next HIT if ($isoverlapping == 1); # If there is an overlapping, the HIT isn't good for annotation
-        push (@overlapping, $frame) if ($isoverlapping == 0);
+        push (@overlapping, $frame);
 
         my $neworf = new PirObject::Orf (
                                          start      => $start,
@@ -1073,17 +1104,17 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $refhsparray = $neworf->hsps;           # An array reference,                          
         foreach my $hsp (@hsps) {
             my $newhsp = new PirObject::Hsp_query_sbjct (
-                                                         start_q  => $hsp->start('query'),
-                                                         end_q    => $hsp->end('query'),
-                                                         start_s  => $hsp->start('sbjct'),
-                                                         end_s    => $hsp->end('sbjct'),
-                                                         strand   => $hsp->strand
+                                                         start_q  => $hsp->Hsp_query_from(),
+                                                         end_q    => $hsp->Hsp_query_to(),
+                                                         start_s  => $hsp->Hsp_hit_from(),
+                                                         end_s    => $hsp->Hsp_hit_to(),
+                                                         strand   => 0,
                                                         );
             push (@$refhsparray, $newhsp);
 
-            if ($hsp->start('query') > $hsp->start('sbjct')) {
-                my $start_cor = $start + ( ($hsp->start('query') *3) - ($hsp->start('sbjct') *3) ) if $strand == 1;
-                   $start_cor = $start - ( ($hsp->start('query') *3) - ($hsp->start('sbjct') *3) ) if $strand != 1;
+            if ($hsp->Hsp_query_from() > $hsp->Hsp_hit_from()) {
+                my $start_cor = $start + ( ($hsp->Hsp_query_from() *3) - ($hsp->Hsp_hit_from() *3) ) if $strand == 1;
+                   $start_cor = $start - ( ($hsp->Hsp_query_from() *3) - ($hsp->Hsp_hit_from() *3) ) if $strand != 1;
                 push (@start_b, $start_cor);
             }
         }
@@ -1094,18 +1125,18 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         push (@$newstartblast, $start_bl);
 
         my $newflipblastprot = GetFlipBlastProtByNameAndContigName($hypprotein, $contigname);
-
+        
         # If we can't find it, create it once, and push it on @$FLIPBLASTPROTS
         if (! defined ($newflipblastprot)) {
             $newflipblastprot = new PirObject::FlipBlastProt (
-                                                                 name       => $hypprotein, # First we create the flipblast prot
-                                                                 contigname => $contigname,
-                                                                 orfs       => [],
-                                                                 homologous => []
+                                                                 name           => $hypprotein, # First we create the flipblast prot
+                                                                 contigname     => $contigname,
+                                                                 orfs           => [],
+                                                                 homologous     => []
                                                                 );
             push (@$FLIPBLASTPROTS, $newflipblastprot);
         }
-
+        
         my $ref_orf_array        = $newflipblastprot->get_orfs();
         my $ref_homologous_array = $newflipblastprot->get_homologous();
         push (@$ref_orf_array, $neworf);    #    And we just add a new orf
@@ -1119,34 +1150,15 @@ sub TakeProteinFromPepfile {
     # This function takes a protein from the blast result with a descritpion line
     # A kind of pareser of fasta file
     my $description = shift;
-    my $pepfile     = shift;
-    my $protein     = "";
+    my $pepfile     = shift; # not used anymore
+
+    $description =~ s/^>?\s*//;
+    $description =~ s/\s*$//;
+
+    my $protein     = $CACHE_PEPLIBRARY->{$description}
+       || die "Internal error: can't find library protein with description '$description'.\n";
     
-    die "Impossible to read $pepfile" if (not (-f $PEPFILE));
-    my $PEP_F = new IO::File "$PEPFILE" or die "Could not open $PEPFILE";
-
-    # Parse the file, containing pep sequences
-    my $parsebegin = 0;  
-
-    $description =~ s/([^\w\s])/\\$1/g;
-    $description =~ s/\s+/\\s+/g;
-
-    while (my $line = <$PEP_F>) {
-        chomp $line;
-        next if ($line =~ /^\s*[;]/);  # Don't parse line if it begins with ; 
-        if ($line =~ /$description/ and $line =~ /^\s*\>/ and $parsebegin == 0) {
-            $protein .=  "$line\n";
-            $parsebegin = 1;  
-            next;
-        }
-        last if ($parsebegin == 1  and $line =~ /^\s*\>/); # Finish if meet an other protein
-        if ($parsebegin == 1) {    # Get the line.
-            $protein .=  "$line\n";
-        }
-    } # End while
-    die "Cannot find protein for $description in $PEPFILE\n" if $protein eq "";
-    $PEP_F->close();
-    return $protein;
+    return ">$description\n" . $protein;
 } # End sub
 
 sub GetFlipBlastProtByNameAndContigName {
@@ -1482,7 +1494,8 @@ sub FindExonsInHypProtArray {
         my ($name, $contigname, $protein, $strand, $homologous) = @$info;
 
         # In order to have the contig sequence
-        my $contig  = $pirmaster->GetContigByName ($contigname);
+        my $contig  = $pirmaster->GetContigByName($contigname)
+            or die "Internal error: can't find contig named '$contigname'.\n";
         my $dna_seq = $contig->sequence;
            $dna_seq =~ s/\!//g;
         my $seq     = ">sequence\n";
@@ -4635,27 +4648,28 @@ sub choice_orf {
             $ORFFILE->close();
             
             # RUN FOR BLAST : run blast with the db created and the flip results        
-            my $cmdblast = "$BLASTPATH -p blastp -d $TMPDIR/mf_intronic_orf -i $name_of_file -D $GENCODE -o $output 2> $TMPDIR/blasterr_1.txt";
+            my $cmdblast = "$BLASTPATH -m 7 -p blastp -d $TMPDIR/mf_intronic_orf -i $name_of_file -D $GENCODE -o $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
         }
         
-        die "Error: can't find $type report from blastall ?!?\n"
-            if (! -r $output); # It's supposed to be here at this point.
-            
-        my $searchio = new Bio::SearchIO (
-                                       -format => 'blast',
-                                       -file   => $output,
-                                     );
+        my $searchfh = new IO::File "<$output"
+           or die "Error: can't find $type report from blastall ?!?\n";
+        my @results = PirObject::BlastOutput->FileHandleToObject($searchfh);
+        $searchfh->close();
 
-        my $result = $searchio->next_result();
-        my $num    = $searchio->result_count;
-        die "We have most of 1 blast result for 1 orf " if $num > 1;
-        my @hits   = $result->hits();               # Bio::Search::Hit::HitI
+        my $num    = @results;
+        die "We have more than 1 blast result for 1 orf\n" if $num > 1;
+
         $orf->[1]->set_score (9999);                # Really bad evalue by default
-        next if !@hits;
-        my $best_evalue = $hits[0]->significance;
-        $orf->[1]->set_score ($best_evalue);
+
+        my $iters  = $results[0]->BlastOutput_iterations() || next;
+        next if @$iters == 0;
+        my $hits   = $iters->[0]->Iteration_hits();
+        next if !@$hits;
+        my $best_evalue = $hits->[0]->significance();
+
+        $orf->[1]->set_score($best_evalue);
     }
     
     my @orfs_sorted = sort{ $a->[1]->get_score() <=> $b->[1]->get_score()
