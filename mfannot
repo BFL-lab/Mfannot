@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.13 2008/09/10 22:13:16 riouxp Exp $
+#    $Id: mfannot,v 2.14 2008/09/12 18:33:10 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.14  2008/09/12 18:33:10  riouxp
+#    Changed field "score" to "evalue" in many PirObjects. Made
+#    sure CompareHighPrecisionFloats() is used for evalue comparisons.
+#
 #    Revision 2.13  2008/09/10 22:13:16  riouxp
 #    Re-engineered the Blast Output parsing code; we know generate
 #    the blast reports in XML and use PirObject::BlastOutput as
@@ -185,7 +189,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.13 2008/09/10 22:13:16 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.14 2008/09/12 18:33:10 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -888,7 +892,7 @@ sub ParseInformationFromBlastResult {
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {
         my $homologous = $flipblastprot->homologous();
         my @sorted = sort {
-            &CompareHighPrecisionFloats($a->get_score(),$b->get_score());
+            &CompareHighPrecisionFloats($a->get_evalue(),$b->get_evalue());
         } @$homologous;
         my $length = scalar(@sorted);
            $length = ($length < 3 ? $length : 3 );
@@ -1001,7 +1005,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
                                                    start      => $start,
                                                    end        => $end,
                                                    strand     => $strand,
-                                                   score      => $hit->significance,
+                                                   evalue     => $hit->significance(),
                                                    contigname => $contigname,
                                                   );
         push (@$EMPTYORFS, $newemptyorf);          # Put into the array, to be processed after   
@@ -1020,7 +1024,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $prot        = &TakeProteinFromPepfile ($fullheader, $PEPFILE);
         my $newhomologous = new PirObject::Homologous (
                                                         similarprot      => $prot,
-                                                        score            => $evalue,
+                                                        evalue           => $evalue,
                                                        );
         push(@homologous,$newhomologous);
     }
@@ -1029,7 +1033,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $fullheader   = $hit->Hit_def();  # Get the description of the query sequence
         my ($hypprotein) = ($fullheader =~ /\s*(\S+)\s*;/); # prot name is before the semicolon
         next HIT if (not (defined ($hypprotein)) or $hypprotein eq "");
-        my $score        = $hit->score();        # Get the blast score
         my $evalue       = $hit->significance(); # Get the e-value
         my @hsps         = @{$hit->Hit_hsps()};  # High Scoring pairs
         
@@ -1095,7 +1098,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
                                          startBlast => [],
                                          end        => $end,
                                          strand     => $strand,
-                                         score      => $evalue,
+                                         evalue     => $evalue,
                                          protein    => $prot,    # Assign the protein to the ORF 
                                          hsps       => []
                                         );
@@ -1197,7 +1200,7 @@ sub Select_protein {
             foreach my $orf(@$orfs) {
                 $strand{1}++  if $orf->strand == 1;
                 $strand{-1}++ if $orf->strand == -1;
-                my $info_prot_score = [$orf->score, $orf->protein];
+                my $info_prot_score = [$orf->evalue(), $orf->protein];
                 push (@prot_score, $info_prot_score);
             }
  
@@ -1339,7 +1342,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       numorfs    => 1,
                                                       remark     => "",
                                                       protein    => $orf->protein,
-                                                      score      => $orf->score, 
+                                                      evalue     => $orf->evalue(), 
                                                       exons      => [],
                                                       introns    => [],
                                                      );
@@ -1358,7 +1361,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       numorfs    => 1,
                                                       remark     => "",
                                                       protein    => $orf->protein,
-                                                      score      => $orf->score,  
+                                                      evalue     => $orf->evalue(),  
                                                       exons      => [],
                                                       introns    => [],
                                                      );                 
@@ -1390,9 +1393,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                     $newhypprot->set_end ($newend);
 
                     # Check which protein is the best
-                    if ($orf->score < $newhypprot->score) {
-                        $newhypprot->set_protein ($orf->protein);
-                        $newhypprot->set_score ($orf->score);
+                    if (&CompareHighPrecisionFloats($orf->evalue(),$newhypprot->evalue()) == -1) {
+                        $newhypprot->set_protein($orf->protein);
+                        $newhypprot->set_evalue($orf->evalue());
                     }
 
                     # Increase from 1, the number of orf, if we concatenate
@@ -1412,7 +1415,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           numorfs    => 1,
                                                           remark     => "",
                                                           protein    => $orf->protein,
-                                                          score      => $orf->score, 
+                                                          evalue     => $orf->evalue(), 
                                                           exons      => [],
                                                           introns    => [],
                                                         );
@@ -1443,9 +1446,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                     $newhypprot->set_end ($newend);
 
                     # Check which protein is the best
-                    if ($orf->score < $newhypprot->score) {
+                    if (&CompareHighPrecisionFloats($orf->evalue(),$newhypprot->evalue()) == -1) {
                         $newhypprot->set_protein ($orf->protein);
-                        $newhypprot->set_score ($orf->score);
+                        $newhypprot->set_evalue($orf->evalue());
                     }
 
                     # Add 1 to the number of orf if there is concatenation
@@ -1465,7 +1468,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           numorfs    => 1,
                                                           remark     => "", 
                                                           protein    => $orf->protein,
-                                                          score      => $orf->score, 
+                                                          evalue     => $orf->evalue(), 
                                                           exons      => [],
                                                           introns    => [],
                                                          );
@@ -1742,7 +1745,6 @@ sub FindExonsInHypProtArray {
                                                   numorfs    => 1,
                                                   remark     => "",
                                                   protein    => $protein,
-                                                  score      => "", 
                                                   exons      => [],
                                                   introns    => [],
                                                   homologous => $homologous,
@@ -4661,7 +4663,7 @@ sub choice_orf {
         my $num    = @results;
         die "We have more than 1 blast result for 1 orf\n" if $num > 1;
 
-        $orf->[1]->set_score (9999);                # Really bad evalue by default
+        $orf->[1]->set_evalue(9999);                # Really bad evalue by default
 
         my $iters  = $results[0]->BlastOutput_iterations() || next;
         next if @$iters == 0;
@@ -4669,10 +4671,10 @@ sub choice_orf {
         next if !@$hits;
         my $best_evalue = $hits->[0]->significance();
 
-        $orf->[1]->set_score($best_evalue);
+        $orf->[1]->set_evalue($best_evalue);
     }
     
-    my @orfs_sorted = sort{ $a->[1]->get_score() <=> $b->[1]->get_score()
+    my @orfs_sorted = sort{ &CompareHighPrecisionFloats($a->[1]->get_evalue(),$b->[1]->get_evalue())
                                                   ||
                             $b->[1]->get_size()  <=>  $a->[1]->get_size() } @$orfs;
     
