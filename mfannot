@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.15 2008/09/12 19:51:47 nbeck Exp $
+#    $Id: mfannot,v 2.16 2008/09/13 19:06:19 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.16  2008/09/13 19:06:19  riouxp
+#    Added date, time, user and hostname in masterfile header.
+#
 #    Revision 2.15  2008/09/12 19:51:47  nbeck
 #    Added support for fusioned genes.
 #
@@ -173,6 +176,7 @@ use List::Util qw(max);
 use List::Util qw(min);
 use File::Copy;
 use Term::ANSIColor;
+use Sys::Hostname;
 
 BEGIN {
 # Load PirObject
@@ -193,7 +197,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.15 2008/09/12 19:51:47 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.16 2008/09/13 19:06:19 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -5448,6 +5452,7 @@ sub LogInfo {
     }
     push(@report, $rep) if $cnt;
     push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
+    push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
     push (@$header, ";;    - New annotations labeled with: MFFEAT=$TAGNAME") 
     if $ADDCOMMENTS;  # We only put this sentence if option addcomments is activated
     push (@$header, @report, ";;",);
