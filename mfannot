@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.16 2008/09/13 19:06:19 riouxp Exp $
+#    $Id: mfannot,v 2.17 2008/09/19 21:31:14 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.17  2008/09/19 21:31:14  nbeck
+#    Fixed annotation of genes with introns
+#
 #    Revision 2.16  2008/09/13 19:06:19  riouxp
 #    Added date, time, user and hostname in masterfile header.
 #
@@ -39,7 +42,7 @@
 #    sure CompareHighPrecisionFloats() is used for evalue comparisons.
 #
 #    Revision 2.13  2008/09/10 22:13:16  riouxp
-#    Re-engineered the Blast Output parsing code; we know generate
+#    Re-engineered the Blast Output parsing code; we now generate
 #    the blast reports in XML and use PirObject::BlastOutput as
 #    our model class instead of Bio::SearchIO. This improves efficiency
 #    by 4x ! Also, the internal routine to extract protein sequences
@@ -197,7 +200,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.16 2008/09/13 19:06:19 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.17 2008/09/19 21:31:14 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -585,6 +588,11 @@ undef $EMPTYORFS;
 # Dump it
 print "Dumping new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
+
+if (0) {
+print "Dumping PirMaster object to $OUTPUTFILE.xml\n";
+$pirmaster->ObjectToFile("$OUTPUTFILE.xml");
+}
 
 if (($WITHMAP ne "") and ($numbercontigs==1)) {
     &CreateMap;
@@ -1474,7 +1482,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
 sub FindExonsInHypProtArray {
     # The main is to find exons by making a local alignement
     my $pirmaster = shift;        # The masterfile object
-
+    
     mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create work directory '$TMPDIR/Exonerate': $!\n";
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
 
@@ -1542,7 +1550,7 @@ sub FindExonsInHypProtArray {
         my $flobj = new PirObject::ExonerateOutput();
         $flobj->FillFeaturesFromTextOutput(\@tab);
 
-        my $ExoReports          = $flobj->report;                               # One report contain information about one C4 section present in exonerate Output
+        my $ExoReports          = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
 
         my @sorted_report  = sort { $a->get_query_start() <=> $b->get_query_start()
                                ||   $a->get_query_stop()  <=> $b->get_query_stop()   } @$ExoReports;
@@ -1710,9 +1718,20 @@ sub FindExonsInHypProtArray {
     
             @exon_start_end = sort { $a->[3] <=> $b->[3] || $a->[0] <=> $b->[0] || $a->[1] <=> $b->[1] } @exon_start_end if $strand != -1;
             @exon_start_end = sort { $a->[3] <=> $b->[3] || $b->[0] <=> $a->[0] || $b->[1] <=> $a->[1] } @exon_start_end if $strand == -1;
-
-
-            my @intron_start_end; # Define the tab of intron with the information about exons localisation
+            
+            # Check if we haven't an exon that's makes no sense
+            my ($gene_start,$gene_end) = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
+            ($gene_start,$gene_end)    = ($gene_end,$gene_start) if $strand == -1;
+            
+            for (my $i = @exon_start_end - 1; $i >= 0 ; $i--) {
+                my $start       = $exon_start_end[$i]->[0];
+                my $end         = $exon_start_end[$i]->[1];
+                next if !$start || !$end;
+                splice(@exon_start_end, $i, 1) if ($start < $gene_start ) || ($end > $gene_end) ;
+            }
+            
+            # Define the tab of intron with the information about exons localisation
+            my @intron_start_end; 
             for (my $i = 0; $i < (@exon_start_end-1); $i++) {
                 my $start  = $exon_start_end[$i]->[1] + 1;
                    $start  = $exon_start_end[$i]->[1] - 1   if $strand == -1;
@@ -3492,6 +3511,7 @@ sub Adjust_all_intronic_junctions {
         
         my $a_introntype = $annot->introntype() || "";
         my $adjust_info = &Add_splicescore($contig,$annot,$use_seq,\%adjustement);
+        return if !$adjust_info;
         push(@$intron, $adjust_info);
     } # End foreach $intron
     
@@ -3714,7 +3734,7 @@ sub Add_splicescore {
     my $previous_exon_name  = $name_intron."-E".$num_intron;
     my $next_exon_name      = $name_intron."-E".($num_intron+1);
     my ($previous_exon_feat,$next_exon_feat) = &Previous_and_next_exons($previous_exon_name,$next_exon_name,$annot_who_overlap);
-    last if (!$previous_exon_feat || !$next_exon_feat);
+    return if (!$previous_exon_feat || !$next_exon_feat);
     
     # Length of previous exon
     my $previous_exon_length = &Length_annot($previous_exon_feat);
