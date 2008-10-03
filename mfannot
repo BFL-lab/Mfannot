@@ -25,9 +25,13 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.17 2008/09/19 21:31:14 nbeck Exp $
+#    $Id: mfannot,v 2.18 2008/10/03 22:12:28 riouxp Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.18  2008/10/03 22:12:28  riouxp
+#    Added de-escaping of certain XML entities (apos and quot) when
+#    looking up protein sequences from library.
+#
 #    Revision 2.17  2008/09/19 21:31:14  nbeck
 #    Fixed annotation of genes with introns
 #
@@ -200,7 +204,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.17 2008/09/19 21:31:14 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.18 2008/10/03 22:12:28 riouxp Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1179,6 +1183,11 @@ sub TakeProteinFromPepfile {
 
     $description =~ s/^>?\s*//;
     $description =~ s/\s*$//;
+
+    # Certain XML entitites are produced by blastall's XML output,
+    # but not handled by PirObject XML parser. Replace them here.
+    $description =~ s/&apos;/'/g;
+    $description =~ s/&quot;/"/g;
 
     my $protein     = $CACHE_PEPLIBRARY->{$description}
        || die "Internal error: can't find library protein with description '$description'.\n";
