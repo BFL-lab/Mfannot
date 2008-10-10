@@ -25,9 +25,12 @@
 #                                                                            #
 ##############################################################################
 #
-#    $Id: mfannot,v 2.18 2008/10/03 22:12:28 riouxp Exp $
+#    $Id: mfannot,v 2.19 2008/10/10 21:10:17 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.19  2008/10/10 21:10:17  nbeck
+#    Fixed bug for usage of clustalW
+#
 #    Revision 2.18  2008/10/03 22:12:28  riouxp
 #    Added de-escaping of certain XML entities (apos and quot) when
 #    looking up protein sequences from library.
@@ -204,7 +207,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.18 2008/10/03 22:12:28 riouxp Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.19 2008/10/10 21:10:17 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2275,10 +2278,13 @@ sub MakeFileForAlignment {
     my $file_for_alignment = new IO::File ">$name_of_file" or die "Impossible to open $name_of_file\n";
     
     # Write into the file
+    my $id = "a"; # Use in order to be sure that's two seq use by clustalW have differnt name
     foreach my $homologous (@$homologous) {
         my $similar_prot = $homologous->get_similarprot();
            $similar_prot =~ s/\n+$//;
+           $similar_prot =~ s/^>(.+)/>$id $1/;
         print $file_for_alignment "$similar_prot\n\n";
+        $id++;
     }
     
     my $format_prot = &Format($prot); 
@@ -3674,7 +3680,7 @@ sub Adjust_TypeII {
                                   || $a->[2] <=> $b->[2]
                                   || $a->[3] <=> $b->[3]} @tab_scores;
 
-    if ($tab_scores[0]->[0] < 40){
+    if (!$tab_scores[0]->[0] || $tab_scores[0]->[0] < 40) {
         &AddCommentToAnnotField($annot,"startline",";;  Cannot adjust boundaries");
         &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries");
         return;
