@@ -15,19 +15,32 @@
 #
 ##############################################################################
 
-##############################################################################
-#                                                                            #
-#                       CONFIDENTIAL & PROPRIETARY                           #
-#       Nothing herein is to be disclosed in any way without the prior       #
-#           express written permission of Franz Lang                         #
-#                                                                            #
-#          Copyright 2004 Franz Lang lab, All rights reserved.               #
-#                                                                            #
-##############################################################################
+#############################################################################
+#                                 MFANNOT                                   #
+#                                                                           #
+#                          Copyright (C) 2008                               #
+#                         Departement de Biochimie,                         #
+#                          Universite de Montreal,                          #
+#                     C.P. 6128, succursale Centre-ville,                   #
+#                      Montreal, Quebec, Canada, H3C 2J7                    #
+#                                                                           #
+#                       Programming:  Natacha Beck, Pierre Rioux,           #
+#                                     David To, Thomas Hoellinger.          #
+#                Project management: Franz Lang (OGMP)                      #
+#                E-Mail information: Franz.Lang@Umontreal.ca                #
+#                                                                           #
+#     This software is distributed under the GNU GENERAL PUBLIC LICENSE, as #
+# published by the Free Software Foundation. A copy of version 2 of this    #
+# license should be included in a file called COPYING. If not, write to the #
+# Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
+#############################################################################
 #
-#    $Id: mfannot,v 2.19 2008/10/10 21:10:17 nbeck Exp $
+#    $Id: mfannot,v 2.20 2008/12/23 21:48:02 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.20  2008/12/23 21:48:02  nbeck
+#    *** empty log message ***
+#
 #    Revision 2.19  2008/10/10 21:10:17  nbeck
 #    Fixed bug for usage of clustalW
 #
@@ -185,7 +198,6 @@ use Bio::Matrix::IO;                                  # Used for read matrix lik
 use List::Util qw(max);
 use List::Util qw(min);
 use File::Copy;
-use Term::ANSIColor;
 use Sys::Hostname;
 
 BEGIN {
@@ -207,7 +219,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.19 2008/10/10 21:10:17 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.20 2008/12/23 21:48:02 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -239,22 +251,18 @@ my $ISLOGFILE        = 0;                       # Just to know if the $LOG_FILE 
 my $MASTERFILE       = undef;                   # Path for Masterfile
 my $PEPFILE;                                    # Path for the peptide file used
 my $CACHE_PEPLIBRARY = {};                      # Cache of all proteins in library
-my $TAKEINPUTFILE;                              
+my $TAKEINPUTFILE;
 my $FLIPBLASTPROTS;                             # Array containing the Proteins predicted by Blast and Flip
 my @PROT_FOR_EXONERATE;                         # Array with homolog protein for Exonerate
 my $HYPPROTS;                                   # Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $OUTPUTFILE;                                 # Path for the new
-my $NEWRCFILE;                                  # 0 or 1 : print if a new rcfile is generated
-my $NORCFILE;                                   # 0 or 1, if a rcfile has been used for loading data
-my $RCFILE;                                     # The rcfile used for loading options
 my $ORFPROCESS;                                 # Allows ORF appearing in the masterfile as annotations
 my $LOADSTRICT;                                 # Load strict Masterfile
 my $ADDCOMMENTS;                                # Add comments into masterfile (0 or 1) as mfeat=.....
-my $CHECKORFS;                                  # Say if yes or not have to check for orf, if no all orfs appears in mf                                   
+my $CHECKORFS;                                  # Say if yes or not have to check for orf, if no all orfs appears in mf
 my $PEPLIBRARIES;                               # The libraries, in input, by default datagenescollection and dataorfcollection
 my $INPUTPEPFILES;                              # The input files
 my @PEPFILES;                                   # The pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
-my $WITHMAP;                                    # The allowed extension for the map. Png or svg
 my $SIZE;                                       # The sensitivite of warning for the long protein, it's a percentage
 my $STARTBEFORE;                                # The distance who is use in order to define the really start position before blast
 my $STARTAFTER;                                 # The distance who is use in order to define the really start position after blast
@@ -265,8 +273,9 @@ my $BLASTOUTPUT       = "";                     # The path for blast file result
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;                    # Minimum size of a gap between 2 ORf. If 2 same ORF
+my $MAXLENINTRONS;                              # Max intron size for exonerate.
 my $MINLENEMPTYORF;                             # Minimum length for ORF empty orfs (non corresponding orfs)
-my $OVERLAPPINGCUTOFF;                          # Overlapping cutoff for ORFs 
+my $OVERLAPPINGCUTOFF;                          # Overlapping cutoff for ORFs
 my $MININTRONSIZE;                              # Opposite of MAXLENGTHFORGROUPINGORF. Minimum size for intron
 my $MINEXONSIZE;                                # Minimum exon size for intron. In genewise.
 my $MATRIX;                                     # The matrix used in genewise alignement
@@ -274,46 +283,82 @@ my $CODON_TABLE;                                # Hashtable with genetic code
 my $NBCONTIGS        = 0;                       # The number of contigs
 my $PARTIAL;                                    # This will cause mfannot to only run a subset of all its built-in analysis
 
-my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --intronpenalty -35 --nosplicesignal T"; 
-
-# Initialization of matrix, here PAM70
-my $parser           = new Bio::Matrix::IO(-format => 'scoring',
-                                           -file   => '/share/supported/apps/ncbi/data/PAM70');
-my $matrix           = $parser->next_matrix;
-
 # Two booleans used in order to know if annotation of introns has been made
 my ($annotate_intron_typeI,$annotate_intron_typeII)  = (0,0);
 
 # Command line Program's paths
-my $BLASTPATH     = "/share/supported/apps/ncbi/bin/blastall";
-my $FORMATDBPATH  = "/share/supported/apps/ncbi/bin/formatdb";
-my $FLIPPATH      = "/share/supported/apps/ogmp/bin/flip";
-my $MF2XMLPATH    = "/share/supported/apps/mf2xml/bin/mf2xml";
-my $CGVIEWPATH    = "/share/supported/apps/cgview/bin/cgview";
-my $EXONERATEPATH = "/share/supported/bin/exonerate";
-my $CLUSTALWPATH  = "/share/supported/bin/clustalw";
+my $PATH = $ENV{"PATH"} || "";
+my @PATH = split(/:/, $PATH);
 
+#my $h = $ENV{"HOME"};
+my $BLASTPATH               = &GetPath("blastall");#"$h/blast-2.2.18/bin/blastall";
+my $FORMATDBPATH            = &GetPath("formatdb");
+my $FLIPPATH                = &GetPath("flip");
+my $EXONERATEPATH           = &GetPath("exonerate");
+my $CLUSTALWPATH            = &GetPath("clustalw");
+my $HWCOMBINERPATH          = &GetPath("HWcombiner");
+my $POTRES2APCOLPATH        = &GetPath("PotRes2APCol");
+my $TRNA_RES2APCOLPATH      = &GetPath("tRNA_res2APcol");
+my $INTRONIC_RES2APCOLPATH  = &GetPath("Intronic_res2APcol");
+my $RNAWEASEL_RES2APCOLPATH = &GetPath("RNAweasel_res2APcol");
+
+# First get option in order to check some variables.
+&GetOptions ;     # Get the different options and put them into global variables
+
+my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --nosplicesignal T"; 
+
+# Models and lib path
+my @MOD_PATH      = (
+    # You can add other search directories here
+    ($ENV{"HOME"} || ".") . "/mfannot_models",
+);
+
+push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"}))
+    if $ENV{"MFANNOT_MOD_PATH"};
+    
+my $MODEL_PATH = "";
+foreach my $path (@MOD_PATH) {
+    next if !(-d $path);
+    $MODEL_PATH = $path;
+}
+
+$MODEL_PATH =~ s/\/$//;
+die "No path for ErpinModels and HMMweaselModels were found\n"
+    if !$MODEL_PATH;
+
+#---------------------------#
+my @LIB_PATH      = (
+# You can add other search directories here
+($ENV{"HOME"} || "."));
+
+push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"}))
+    if $ENV{"MFANNOT_LIB_PATH"};
+
+#Check for directory
+my $intronic_lib    = "";
+foreach my $dir (@LIB_PATH) {
+    next if !( -e "$dir/intronic/intronic_orfs.pep" );
+    $intronic_lib    = "$dir/intronic/intronic_orfs.pep";
+    last;
+}
+die "No file was found for intronic orfs library\n"
+     if !$intronic_lib;
+
+die "Please make sure the BLASTMAT environment variable is set\n".
+    "to point to a directory where the blast matrices are stored.\n"
+    unless defined($ENV{"BLASTMAT"}) and (-d $ENV{"BLASTMAT"}) and (-f ($ENV{"BLASTMAT"} . "/PAM70"));
+
+my $matrix_path = $ENV{"BLASTMAT"}."/PAM70";
+
+my $parser           = new Bio::Matrix::IO(-format => 'scoring',
+                                           -file   => $matrix_path);
+my $matrix           = $parser->next_matrix;
+
+    
 # Parameters that don't have (yet) options on the command-line
 my $SHORT_HSPS_MIN_EVALUE = "1e-11";
 my $MULTIORFS             = 1;         # Permit 2 annotations for an ORF, before it was an option
 
-#############################
-# Environment Verifications #
-#############################
-# Added by David To 11th February 2005
-$ENV{"BLASTMAT"} = "/share/supported/apps/ncbi/data";
-
-die "Please make sure the BLASTMAT environment variable is set\n" .
-    "to point to a directory where the blast matrices are stored.\n"
-    unless defined($ENV{"BLASTMAT"}) and (-d $ENV{"BLASTMAT"}) and (-f ($ENV{"BLASTMAT"} . "/PAM30"));
-
-# Check if the programmes exist !
-&TestFile($BLASTPATH);
-&TestFile($FORMATDBPATH);
-&TestFile($FLIPPATH);
-&TestFile($MF2XMLPATH);
-&TestFile($CGVIEWPATH);
-&TestFile($EXONERATEPATH);  
 
 ################
 # Trap Signals #
@@ -329,9 +374,7 @@ $SIG{'ALRM'} = \&SigCleanup;
 #   M A I N   P R O G R A M   #
 ###############################
 
-&GetOptions ;     # Get the different options and put them into global variables
-
- my $LOG_F = new IO::File ">$LOG_FILE" if $ISLOGFILE;
+my $LOG_F = new IO::File ">$LOG_FILE" if $ISLOGFILE;
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
@@ -348,39 +391,18 @@ my $add_text_in_header = "";
 my $options ="----------------------------------\n".
              "        General Options           \n".
              "----------------------------------\n";
-
-if ($NORCFILE) {
-    $options .= "No rcfile used for options\n";
-}
-else {
-    $options .= "$RCFILE used for loading options\n";
-}
-
 $options .= "Masterfile used : $MASTERFILE\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
-$options .= "the map $OUTPUTFILE.$WITHMAP will be generated\n" if ($WITHMAP ne "");
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
 $options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
-$options .= "New rcfile generated in .mfannotrc\n" if $NEWRCFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 $options .= "Usage of RNAweasel\n";
 $options .= "Search of start $STARTBEFORE aa before the start of blast match\n";
 $options .= "Search of start $STARTAFTER aa after the start of blast match\n";
 $options .= "Warning if the protein make +/- $SIZE percent of homologous protein\n";
 $options .= "The Path of configfile is : $EXTCONFIGFILE";
-
-if ($SIMILARITYSEARCH) {
-    foreach my $pep (@$PEPLIBRARIES) {
-        $options .= "Look in the peptide library $pep\n";
-    }
-    foreach my $pep (@$INPUTPEPFILES) {
-        $options .= "Peptide file $pep\n";
-    }
-}
-else {
-    $options .=  "Any search in gene similarity for annotation\n";
-}
+$options .= "Look in the peptide library $PEPLIBRARIES\n";
 
 print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
 print $options if $DEBUG;                        # Print the options on the screen 
@@ -392,26 +414,14 @@ mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
 my $BIOCODONTABLE   = Bio::Tools::CodonTable->new( -id => $GENCODE);
 $CODON_TABLE        = &CacheCodonTableWithGeneticId ($BIOCODONTABLE);
 
-# PEPFILES CREATION #
-# Fill the variable @PEPFILES
-# A list of pepfiles, and run mfannot for each of them
-
-# 1) First, create the list of the pepfiles with the libraries
-my $count = 1;  
-foreach my $library (@$PEPLIBRARIES) {
-    next if (not -d $library);
-    my $namefile = "$TMPDIR/library_$count.pep";
-    $count++;
-    $CACHE_PEPLIBRARY = &CreatePepfileWithLibrary($library, $namefile);
-    push (@PEPFILES ,$namefile);
-    $PENAMEDISPLAY{"$namefile"} = $library;                                 # Associate, the name of the library for each peplibraries
-}
-
-# 2) Second, push the input pepfiles in the pepfile array
-foreach my $file (@$INPUTPEPFILES) {
-       push (@PEPFILES, $file);
-       $PENAMEDISPLAY{"$file"} = $file;                                    # Associate the same name, 
-}
+# LIB CREATION #
+die "'$PEPLIBRARIES' isn't a directory\n" 
+    if (not -d $PEPLIBRARIES);
+my $LIB_FILE                   = "$TMPDIR/library.pep";
+   $CACHE_PEPLIBRARY           = &CreatePepfileWithLibrary($PEPLIBRARIES , $LIB_FILE);
+   $PENAMEDISPLAY{"$LIB_FILE"} = $PEPLIBRARIES;     # Associate, the name of the library for each peplibraries
+die "Unable to read '$LIB_FILE'\n" 
+    if (not -r $LIB_FILE);
 
 # ANNOTATION # 
 # Print option of the annotation
@@ -422,21 +432,21 @@ print $LOG_F  "----------------------------------\n",
               "         Gene Annotation          \n",
               "----------------------------------\n" if $ISLOGFILE;
 
-if ($SIMILARITYSEARCH) {
-    $options  = "Options : \n";                  # Options & parameters used for the blast
-    $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
-    $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
-    $options .= "Minimum exon size : $MINEXONSIZE\n";
-    $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
-    $options .= "Minimum intron size : $MININTRONSIZE\n";
-    $options .= "Force annotation\n" if ($FORCEANNOT);
-    $options .= "Matrix : $MATRIX\n";
-    $options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
-    $options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
 
-    print $options if $DEBUG;
-    print $LOG_F $options if $ISLOGFILE;
-}
+$options  = "Options : \n";                  # Options & parameters used for the blast
+$options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
+$options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
+$options .= "Minimum exon size : $MINEXONSIZE\n";
+$options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
+$options .= "Minimum intron size : $MININTRONSIZE\n";
+$options .= "Force annotation\n" if ($FORCEANNOT);
+$options .= "Matrix : $MATRIX\n";
+$options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
+$options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
+
+print $options if $DEBUG;
+print $LOG_F $options if $ISLOGFILE;
+
 
 # - Create a masterfile object
 # - Load the annotations
@@ -466,115 +476,95 @@ print $LOG_F "Number of contigs in Masterfile : $numbercontigs\n",
             "Number of annotations (or comments) detected : $numberannot\n" if $ISLOGFILE;
 
 # START THE PROCESS #
-if ($SIMILARITYSEARCH) {
-    my $step;
-    $count = 1;
+my $step        = 1;
 
-    foreach my $file (@PEPFILES) {
-        # Each pepfile
-        # The input pepfiles
-        # + the pepfiles created from the libraries
+# Create a reference for the different general arrays
+$FLIPBLASTPROTS = [];    # Array containing the Proteins predicted by Blast and Flip
+$HYPPROTS       = [];    # Array for the hypothetical proteins  
+$EMPTYORFS      = [];    # Array containing the emptys ORF
 
-        # Create a reference for the different general arrays
-        $FLIPBLASTPROTS = [];    # Array containing the Proteins predicted by Blast and Flip
-        $HYPPROTS       = [];    # Array for the hypothetical proteins  
-        $EMPTYORFS      = [];    # Array containing the emptys ORF
-        $step           = 1;
+# Print the name of each pepfile if it's a library, name begin with libarary....
+my $displayfile = $PENAMEDISPLAY{"$LIB_FILE"} || "$LIB_FILE";    # Get the associate name, so if it's a library, get the name of the library         
+my @tabname     = split ("/", $displayfile);
+print "\n****** Annotation from " . $tabname [$#tabname] . " ******\n";
 
-        # Print the name of each pepfile if it's a library, name begin with libarary....
-        $PEPFILE        = $file;
-        my $displayfile = $PENAMEDISPLAY{"$file"} || "$file";    # Get the associate name, so if it's a library, get the name of the library         
-        my @tabname     = split ("/", $displayfile);
-        my $tringprint  = "\n****** Annotation from " . $tabname [$#tabname] . " ******";
-        print $tringprint, "\n";
+# Core #
+# Run the programm step by, to know the right step  
 
-        # Check
-        if ((not -r  $PEPFILE) and $SIMILARITYSEARCH) {
-            print "Unable to read $PEPFILE\n";
-            next;
-        }
+# Flip running, generate ORFS
+print "$step) Run Flip...\n";
+$step += 1; 
+&RunFlip;
 
-        # Core #
-        # Run the programm step by, to know the right step  
+# Blast the flip result with the blast
+print "$step) Run Blast...\n";
+$step += 1;  
+&BlastFlipVSGene;
 
-        # Flip running, generate ORFS
-        print "$step) Run Flip...\n";
-        $step += 1; 
-        &RunFlip ($count);
+# Parse the blast result, create a flipblastprot object
+print "$step) Parse Information From Blast Results...\n";
+$step += 1;
+&ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
 
-        # Blast the flip result with the blast
-        print "$step) Run Blast...\n";
-        $step += 1;  
-        &BlastFlipVSGene ($count);
+# Selection of protein
+print "$step) Select hypotetical protein for Exonerate...\n";
+$step += 1; 
+&Select_protein;
 
-        # Parse the blast result, create a flipblastprot object
-        print "$step) Parse Information From Blast Results...\n";
-        $step += 1;
-        &ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
+# Create hypothetical proteins  
+print "$step) Identify similar ORFs...\n";
+$step += 1; 
+&FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
-        # Selection of protein
-        print "$step) Select hypotetical protein for Exonerate...\n";
-        $step += 1; 
-        &Select_protein;
+# Make the alignement and give the exons
+print "$step) Internal structure prediction...\n"; 
+$step += 1; 
+&FindExonsInHypProtArray ($pirmaster);
 
-        # Create hypothetical proteins  
-        print "$step) Identify similar ORFs...\n";
-        $step += 1; 
-        &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
+# Organise the hypothetical proteins (find the real start)
+print "$step) Process ORFs => genes...\n"; 
+$step += 1; 
+&FindStartEndAndTreatGeneFusion ($pirmaster);
 
-        # Make the alignement and give the exons
-        print "$step) Internal structure prediction...\n"; 
-        $step += 1; 
-        &FindExonsInHypProtArray ($pirmaster);
+# Search mini exons
+if (!$PARTIAL) {
+    print "$step) Annotation of mini exons...\n";
+    $step += 1; 
+   &AnnotateMiniExons ($pirmaster);
+}
 
-        # Organise the hypothetical proteins (find the real start)
-        print "$step) Process ORFs => genes...\n"; 
-        $step += 1; 
-        &FindStartEndAndTreatGeneFusion ($pirmaster);
-        
-        # Search mini exons
-        if (!$PARTIAL) {
-            print "$step) Annotation of mini exons...\n";
-            $step += 1; 
-            &AnnotateMiniExons ($pirmaster);
-        }
-        
-        # Annotate -> change hypothetical proteins into an object annotation
-        print "$step) Annotation in the masterfile...\n";
-        $step += 1; 
-        &AnnotateMfFromHYPPROTSArray ($pirmaster);
+# Annotate -> change hypothetical proteins into an object annotation
+print "$step) Annotation in the masterfile...\n";
+$step += 1; 
+&AnnotateMfFromHYPPROTSArray ($pirmaster);
 
-        # Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
-        print "$step) Annotation with external programs...\n"; 
-        $step += 1; 
-        &Annotate_Using_external_programs($pirmaster,$EXTSELECTPROG);
+# Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
+print "$step) Annotation with external programs...\n"; 
+$step += 1; 
+&Annotate_Using_external_programs($pirmaster,$EXTSELECTPROG);
 
-        # Adjust intronic boundaries with rules for type I and type II 
-        print "$step) Adjust intronic boundaries...\n"; 
-        $step += 1; 
-        &Adjust_all_intronic_junctions($pirmaster);
-        
-        print "$step) Adjust start and add comment for fusion...\n"; 
-        $step += 1; 
-        &AdjustStartposAndAddCommentForFusion($pirmaster);
+# Adjust intronic boundaries with rules for type I and type II 
+print "$step) Adjust intronic boundaries...\n"; 
+$step += 1; 
+&Adjust_all_intronic_junctions($pirmaster);
 
-        # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
-        if ($ORFPROCESS) {
-            print "$step) Process Empty ORFs...\n"; 
-            $step += 1; 
-            &AnnotateEmptyOrfs ($pirmaster);
-        }
+print "$step) Adjust start and add comment for fusion...\n"; 
+$step += 1; 
+&AdjustStartposAndAddCommentForFusion($pirmaster);
 
-        # Process intronical ORF -> annotate intronicale ORF not detected by Blast
-        print "$step) Process intronic ORFs...\n"; 
-        $step += 1; 
-        &AnnotateIntronicOrfs ($pirmaster);
-        
-        &MulticommentConfidence($pirmaster);
-        $count++;  # next pepfile
-    }  # End of each pepfile
-} # End if ($SIMILARITYSEARCH)
+# Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
+if ($ORFPROCESS) {
+    print "$step) Process Empty ORFs...\n"; 
+    $step += 1; 
+    &AnnotateEmptyOrfs ($pirmaster);
+}
 
+# Process intronical ORF -> annotate intronicale ORF not detected by Blast
+print "$step) Process intronic ORFs...\n"; 
+$step += 1; 
+&AnnotateIntronicOrfs ($pirmaster);
+
+&MulticommentConfidence($pirmaster);
 # PROGRAMME ENDING #
 
 print "----------------------------------\n",
@@ -601,14 +591,6 @@ print "Dumping PirMaster object to $OUTPUTFILE.xml\n";
 $pirmaster->ObjectToFile("$OUTPUTFILE.xml");
 }
 
-if (($WITHMAP ne "") and ($numbercontigs==1)) {
-    &CreateMap;
-    print "Genetic map: $OUTPUTFILE.$WITHMAP\n";
-}
-elsif (($WITHMAP ne "") and ($numbercontigs!=1)) {
-   print "$numbercontigs contigs. Impossible to generate the map./n";
-}
-
 if ($ISLOGFILE == 1) {
     print "close Logfile : $LOG_FILE\n" if $DEBUG;
     $LOG_F->close() or print "Logfile not closed\n";
@@ -633,12 +615,35 @@ END {
 #-------------------------------------------------------------#
 # Subs calling at beginning before to run the core of Mfannot #
 #-------------------------------------------------------------#
-
-sub TestFile {
-  my $file = shift;
-  die "The file $file could not be found or was not executable. Please notify your administrator\n"
-       if (!(-x $file));
-} # End sub
+sub GetPath {
+    my $name_prog = shift;
+    
+    foreach my $dir (@PATH) {
+        if (-f "$dir/$name_prog") {
+            if (-r _ && -x _) {
+                return "$dir/$name_prog";
+            }
+            else {
+                die "   -> ERROR: $name_prog is not readable and executable! Please run:\n",
+                    "             chmod 755 \"$dir/ $name_prog\"\n";
+            }
+        last;
+        }
+        # Just for clustaw
+        if (-f "$dir/${name_prog}2") {
+            if (-r _ && -x _) {
+                return "$dir/$name_prog";
+            }
+            else {
+                die "   -> ERROR: $name_prog is not readable and executable! Please run:\n",
+                    "             chmod 755 \"$dir/ $name_prog\"\n";
+            }
+        last;
+        }
+    }
+    die "-> ERROR: Could not find '$name_prog' in your search path. Please install\n",
+        "   $name_prog from the source (see INSTALL.txt).\n";
+}
 
 sub SigCleanup {
      die "\nExiting: received signal \"" . $_[0] . "\".\n";
@@ -700,22 +705,15 @@ sub GetOptions {
     $FORCEANNOT              = $option->force;             # Force the annotation when 2 annotations have the same name
     $DEBUG                   = $option->debug;             # Debug mode. If true, display message on the screen
     $GENCODE                 = $option->genetic;           # Genetique code
-    $SIMILARITYSEARCH        = $option->similarity;        # Usefull for running similaritie gene process for annot.
     $MASTERFILE              = $option->masterfile;        # Path for Masterfile
-    $TAKEINPUTFILE           = $option->takeinputfile;     # A boolean saying if programme is taking an input file
     $OUTPUTFILE              = $option->outputfile;        # Path for the new
-    $NEWRCFILE               = $option->newrcfile;         # Just used to be printed. Indiquates that a new rcfile will be created
-    $NORCFILE                = $option->norcfile;          # 0 or 1, if a rcfile has been used for loading data
-    $RCFILE                  = $option->rcfile;            # The rcfile used for loading options
     $ORFPROCESS              = $option->orf;               # For Orf process, allowing presence or not in the masterfile
     $LOADSTRICT              = $option->loadstrict;        # Load strict masterfile
     $ADDCOMMENTS             = $option->addcomments;       # Add comments in the masterfile
-    $INPUTPEPFILES           = $option->inputfile;         # Path for the peptide file used
     my $allorfs              = $option->allorfs;           # All orfs will apear and won't be checked if option is checked
     $CHECKORFS               = 0 if ($allorfs == 1);       # A little calculation 
     $CHECKORFS               = 1 if ($allorfs == 0);       # To find the opposite
     $PEPLIBRARIES            = $option->pepdirectory;      # List of path for peplibrary directory
-    $WITHMAP                 = $option->withmap;           # The extension map
     $SIZE                    = $option->size;              # The sensitivite of warning for the long protein, it's a percentage
     $STARTBEFORE             = $option->startbefore;       # The distance who is use in order to define the really start position before blast
     $STARTAFTER              = $option->startafter;        # The distance who is use in order to define the really start position after blast
@@ -725,6 +723,7 @@ sub GetOptions {
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
     $MINLENGTHORF            = $option->flip2;             # This is the minimum length for creating an ORF with flip
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
+    $MAXLENINTRONS           = $option->maxintronsize;     # Max intron size for exonerate.
     $MINLENEMPTYORF          = $option->minlenemptyorf;    # Minimum length for ORF empty orfs (non corresponding orfs)
     $OVERLAPPINGCUTOFF       = $option->overlappingcutoff; # Overlapping cutoff for ORFs 
     $MININTRONSIZE           = $option->minintronsize;     # Opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
@@ -763,9 +762,6 @@ sub GetOptions {
         else              {$count++;} 
     }
     $OUTPUTFILE = "$name"."$count";
-
-    die "\nThe path to where your rcfile will be produced is not writable by you ($RCFILE).\nPlease resolve this problem before running again\n"
-        if(!-w (dirname($RCFILE)));
 } # End sub
 
 sub CacheCodonTableWithGeneticId {
@@ -814,7 +810,6 @@ sub CacheCodonTableWithGeneticId {
 sub RunFlip {
     # This function run flip with the masterfile
     # Flip is a program generating ORF
-    my $flag = shift || "";    # Something to recognize, what is the pepfile treated
     my $cwd  = cwd();          # Let's get the current working directory name
 
     # We need to change to the temporary directory to run flip - just so the flip files are written here.
@@ -850,7 +845,7 @@ sub RunFlip {
     $ofh->close();
     $ifh->close();
 
-    my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip_$flag.output";
+    my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip.output";
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
     # -l minimum length ORF
@@ -871,17 +866,16 @@ sub RunFlip {
 
 sub BlastFlipVSGene {
     # It runs blast with the flip results against file containing genes 
-    my $flag         = shift || "";    # Something to recognize, what is the pepfile treated
-    $BLASTOUTPUT     = $TMPDIR . "/blastoutput_$flag.xml";
-    my $file         = $PEPFILE;                                # Undef should never happen in fact.
+    $BLASTOUTPUT     = $TMPDIR . "/blastoutput.xml";
+    my $file         = $LIB_FILE;                                # Undef should never happen in fact.
     my $escaped_file = $file;
     $escaped_file    =~ s#'#'\\'#g;         
-    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf_$flag -l $TMPDIR/fdb_1.log >/dev/null 2>/dev/null";
+    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $escaped_file -n $TMPDIR/mf -l $TMPDIR/fdb_1.log >/dev/null 2>/dev/null";
     print "$command\n" if $DEBUG;
     my $resformatdb  = system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -d $TMPDIR/mf_$flag -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 } # End sub
@@ -896,7 +890,7 @@ sub ParseInformationFromBlastResult {
     my $tag         = shift || "aVwXyZ";
 
     my $type        = 'PROT';
-    my $file        = $PEPFILE;
+    my $file        = $LIB_FILE;
     my $blastoutput = $BLASTOUTPUT;
 
     die "Error: can't find $type report from blastall ?!?\n"
@@ -906,7 +900,10 @@ sub ParseInformationFromBlastResult {
         or die "Can't read from '$blastoutput': $!\n";
                                      
     while (my $result = PirObject::BlastOutput->FileHandleToObject($searchfh)) {
-        &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$tag);
+        my $iterations = $result->BlastOutput_iterations() || next;
+        foreach my $iteration (@$iterations) {
+            &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$iteration,$tag);
+        }
     }
 
     $searchfh->close();
@@ -992,27 +989,23 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $pirmaster = shift; # Pirmaster object
     my $type      = shift; # 'DNA' or 'PROT'
     my $result    = shift; # An object implementing PirObject::BlastOutput
+    my $iteration = shift; # An object implementing PirObject::BlastOutput::Iteration
     my $tag       = shift || "bVwXyZ";
 
     return if (!$result);
 
-    my $rdesc = $result->BlastOutput_query_def()  || "Unknown Query Description";
+    my $rdesc = $iteration->Iteration_query_def() ||   # priority to iteration's value
+                $result->BlastOutput_query_def()  ||
+                "Unknown Query Description";
     $rdesc =~ m/^\s*(\S+)/;
-    my $contigname = $1                           || "Unknown contig name";
+    my $contigname = $1 || "Unknown contig name";
     $contigname =~ s/;$//; # spurious semicolon introduced by flip
 
-    my @hits       = ();
-    my $iterations = $result->BlastOutput_iterations() || return;
-    foreach my $iteration (@$iterations) {
-         my $hits = $iteration->Iteration_hits();
-         push(@hits,@$hits);
-    }
-
-    my $numhits    = scalar(@hits);                 # normally, only one! 
-    return if $numhits < 1;
+    my $hitslist = $iteration->Iteration_hits() || return;
+    return if @$hitslist < 1; # normally, only one.
 
     # Note: the significance() method is defined in Hit.pir
-    @hits = sort { &CompareHighPrecisionFloats($a->significance(), $b->significance() ) } @hits;     
+    my @hits = sort { &CompareHighPrecisionFloats($a->significance(), $b->significance() ) } @$hitslist;
 
     # We have an hypothetical protein and we want to know if it'real
     my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
@@ -1043,7 +1036,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $fullheader  = $hit->Hit_def();
         my $evalue      = $hit->significance();
         next if &CompareHighPrecisionFloats($evalue,$BLASTEVALUECUTOFF) == 1; # $eva > $BL
-        my $prot        = &TakeProteinFromPepfile ($fullheader, $PEPFILE);
+        my $prot        = &TakeProteinFromPepfile ($fullheader, $LIB_FILE);
         my $newhomologous = new PirObject::Homologous (
                                                         similarprot      => $prot,
                                                         evalue           => $evalue,
@@ -1064,7 +1057,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         last if &CompareHighPrecisionFloats($evalue,$BLASTEVALUECUTOFF) == 1; # ev > $BL
         last if $hsps[0]->frac_identical() < 0.5 && &CompareHighPrecisionFloats($evalue,$SHORT_HSPS_MIN_EVALUE) == 1;
         
-        my $prot = &TakeProteinFromPepfile ($fullheader, $PEPFILE);   # Take the protein corresponding to the hit
+        my $prot = &TakeProteinFromPepfile ($fullheader, $LIB_FILE);   # Take the protein corresponding to the hit
        
         #------- Calculate a sort of frame to see what's the region covered by this ORF
         #  Story : You can have, for some case, more than one protein per gene.
@@ -1638,38 +1631,12 @@ sub FindExonsInHypProtArray {
              if ($strand{1} && $strand{-1}) {
                  # If we have a transpliced gene 
                  my $path     = $OUTPUTFILE;
-                 my $dirname  = dirname($path);                    # We must add condition in order to know if it isn't 2 genes
+                 my $dirname  = dirname($path); # We must add condition in order to know if it isn't 2 genes
                  my $new_file = "$path".".Exonerate_"."$name";
                  my $number   = 1;
- 
-                 foreach my $exon (@exon_start_end) {
-                     my $start_exon  = $exon->[0];
-                     my $end_exon    = $exon->[1];
-                     my $strand_exon = $exon->[2];
-                     my $attributes  = $exon->[4];
-                     
-                     my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
-                     
-                     my $arrow = "==>" if $strand_exon eq "+";
-                        $arrow = "<==" if $strand_exon eq "-";
-                     my $start_line  = ";; $name-E$number $arrow start";
-                     my $end_line    = ";; $name-E$number $arrow end";
-    
-                     my $hyp_prot = new PirObject::AnnotPair(
-                                                             type      => "C",  
-                                                             genename  => $name,
-                                                             startpos  => $start_exon,
-                                                             endpos    => $end_exon,
-                                                             direction => $arrow,
-                                                             startline => $start_line,
-                                                             endline   => $end_line,
-                                                             );
-                                                             
-                     my $comment = ($frameshift_size ? ";; Frameshift of $frameshift_size nt" : undef);
-                     $hyp_prot->set_startmulticomment([$comment]) if $comment;
-                     &AddAnnotToPirMaster($pirmaster,$contigname,$hyp_prot);
-                     $number++;
-                     }
+                 
+                 &Add_comment_for_transpliced($contigname,$name,\@exon_start_end,$number);
+                 
                  $add_text_in_header .= ";; The gene coding for $name is probably transpliced (see annotation in comments)\n";
                  next;
                  }
@@ -1683,10 +1650,10 @@ sub FindExonsInHypProtArray {
              # Correction about start and end of exon if two exons is overlapping #
              my $isMinus = ($strand == -1 ? 1 : 0);
              my @exon_start_end_cor =();                                             # Correction about start and end of exon if two exons is overlapping 
-             for (my $i = 0; $i < (@exon_start_end-1); $i++) {                       # For exemple
+             for (my $i = 0; $i < (@exon_start_end-1); $i++) {                       
                  if ($strand != -1) {
-                     if (!( ($exon_start_end[$i]->[1] < $exon_start_end[$i+1]->[0])
-                         || ($exon_start_end[$i+1]->[1] < $exon_start_end[$i]->[0]) )) {  # Take the minus start and the bigger stop if exons is on strand +
+                     if (!( ($exon_start_end[$i]->[1] < $exon_start_end[$i+1]->[0]) || ($exon_start_end[$i+1]->[1] < $exon_start_end[$i]->[0]) )) {  
+                         # Take the minus start and the bigger stop if exons is on strand +
                          my $boolean = (($exon_start_end[$i]->[1] > $exon_start_end[$i+1]->[0]) == 1 ? 0 : 1);
                          my $start   = $exon_start_end[$i]->[0]   if !$boolean; # if E1_end > E2_start
                          my $end     = $exon_start_end[$i+1]->[1] if !$boolean; # if E1_end > E2_start
@@ -1735,12 +1702,22 @@ sub FindExonsInHypProtArray {
             my ($gene_start,$gene_end) = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
             ($gene_start,$gene_end)    = ($gene_end,$gene_start) if $strand == -1;
             
+            my $isTranspliced = 0;
             for (my $i = @exon_start_end - 1; $i >= 0 ; $i--) {
                 my $start       = $exon_start_end[$i]->[0];
                 my $end         = $exon_start_end[$i]->[1];
                 next if !$start || !$end;
-                splice(@exon_start_end, $i, 1) if ($start < $gene_start ) || ($end > $gene_end) ;
+                if (($start < $gene_start ) || ($end > $gene_end)) {
+                  my $file_with_alt = &Create_alternative_prot($dna_seq,\@exon_start_end,$i,$name);
+                  my $delete_or_not = &Choose_best_solution($file_with_alt,$fileprot,$i,$name);
+                  $isTranspliced = 1 if !$delete_or_not;
+                  splice(@exon_start_end, $i, 1); # if !$isTranspliced;
+                  &Add_comment_for_transpliced($contigname,$name,\@exon_start_end) if $isTranspliced;
+                  $add_text_in_header .= ";; The gene coding for $name is probably transpliced (see annotation in comments)\n";
+                  last if $isTranspliced;
+                }
             }
+            next if $isTranspliced;
             
             # Define the tab of intron with the information about exons localisation
             my @intron_start_end; 
@@ -1758,7 +1735,6 @@ sub FindExonsInHypProtArray {
             my $start = $exon_start_end[0]->[0];
             my $end   = $exon_start_end[-1]->[1];
             my $FirstExonerateMatch = $exon_start_end[0]->[3];
-            
             $newhypprot = new PirObject::HypProt (
                                                   name       => $name,
                                                   contigname => $contigname,
@@ -1805,9 +1781,131 @@ sub FindExonsInHypProtArray {
                 push (@$newhypprotintronarray, $hypprotintron);
             }
         }
-        $count ++;
-    }  # End of each prot        
+    }  # End of each prot
 } # End sub
+
+sub Create_alternative_prot {
+    my $dna_seq        = shift;
+    my $exon_start_end = shift;
+    my $i              = shift;
+    my $name           = shift;
+    
+     my $r_dna_seq = $dna_seq;
+        $r_dna_seq =~ tr/ACGT/TGCA/;
+        $r_dna_seq = reverse $r_dna_seq;
+    my ($with_exons,$without_exons) = "";
+    my $count = 0;
+    foreach my $exon_coord (@$exon_start_end) {
+       my $use_seq   = ( $exon_coord->[2] eq "-" ? $r_dna_seq : $dna_seq );
+       my ($start,$stop) = ( $exon_coord->[2] eq "-" ? 
+                           ( (length($use_seq) + 1 - $exon_coord->[0]),(length($use_seq) + 1 - $exon_coord->[1])) 
+                           : ($exon_coord->[0],$exon_coord->[1]));
+        my $exon_seq = substr($use_seq,$start-1,$stop-$start+1);
+        $with_exons    .= $exon_seq;
+        $without_exons .= $exon_seq if $count ne $i;
+        $count++;
+    }
+    my $prot_with_exons     = ">With_exon\n";
+       $prot_with_exons    .= &TranslateInProt($with_exons);
+    my $prot_without_exons  = ">Without_exon\n";
+       $prot_without_exons .= &TranslateInProt($without_exons);
+    my $proteins            = "$prot_with_exons\n$prot_without_exons";
+    
+    my $fileprot = "$TMPDIR/Exonerate/for_blast_${name}_e$i";
+    
+    unlink($fileprot) or die "Impossible to delete $fileprot\n" if (-f $fileprot);
+    # Create protein for exonerate
+    my $FILEPROT = new IO::File ">$fileprot" or die "Impossible to open $fileprot\n";
+    print $FILEPROT $proteins, "\n";
+    $FILEPROT->close() or die "Impossible to close $fileprot\n";
+    
+    return $fileprot;
+}
+
+sub Choose_best_solution {
+    # return 1 if we must to delete the exon else 0
+    my $file_for_blast = shift;  # file with the 2 alternative seq
+    my $protein_file   = shift;  # file with reference.
+    my $i              = shift;
+    my $name           = shift;
+    
+    # nom pour output = xxxx;
+    #creer un fichier avec la bd !!!
+    # 1. FORNATDB
+    my $base_name    = "$TMPDIR/Exonerate/mf_${name}_e$i";
+    unlink($base_name) or die "Impossible to delete $base_name\n" if (-f $base_name);
+    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $protein_file -n $base_name -l $TMPDIR/Exonerate/fdb_exon.log >/dev/null 2>/dev/null";
+    print "$command\n" if $DEBUG;
+    my $resformatdb  = system($command);
+    
+    # 2. BLAST
+    my $output         = "$TMPDIR/Exonerate/out_${name}_e$i";
+    unlink($output) or die "Impossible to delete $output\n" if (-f $output);
+    my $cmdblast = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $base_name -i $file_for_blast -o $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
+    print "$cmdblast\n" if $DEBUG;
+    my $resblast = system ($cmdblast);
+    
+    my $searchfh = new IO::File "<$output"
+       or die "Can't read from '$output': $!\n";
+    
+    my ($eval_with_exons,$eval_without_exons) = (9999,9999); # Very bad evalue 
+    while (my $result = PirObject::BlastOutput->FileHandleToObject($searchfh)) {
+        my $iterations = $result->BlastOutput_iterations() || next;
+        foreach my $iteration (@$iterations) {
+           my $rdesc = $iteration->Iteration_query_def() ||   # priority to iteration's value
+                       $result->BlastOutput_query_def()  ||
+                       "Unknown Query Description";
+
+           my $hitslist = $iteration->Iteration_hits();
+           return if @$hitslist < 1; # normally, only one.
+
+           # Note: the significance() method is defined in Hit.pir
+           my @hits = sort { &CompareHighPrecisionFloats($a->significance(), $b->significance() ) } @$hitslist;
+           next if !$hits[0];
+           my $evalue          = $hits[0]->significance(); # Get the e-value
+           $eval_with_exons    = $evalue if $rdesc eq "With_exon";
+           $eval_without_exons = $evalue if $rdesc eq "Without_exon";
+        }
+    }
+    return ( $eval_without_exons < $eval_with_exons  ? 1 : 0);
+}
+
+sub Add_comment_for_transpliced {
+    my $contigname     = shift;
+    my $name           = shift;
+    my $exon_start_end = shift;
+    my $number         = shift || 1;
+    
+    foreach my $exon (@$exon_start_end) {
+        my $start_exon  = $exon->[0];
+        my $end_exon    = $exon->[1];
+        my $strand_exon = $exon->[2];
+        my $attributes  = $exon->[4];
+        
+        my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
+        
+        my $arrow = "==>" if $strand_exon eq "+";
+           $arrow = "<==" if $strand_exon eq "-";
+        my $start_line  = ";; $name-E$number $arrow start";
+        my $end_line    = ";; $name-E$number $arrow end";
+        
+        my $hyp_prot = new PirObject::AnnotPair(
+                                                 type      => "C",  
+                                                 genename  => $name,
+                                                 startpos  => $start_exon,
+                                                 endpos    => $end_exon,
+                                                 direction => $arrow,
+                                                 startline => $start_line,
+                                                 endline   => $end_line,
+                                                 );
+                                                 
+        my $comment = ($frameshift_size ? ";; Frameshift of $frameshift_size nt" : undef);
+        $hyp_prot->set_startmulticomment([$comment]) if $comment;
+        &AddAnnotToPirMaster($pirmaster,$contigname,$hyp_prot);
+        $number++;
+     }
+}
+
 
 #------------------------------------#
 # Subs for processing ORFs => genes  #
@@ -3311,6 +3409,7 @@ sub ExecuteExternalProgram {
         "GENENAME"       => $genename,             # Optional; the Execute command use this but you can override it yourself)
         "TMPDIR"         => "$TMPDIR",             # Mfannot's tmp dir
         "GENCODE"        => "$GENCODE",
+        "MODPATH"        => "$MODEL_PATH", 
     };
 
     $commandobject->set_debug($DEBUG);
@@ -3343,6 +3442,10 @@ sub AnnotateFromExternalAPC {
         my $header       = $annotcollection->get_contigname();
         my ($contigname) = ($header =~ m#^>?\s*(\S+)#)
             or die "Can't parse header line '$header'\n";
+        next if $contigname eq "consensus";
+        my $contig      = $pirmaster->GetContigByName($contigname) 
+            or die "Can't get contig by name\n";
+        my $seq_length  = $contig->get_sequencelength();
         # Annotate the results, using the annotpairlist field of
         # your annotcollection (an AnnotPairCollection object).
         my $annotpairs = $annotcollection->get_annotpairlist();
@@ -3352,7 +3455,7 @@ sub AnnotateFromExternalAPC {
             my $startpos   = $annot->get_startpos()
                || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
-               # || die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
+             # || die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
                 
             my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
                $arrow = "$arrow>" if defined($endpos) && $startpos < $endpos;
@@ -3374,6 +3477,29 @@ sub AnnotateFromExternalAPC {
                                                  startlinenumber => $annot->get_startlinenumber(), # Optional; usually undef
                                                  endlinenumber   => $annot->get_endlinenumber(),   # Optional; usually undef
                                                 );
+            # Added comment and adjust pos for partial rna
+            my $comment = "";
+            if ( $endpos < 0 || $startpos < 0 ) {
+                if ($startpos < 0) {
+                   $comment  = ";; Partial annotation, start was found at position $startpos";
+                   $annot->set_startpos(1);
+                }
+                else {
+                    $comment  = ";; Partial annotation, stop was found at position $endpos";
+                    $annot->set_endpos(1);
+                }
+            }
+            if ( $endpos > $seq_length || $startpos > $seq_length ) {
+                if ($startpos > $seq_length) {
+                    $comment  = ";; Partial annotation, start was found at position $startpos";
+                    $annot->set_startpos($seq_length);
+               }
+                else {
+                    $comment  = ";; Partial annotation, stop was found at position $endpos";
+                    $annot->set_endpos($seq_length);
+                }
+            }
+            $annot->set_startmulticomment([$comment]) if $comment;
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
                 $add_external_annot = &AdjustIntronicAnnot_ForInitialAnnot($pirmaster,$contigname,$annot);
@@ -3438,6 +3564,7 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
 sub Adjust_all_intronic_junctions {
     my $pirmaster   = shift;
     my $contigs     = $pirmaster->get_contigs();
+    my $count       = 1;
     
     my %adjustement = (   # This used to be a more complex table... 
         -6 => [-6],
@@ -4059,7 +4186,7 @@ sub AdjustStartposAndAddCommentForFusion {
             if ($min_start) {
                 &AdjustAPIfStartBefore($annot,$i_startpos,$len_seq,$startline,$min_start,$isMinus);
                 if ($min_start != $max_start && ($i_startpos - $max_start) > 150) {
-                    # If a alternative start is found 50aa before the initial start
+                    # If an alternative start is found 50aa before the initial start
                     &AddCommentIfStartIsFindFar($pirmaster,$contig_name,$genename,$max_start,$len_seq,$isMinus);
                 }
                 next;
@@ -4072,7 +4199,7 @@ sub AdjustStartposAndAddCommentForFusion {
             
             my $new_length = $annot->get_lengthofthis() - (($new_start - $i_startpos) / 3);
             if ( $new_length < ($annot->get_lengthofref() * 0.5) ) {
-                # If a alternative start is found but make the gene too short
+                # If an alternative start is found but make the gene too short
                 &AddCommentIfStartIsFindFar($pirmaster,$contig_name,$genename,$new_start,$len_seq,$isMinus);
                 next;
             }
@@ -4811,18 +4938,17 @@ sub AnnotateIntronicOrfs {
 
 sub choice_orf {
     my $orfs = shift;  # Ref to array of pairs [ idx, Orf_object ]
-    my $lib  = "/share/supported/apps/ogmp/lib/mfannot/intronic_orfs.pep";
-
+    
     if (!(-e "$TMPDIR/fdb_intronic_orf.log")) {
-         my $LIB = new IO::File "$lib" || die ("Can not open the library for intronic orfs");
+        my $LIB = new IO::File "$intronic_lib" || die ("Can not open the library for intronic orfs");
         while (<$LIB>) {
             next if !($_ =~ /^>/);
-            die "The file $lib haven't the good syntax\nThe line who haven't the good syntax is $_"
+            die "The file $intronic_lib haven't the good syntax\nThe line who haven't the good syntax is $_"
                 if (!($_ =~ /\s*([\S]*)\s*;/));
         }
         $LIB->close();
     
-        my $command      = "$FORMATDBPATH -p 'T' -t banque -i $lib -n $TMPDIR/mf_intronic_orf -l $TMPDIR/fdb_intronic_orf.log >/dev/null 2>/dev/null";
+        my $command      = "$FORMATDBPATH -p 'T' -t banque -i $intronic_lib -n $TMPDIR/mf_intronic_orf -l $TMPDIR/fdb_intronic_orf.log >/dev/null 2>/dev/null";
         print "$command\n" if $DEBUG;
         my $resformatdb  = system($command);
     }
@@ -4840,7 +4966,7 @@ sub choice_orf {
             $ORFFILE->close();
             
             # RUN FOR BLAST : run blast with the db created and the flip results        
-            my $cmdblast = "$BLASTPATH -m 7 -p blastp -d $TMPDIR/mf_intronic_orf -i $name_of_file -D $GENCODE -o $output 2> $TMPDIR/blasterr_1.txt";
+            my $cmdblast = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf_intronic_orf -i $name_of_file -D $GENCODE -o $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
         }
@@ -5494,31 +5620,5 @@ sub LogInfo {
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
     $pirmaster->set_header($header);
 }
-
-sub CreateMap {
-    # A sub for creating map
-    my $nameofmap = $OUTPUTFILE.".".$WITHMAP;
-
-    # Generate the xml file 
-    my $xmlcmd         = "$MF2XMLPATH $OUTPUTFILE $TMPDIR/map.xml > $TMPDIR/mf2xmloutput 2> $TMPDIR/mf2xmlwarnings";
-    print "$xmlcmd\n" if $DEBUG;
-    print $LOG_F "$xmlcmd\n" if $ISLOGFILE;
-    system $xmlcmd;
-
-    # Generate the map
-    my $putinoptions;
-    $putinoptions  = " -f $WITHMAP ";
-    $putinoptions .= " -E F " if ($WITHMAP eq "svg");
-    my $mapcmd     = "$CGVIEWPATH -i $TMPDIR/map.xml $putinoptions -o $nameofmap  > $TMPDIR/cgviewoutput 2> $TMPDIR/cgviewwarnings";
-    print "$mapcmd\n"         if $DEBUG;
-    print $LOG_F "$mapcmd\n"  if $ISLOGFILE;
-    system $mapcmd;    
-
-    unlink ("$TMPDIR/map.xml");
-    unlink ("$TMPDIR/mf2xmloutput");
-    unlink ("$TMPDIR/mf2xmlwarnings");
-    unlink ("$TMPDIR/cgviewoutput");
-    unlink ("$TMPDIR/cgviewwarnings");
-} # End sub
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
