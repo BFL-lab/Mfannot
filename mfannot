@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.21 2009/02/06 21:17:02 nbeck Exp $
+#    $Id: mfannot,v 2.22 2009/02/06 21:46:44 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.22  2009/02/06 21:46:44  nbeck
+#    Added option -F F to blast.
+#
 #    Revision 2.21  2009/02/06 21:17:02  nbeck
 #    Replaced ClustalW by Muscle.
 #    Changed method to define gene start.
@@ -225,7 +228,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.21 2009/02/06 21:17:02 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.22 2009/02/06 21:46:44 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -875,7 +878,7 @@ sub BlastFlipVSGene {
     my $resformatdb  = system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 } # End sub
@@ -3504,9 +3507,9 @@ sub AnnotateMfFromHYPPROTSArray {
         push (@$comment,";; Present probably a frameshift") if $frameshift;
         
         # Add comment for alternative start
-        if (!$fusion || (defined($fusion) && $posiffusion == 1)) {
+        if (!$fusion) { #|| (defined($fusion) && $posiffusion == 1)
             push (@$comment,";; Alternative start at pos : $alt_start") if $alt_start && $len_orf < 100 && !$fusion;
-            push (@$comment,";; Alternative start at pos : $alt_start") if $alt_start && defined($fusion) && $posiffusion == 1;
+            #push (@$comment,";; Alternative start at pos : $alt_start") if $alt_start && defined($fusion) && $posiffusion == 1;
         }
         
         # Annotation of fusion between Orf and gene
