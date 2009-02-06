@@ -35,9 +35,15 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.20 2008/12/23 21:48:02 nbeck Exp $
+#    $Id: mfannot,v 2.21 2009/02/06 21:17:02 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.21  2009/02/06 21:17:02  nbeck
+#    Replaced ClustalW by Muscle.
+#    Changed method to define gene start.
+#    Changed method to annote gene fusion.
+#    Remove useless option and changed option for blast.
+#
 #    Revision 2.20  2008/12/23 21:48:02  nbeck
 #    *** empty log message ***
 #
@@ -173,7 +179,7 @@
 #    Default is still to recreate fields as needed.
 #
 #    Revision 1.81  2007/08/10 19:37:20  nbeck
-#    Added support for calling external anlasys programs
+#    Added support for calling external analasys programs
 #
 #    Revision 1.80  2007/07/26 19:28:53  nbeck
 #    fixed bug for Exonerate
@@ -219,7 +225,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.20 2008/12/23 21:48:02 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.21 2009/02/06 21:17:02 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -264,8 +270,6 @@ my $PEPLIBRARIES;                               # The libraries, in input, by de
 my $INPUTPEPFILES;                              # The input files
 my @PEPFILES;                                   # The pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
 my $SIZE;                                       # The sensitivite of warning for the long protein, it's a percentage
-my $STARTBEFORE;                                # The distance who is use in order to define the really start position before blast
-my $STARTAFTER;                                 # The distance who is use in order to define the really start position after blast
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 my $EXTSELECTPROG;                              # List of name for external programs.
 my $ALL_INTRONS;                                # Indicate if all introns detected by RNAweasel must be annotated
@@ -290,12 +294,12 @@ my ($annotate_intron_typeI,$annotate_intron_typeII)  = (0,0);
 my $PATH = $ENV{"PATH"} || "";
 my @PATH = split(/:/, $PATH);
 
-#my $h = $ENV{"HOME"};
-my $BLASTPATH               = &GetPath("blastall");#"$h/blast-2.2.18/bin/blastall";
+my $h = $ENV{"HOME"};
+my $BLASTPATH               = &GetPath("blastall");#"$h/blast-2.2.18/bin/blastall";#"$h/blast-2.2.18/bin/blastall";
 my $FORMATDBPATH            = &GetPath("formatdb");
 my $FLIPPATH                = &GetPath("flip");
 my $EXONERATEPATH           = &GetPath("exonerate");
-my $CLUSTALWPATH            = &GetPath("clustalw");
+my $MUSCLEPATH              = &GetPath("muscle");
 my $HWCOMBINERPATH          = &GetPath("HWcombiner");
 my $POTRES2APCOLPATH        = &GetPath("PotRes2APCol");
 my $TRNA_RES2APCOLPATH      = &GetPath("tRNA_res2APcol");
@@ -378,7 +382,7 @@ my $LOG_F = new IO::File ">$LOG_FILE" if $ISLOGFILE;
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
-             "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAMME                       \n".
+             "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                       \n".
              "VERSION $VERSION                                                      \n".
              "Programmed by P. Rioux, T. Hoellinger, D. To and N. Beck              \n".
              "######################################################################\n\n";
@@ -398,10 +402,8 @@ $options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
 $options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
 $options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 $options .= "Usage of RNAweasel\n";
-$options .= "Search of start $STARTBEFORE aa before the start of blast match\n";
-$options .= "Search of start $STARTAFTER aa after the start of blast match\n";
 $options .= "Warning if the protein make +/- $SIZE percent of homologous protein\n";
-$options .= "The Path of configfile is : $EXTCONFIGFILE";
+$options .= "The Path of configfile is : $EXTCONFIGFILE\n";
 $options .= "Look in the peptide library $PEPLIBRARIES\n";
 
 print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
@@ -522,9 +524,9 @@ $step += 1;
 &FindExonsInHypProtArray ($pirmaster);
 
 # Organise the hypothetical proteins (find the real start)
-print "$step) Process ORFs => genes...\n"; 
+print "$step) Treatment for gene fusion...\n"; 
 $step += 1; 
-&FindStartEndAndTreatGeneFusion ($pirmaster);
+&TreatGeneFusion ($pirmaster);
 
 # Search mini exons
 if (!$PARTIAL) {
@@ -550,7 +552,7 @@ $step += 1;
 
 print "$step) Adjust start and add comment for fusion...\n"; 
 $step += 1; 
-&AdjustStartposAndAddCommentForFusion($pirmaster);
+&CommentFusion($pirmaster);
 
 # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
 if ($ORFPROCESS) {
@@ -715,8 +717,6 @@ sub GetOptions {
     $CHECKORFS               = 1 if ($allorfs == 0);       # To find the opposite
     $PEPLIBRARIES            = $option->pepdirectory;      # List of path for peplibrary directory
     $SIZE                    = $option->size;              # The sensitivite of warning for the long protein, it's a percentage
-    $STARTBEFORE             = $option->startbefore;       # The distance who is use in order to define the really start position before blast
-    $STARTAFTER              = $option->startafter;        # The distance who is use in order to define the really start position after blast
     $EXTCONFIGFILE           = $option->ext_config;        # Path for configfile
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
     $ALL_INTRONS             = $option->all_introns;       # Indicate if all introns detected by RNAweasel must be annotated
@@ -875,7 +875,7 @@ sub BlastFlipVSGene {
     my $resformatdb  = system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 } # End sub
@@ -914,7 +914,7 @@ sub ParseInformationFromBlastResult {
             &CompareHighPrecisionFloats($a->get_evalue(),$b->get_evalue());
         } @$homologous;
         my $length = scalar(@sorted);
-           $length = ($length < 3 ? $length : 3 );
+           $length = ($length < 10 ? $length : 10 );
         
         my %already_here = ();
         my @best_homologous = ();
@@ -1031,7 +1031,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my @overlapping;
 
     my @homologous = ();
-    for (my $i = 0 ; $i < 3; $i++) {
+    for (my $i = 0 ; $i < 10; $i++) {
         my $hit         = $hits[$i] || last;
         my $fullheader  = $hit->Hit_def();
         my $evalue      = $hit->significance();
@@ -1123,6 +1123,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my @start_b;
         my $refhsparray = $neworf->hsps;           # An array reference,                          
         foreach my $hsp (@hsps) {
+            next if &CompareHighPrecisionFloats($hsp->significance,$BLASTEVALUECUTOFF) == 1; # si > BL
             my $newhsp = new PirObject::Hsp_query_sbjct (
                                                          start_q  => $hsp->Hsp_query_from(),
                                                          end_q    => $hsp->Hsp_query_to(),
@@ -1155,8 +1156,9 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
                                                                  homologous     => []
                                                                 );
             if ($hypfusiongene != 0) {
-                @$FLIPBLASTPROTS[-1]->set_hypfusiongene($hypprotein);
-                $newflipblastprot->set_hypfusiongene(@$FLIPBLASTPROTS[-1]->get_name());
+                my $index = &FindIndexOfGeneFusion($start,$end,$FLIPBLASTPROTS);
+                @$FLIPBLASTPROTS[$index]->set_hypfusiongene($hypprotein);
+                $newflipblastprot->set_hypfusiongene(@$FLIPBLASTPROTS[$index]->get_name());
             }
             push (@$FLIPBLASTPROTS, $newflipblastprot);
         }
@@ -1202,6 +1204,23 @@ sub GetFlipBlastProtByNameAndContigName {
     return undef; # In the case where any object has been found
 } # End sub
 
+sub FindIndexOfGeneFusion {
+    my $start_orf        = shift;
+    my $end_orf          = shift;
+    my $all_prev_hypprot = shift;
+
+    my $index = 0;
+    foreach my $prot (@$all_prev_hypprot) {
+        my $orfs  = $prot->get_orfs();
+        foreach my $orf (@$orfs){
+            my $start = $orf->get_start();
+            my $end   = $orf->get_end();
+            return $index if $start == $start_orf && $end == $end_orf;
+        }
+        $index++;
+    }
+}
+
 #-----------------------------------------------------------#
 # Subs for selecting hypotetical protein for identification #
 # of protein with exon/intron (In order to run Exonerate)   #
@@ -1227,7 +1246,7 @@ sub Select_protein {
             foreach my $orf(@$orfs) {
                 $strand{1}++  if $orf->strand == 1;
                 $strand{-1}++ if $orf->strand == -1;
-                my $info_prot_score = [$orf->evalue(), $orf->protein];
+                my $info_prot_score = [$orf->evalue(), $orf->protein()];
                 push (@prot_score, $info_prot_score);
             }
  
@@ -1246,7 +1265,8 @@ sub Select_protein {
                 foreach my $orf(@$orfs){
                     my @start_hsp =();
                     my @end_hsp   =();
-                    my $hsps      = $orf->hsps;
+                    my $hsps      = $orf->get_hsps();
+                    my $evalue    = $orf->get_evalue();
                     foreach my $hsp(@$hsps){
                         push (@start_hsp, $hsp->start_q);
                         push (@end_hsp, $hsp->end_q);
@@ -1257,7 +1277,7 @@ sub Select_protein {
                        $cor_start      = $orf->start - (3 * $min_start_hsp) if $strand == -1; # The really start of orf if strand -
                     my $cor_end        = $orf->start + (3 * $max_end_hsp)   if $strand ==  1; # The really end of orf if strand +
                        $cor_end        = $orf->start - (3 * $max_end_hsp)   if $strand == -1; # The really end of orf if strand -
-                    my $pair_start_end = [ $cor_start, $cor_end ];
+                    my $pair_start_end = [ $cor_start, $cor_end, $evalue ];
                     push (@start_end_orf, $pair_start_end);
                 }
 
@@ -1268,11 +1288,12 @@ sub Select_protein {
                     my $diff = abs($start_end_orf[$i]->[1]-$start_end_orf[$i+1]->[0]);
                     if ( 142 <= $diff ) {
                         # if distance between 2 orf who have match with one protein is higher than 142 nt => Run exonerate
-                        my $info = [$name, $contigname, $prot, $strand, $homologous, $genefusionname];
+                        my $info = [$name, $contigname, $prot, $strand, $homologous, $genefusionname, [$start_end_orf[$i], $start_end_orf[$i+1]]];
                         push(@PROT_FOR_EXONERATE, $info);
                         push(@index, $compt);
                     }
                     else {
+                       $flipblastprot->set_frameshift(1);
                        print "   The gene coding for $name present probably a frameshift\n"; 
                     }
                 } # End for $i
@@ -1313,15 +1334,24 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
     # This function fill the HYPPROTS array (array of hypothetical proteins with
     # FLIPBLASTPROTS array (array of ORF and hsp)
 
+     mkdir("$TMPDIR/Muscle_for_start",0700) or die "Error: can't create work directory '$TMPDIR/Muscle_for_start': $!\n";
+    
     # This is mainly the algorithm given by Franz
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {        # For each flip blast protein
         my $name           = $flipblastprot->get_name();
         my $contigname     = $flipblastprot->get_contigname();
         my $orfs           = $flipblastprot->get_orfs();
         my $namefusiongene = $flipblastprot->get_hypfusiongene() || undef;
+        my $homologous     = $flipblastprot->get_homologous()    || undef;
+        my $frameshift     = $flipblastprot->get_frameshift()    || undef;
         my $numberorfs     = scalar (@$orfs);
 
         next if ($numberorfs < 1); # Impossible but ..........
+        
+        my $contig      = $pirmaster->GetContigByName ($contigname);
+        my $seq         = $contig->get_sequence();
+           $seq         =~ s/!//g;
+
         
         # if there is more than one orf
         my $neworfs = [];
@@ -1356,6 +1386,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                 $newhypprot = new PirObject::HypProt (
                                                       name       => $name,
                                                       contigname => $contigname,
+                                                      blaststart => $start_cor,
                                                       start      => $start_cor,
                                                       end        => $orf->end,
                                                       strand     => $orf->strand,
@@ -1365,6 +1396,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       evalue     => $orf->evalue(), 
                                                       exons      => [],
                                                       introns    => [],
+                                                      homologous => $homologous,
+                                                      idbyblast  => 1,
+                                                      frameshift => $frameshift
                                                      );
                     next; 
             }
@@ -1375,6 +1409,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                 $newhypprot = new PirObject::HypProt (
                                                       name       => $name,
                                                       contigname => $contigname,
+                                                      blaststart => $start_cor,
                                                       start      => $start_cor,
                                                       end        => $orf->end,
                                                       strand     => $orf->strand,
@@ -1384,6 +1419,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       evalue     => $orf->evalue(),  
                                                       exons      => [],
                                                       introns    => [],
+                                                      homologous => $homologous,
+                                                      idbyblast  => 1,
+                                                      frameshift => $frameshift
                                                      );                 
                 next;
             }
@@ -1416,6 +1454,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                     $newhypprot = new PirObject::HypProt (
                                                           name       => $name,
                                                           contigname => $contigname,
+                                                          blaststart => $start_cor,
                                                           start      => $start_cor,
                                                           end        => $orf->end,
                                                           strand     => $orf->strand,
@@ -1425,6 +1464,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           evalue     => $orf->evalue(), 
                                                           exons      => [],
                                                           introns    => [],
+                                                          homologous => $homologous,
+                                                          idbyblast  => 1,
+                                                          frameshift => $frameshift
                                                         );
                     next;
                 }
@@ -1456,6 +1498,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                     $newhypprot = new PirObject::HypProt (
                                                           name       => $name,
                                                           contigname => $contigname,
+                                                          blaststart => $start_cor,
                                                           start      => $start_cor,
                                                           end        => $orf->end,
                                                           strand     => $orf->strand,
@@ -1465,6 +1508,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           evalue     => $orf->evalue(), 
                                                           exons      => [],
                                                           introns    => [],
+                                                          homologous => $homologous,
+                                                          idbyblast  => 1,
+                                                          frameshift => $frameshift
                                                          );
                     next;
                 }
@@ -1474,11 +1520,395 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
+        &AdjustStart($newhypprot, $seq);
         push (@$HYPPROTS,  $newhypprot);
     } # End for each Flip Blast Prot
 } # End sub
 
+sub AdjustStart {
+    my $newhypprot = shift;
+    my $seq        = shift;
 
+    my $genename   = $newhypprot->get_name();
+    my $isMinus    = $newhypprot->get_strand() == 1 ? 0 : 1;
+    my $start      = $newhypprot->get_start();
+    my $end        = $newhypprot->get_end();
+    my $old_start  = $newhypprot->get_blaststart() || $start;
+    my $exons      = $newhypprot->get_exons();
+    my $introns    = $newhypprot->get_introns();
+
+    my $WithIntrons = (scalar(@$exons) != 0 ? 1 : 0);
+
+    my $this_prot = &GetProteinForGeneWithoutIntrons($newhypprot, $seq, $start, $end, $isMinus) if !$WithIntrons;
+       $this_prot = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$newhypprot)          if  $WithIntrons;
+
+    my $full5     = &GetFull5($seq,$isMinus,$this_prot,$start);
+
+    $newhypprot->set_thisprot($this_prot);
+    $newhypprot->set_full5($full5);
+    my $hyp_st_full5 = length($full5) - length($this_prot);
+
+    # Make the alignment
+    my $file_for_alignment = &MakeFileForAlignment($newhypprot,"Muscle_for_start",10);
+    my $result_file        = $file_for_alignment;
+       $result_file        =~ s/.fasta$/.aln/;
+    my $cmd = "$MUSCLEPATH -in $file_for_alignment -stable -clwstrict -out $result_file >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    my $resultat = system ("$cmd");
+
+    my $alignio      = new Bio::AlignIO(-format => 'clustalw',
+                                           -file   => $result_file);
+    my $align        = $alignio->next_aln();
+
+    my $each_st      = &DefEachStartInAli($align);
+    my $hyp_st_ali   = $each_st->{"mfaprot"};
+    delete $each_st->{"mfaprot"};
+
+    my $st_pos_cmp_st_orf = {};
+    while (my ($id, $homo_st_ali) = each(%$each_st)) {
+        $st_pos_cmp_st_orf->{$id} = $hyp_st_full5 + ($homo_st_ali - $hyp_st_ali);
+    }
+    my $right_lim_for_st = &DefMaxStartInAli($st_pos_cmp_st_orf);
+    
+    my $first_exon = undef;
+    if ($WithIntrons) {
+           $first_exon      = $exons->[0];
+        my $end_first_exon  = $first_exon->get_protend();
+           $full5           = substr($full5,0,$end_first_exon);
+    }
+    
+    my $aa_accepted     = { "M" => 1, "v" => 1};
+    my $all_possible_st = &DefineAllPossibleStart($full5, $right_lim_for_st,$aa_accepted);
+    my $best_start      = &ChooseBestStart($st_pos_cmp_st_orf,$all_possible_st,$right_lim_for_st);
+
+    # If no M or v was found
+    if (!(defined $best_start)) {
+        $newhypprot->set_warning("No start was found");
+        return;
+    }
+
+    # Add info about alternative start
+    my $first_M = undef;
+    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+        next if $all_possible_st->{$st_pos}->{"aa"} ne "M";
+        $first_M = $st_pos;
+        last;
+    }
+
+    my $alt_start = $first_M    - $hyp_st_full5 if $first_M;
+    my $new_start = $best_start - $hyp_st_full5;
+
+    if ( defined($alt_start) && $alt_start != $new_start) {
+        my $alternative_st_in_seq = $isMinus ? ($old_start - ($alt_start*3)) : ($old_start + ($alt_start*3));
+        $newhypprot->set_altstart($alternative_st_in_seq);
+    }
+
+    # Change start value and add comment or not
+    if (abs($best_start-$right_lim_for_st) > 2 && $best_start > $right_lim_for_st) {
+        &ChangeHypProtVal($newhypprot, $new_start, "Start too far", $isMinus);
+    }
+    else {
+        &ChangeHypProtVal($newhypprot, $new_start, "", $isMinus);
+    }
+    return if !$WithIntrons;
+    &SearchForEndIfGeneHaveIntron($newhypprot,$exons,$isMinus,$seq);
+}
+
+
+sub GetProteinForGeneWithoutIntrons {
+    my ($hypprot, $seq, $start, $end, $isMinus) = @_;
+    
+    # 1. Make hyp prot def by blast
+    my $g_length =  !$isMinus ? $end - $start + 1 : $start - $end +1;
+    my $nt_seq   =  !$isMinus ? substr($seq, $start - 1 , $g_length) : substr($seq, $end - 1 , $g_length);
+       $nt_seq   =~ tr/ACGT/TGCA/    if $isMinus;
+       $nt_seq   = reverse $nt_seq   if $isMinus;
+   
+    my $protein    = "";
+    foreach (my $i = 0; $i <= length($nt_seq) - 3; $i += 3) {
+        my $tri_nt   = uc (substr($nt_seq, $i , 3));
+        my $aa       = $CODON_TABLE->{$tri_nt} || "X";
+           $aa       = lc($aa) if $tri_nt eq "GTG" && $CODON_TABLE->{$tri_nt} eq "V";
+           $protein .= $aa;
+    }
+    return $protein;
+}
+
+sub GetFull5 {
+    my ($seq, $isMinus, $prot_seq, $start) = @_;
+    
+    my $use_seq =  $seq;
+    $use_seq =~ tr/ACGT/TGCA/    if $isMinus;
+    $use_seq =  reverse $use_seq if $isMinus;
+    
+    my $full_5  = $prot_seq;
+    $prot_seq   = uc($prot_seq);
+    my $len_seq = length($seq);
+       $start   = $len_seq - $start + 1 if $isMinus;
+       
+     my $shift  = -3;
+     my $tail_5 = [];
+     for (my $currentpos = $start - 3; ; $currentpos += $shift) {
+         last if $currentpos < 0;
+         my $tri_nt = uc (substr($use_seq, $currentpos - 1,3));
+         my $aa     = $CODON_TABLE->{$tri_nt};
+         $aa        = lc($aa) if $tri_nt eq "GTG" && $CODON_TABLE->{$tri_nt} eq "V";
+         last if $aa eq "*";
+         push(@$tail_5, $aa);
+     }
+    @$tail_5  = reverse(@$tail_5);
+    my $tail  = join("",@$tail_5);
+    $full_5   = $tail.$full_5;
+    return $full_5;
+}
+
+sub DefEachStartInAli {
+    my $align = shift;
+    
+    my $each_start = {};
+    foreach my $seq ($align->each_seq) {
+        my $id             = $seq->display_id();
+        my $sequence       = $seq->seq();
+        my $dash_chain     = $1 if $sequence =~ m/^(-*)/;
+        my $len_dash       = length($dash_chain);
+        $each_start->{$id} = $len_dash;
+    }
+    return $each_start;
+}
+
+sub DefMaxStartInAli {
+    my $each_start = shift;
+    
+    my $max_start  = 0;
+    while ( my ($seq_id, $val) = each(%$each_start) ) {
+        $max_start = $val if $val > $max_start;
+    }
+    return $max_start;
+}
+
+sub DefineAllPossibleStart {
+    my $full5               = shift;
+    my $right_lim_for_start = shift;
+    my $aa_accepted         = shift;
+    
+    my $all_possible_start = {};
+    my @t_full5 = split(//, $full5);
+    
+    for (my $i = 0 ; $i <= $#t_full5 ; $i++) {
+        my $aa = $t_full5[$i];
+        next if !$aa_accepted->{$aa};
+        $all_possible_start->{$i}->{"aa"} = $aa;
+        last if $i > $right_lim_for_start;
+    }
+    return $all_possible_start;
+}
+
+sub ChooseBestStart {
+    my $each_st          = shift;
+    my $all_possible_st  = shift;
+    my $right_lim_for_st = shift;
+    
+    # No start was found before last start in alignment
+    my $best_start  = undef;
+       $best_start  = &ChooseStartIfTooFar($all_possible_st,$right_lim_for_st);
+    return $best_start if $best_start;
+    
+    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+        #xxxxxxx attention + 2 doit etre ici d une variable.
+        delete $all_possible_st->{$st_pos} if $st_pos > ($right_lim_for_st + 2);
+    }
+    my $aa_accepted = ["M","v"];
+    my $median      = &Median($each_st);
+    my $alt_start   = undef;
+    my $min_diff    = 100000;
+    foreach my $aa (@$aa_accepted) {
+        &AddInfoForPosStart($each_st,$all_possible_st,$aa);
+        my $nb_homo  = scalar(keys %$each_st);
+        my $diff     = "";
+        
+        # Start is defined with close homologous.
+        $alt_start   = &ChooseStartWithCloseHomo($all_possible_st,$nb_homo);
+        if (defined $alt_start) {
+            $best_start = $alt_start if !(defined $best_start);
+            my $diff    = $all_possible_st->{$alt_start}->{"min"};
+            $min_diff   = $diff if $diff < $min_diff;
+            if ($best_start != $alt_start) {
+                $best_start = $alt_start if $diff <= $min_diff;
+            }
+        }
+        next if $alt_start;
+        
+        # Start is defined with median.
+        $alt_start   = &ChooseStartWithAllHomo($each_st,$all_possible_st,$median,$aa);
+        next if !(defined $alt_start); # Normally this situation can't be happened.
+        $best_start  = $alt_start if !$best_start;
+        $diff        = abs($median - $alt_start);
+        $min_diff    =  $diff if $diff < $min_diff;
+        if ($best_start != $alt_start) {
+                $best_start = $alt_start if $diff <= $min_diff && $alt_start < $best_start;
+        }
+    }
+    return $best_start;
+}
+
+sub ChooseStartIfTooFar {
+    my $all_possible_st = shift;
+    my $limite          = shift;
+    
+    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+        return $st_pos if $st_pos > $limite;
+        last;
+    }
+    return undef;
+}
+
+sub AddInfoForPosStart {
+    my $each_st         = shift;
+    my $all_possible_st = shift;
+    my $aa_accepted     = shift;
+    
+    while (my ($id, $st_homo) = each(%$each_st)) {
+        next if $id gt "d";
+        my $close_hyp_st = undef;
+        my $min_diff  = 100000;  #very hight value
+        foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+            my $aa   = $all_possible_st->{$st_pos}->{"aa"};
+            delete  $all_possible_st->{$st_pos}->{"count"} if $aa ne $aa_accepted 
+                                                           && $all_possible_st->{$st_pos}->{"count"};
+            next if $aa ne $aa_accepted;
+            my $diff = abs($st_homo-$st_pos);
+            ($close_hyp_st,$min_diff) = ($st_pos,$diff) if $diff < $min_diff;
+        }
+        next if !(defined $close_hyp_st);
+        next if $all_possible_st->{$close_hyp_st}->{"aa"} ne $aa_accepted;
+        $all_possible_st->{$close_hyp_st}->{"count"}++;
+        $all_possible_st->{$close_hyp_st}->{"min"}  = $min_diff if ( (not defined ($all_possible_st->{$close_hyp_st}->{"min"}))
+                                                                   || $min_diff <= $all_possible_st->{$close_hyp_st}->{"min"});
+    }
+}
+
+sub ChooseStartWithCloseHomo {
+    my $all_possible_st = shift;
+    my $nb_homo         = shift;
+         
+    while ( my ($st_pos, $hash) = each(%$all_possible_st) ) {
+        my ($aa,$count) = ($hash->{"aa"},$hash->{"count"});
+        next if !$count;
+        if ($nb_homo >= 4) {
+           return $st_pos if $count >= 3;
+        }
+        elsif ($nb_homo == 2 || $nb_homo == 3) {
+            return $st_pos if $count >= 2;
+        }
+        elsif ($nb_homo == 1) {
+            return $st_pos if $count >= 1;
+        }
+    }
+    return undef;
+}
+
+sub ChooseStartWithAllHomo {
+    my $each_st         = shift;
+    my $all_possible_st = shift;
+    my $median          = shift;
+    my $aa_accepted     = shift;
+    
+    foreach my $st_pos (sort (keys(%$all_possible_st))) {
+        delete $all_possible_st->{$st_pos}->{"count"};
+    }
+    
+    my $close_hyp_st = undef;
+    my $min_diff     = 100000;  #very hight value
+    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+        my $aa   = $all_possible_st->{$st_pos}->{"aa"};
+        delete $all_possible_st->{$st_pos}->{"min"};
+        delete $all_possible_st->{$st_pos}->{"count"};
+        next if $aa ne $aa_accepted;
+        my $diff = abs($median-$st_pos);
+        ($close_hyp_st,$min_diff) = ($st_pos,$diff) if $diff < $min_diff;
+    }
+    return $close_hyp_st;
+}
+
+sub Median {
+    my $each_st = shift;
+    
+    my @all_pos = ();
+    while ( my ($id, $pos) = each(%$each_st) ) {
+        push(@all_pos,$pos);
+    }
+    @all_pos = sort { $a <=> $b } @all_pos;
+    my $median   = "";
+    my $nb_elem  = scalar(@all_pos);
+    my $last_ind = $nb_elem - 1;
+    if ($nb_elem == 1) {
+        $median = $all_pos[0];
+    }
+    elsif (($nb_elem % 2) == 0) {
+        $median = $all_pos[($last_ind / 2)];
+    }
+    else {
+        $median = int ( $all_pos[int($last_ind / 2)] 
+                    + (($all_pos[int($last_ind / 2) + 1] 
+                      - $all_pos[int($last_ind / 2)]) / 2));
+    }
+    $median = $median >= 0 ? $median : 0;
+    return $median;
+}
+
+sub ChangeHypProtVal {
+    my $hypprot    = shift; 
+    my $new_start  = shift;
+    my $message    = shift;
+    my $isMinus    = shift;
+    
+    my $old_start  = $hypprot->get_start;
+    my $new_st_pos = $isMinus ? ($old_start - ($new_start*3)) : ($old_start + ($new_start*3));
+    my $exons      = $hypprot->get_exons();
+    my $first_exon = $exons->[0] if scalar(@$exons);
+    $first_exon->set_dnastart($new_st_pos) if $first_exon;
+    $hypprot->set_start($new_st_pos);
+    $hypprot->set_warning($message);
+}
+
+sub SearchForEndIfGeneHaveIntron {
+    my $hypprot     = shift;
+    my $exons       = shift;
+    my $isMinus     = shift;
+    my $seq         = shift;
+    
+    my $len_seq    = length($seq);
+    my $first_exon = $exons->[0];
+    my $end_exon   = $exons->[-1];
+    my $end_e      = $end_exon->get_dnaend();
+
+    if (!$isMinus) {
+        for (my $i = -3;; $i += 3) {
+            last if $end_e + $i > $len_seq -3;
+            my $tri_nt  = uc (substr($seq, $end_e + $i, 3));
+            my $codon   = $CODON_TABLE->{$tri_nt};
+            next if $codon ne "*";
+            my $new_end = $end_e + $i + 3;
+            $end_exon->set_dnaend($new_end);
+            $hypprot->set_end($new_end);  # Set the new end to the protein
+            last; 
+        }
+    }
+    elsif ($isMinus) {
+        for (my $i = 0;; $i -= 3) {
+            last if $end_e +$i-1 < 0;
+            my $tri_nt = uc (substr($seq, $end_e + $i - 1 , 3));
+               $tri_nt =~ tr/ATUGCatugc/TAACGTAACG/;
+               $tri_nt = reverse ($tri_nt);# Reverse and complementary
+            my $codon  = $CODON_TABLE->{$tri_nt};
+            next if $codon ne "*";
+            my $new_end = $end_e + $i;
+            $end_exon->set_dnaend($new_end);
+            $hypprot->set_end($new_end);       # Set the new end to the protein
+            last; 
+        }
+    }
+}
 
 #-----------------------------------------#
 # Subs for internal structure prediction  #
@@ -1738,6 +2168,7 @@ sub FindExonsInHypProtArray {
             $newhypprot = new PirObject::HypProt (
                                                   name       => $name,
                                                   contigname => $contigname,
+                                                  exostart   => $start,
                                                   start      => $start,
                                                   end        => $end,
                                                   strand     => $strand,
@@ -1747,7 +2178,8 @@ sub FindExonsInHypProtArray {
                                                   exons      => [],
                                                   introns    => [],
                                                   homologous => $homologous,
-                                                  firstExonerateMatch => $FirstExonerateMatch
+                                                  firstExonerateMatch => $FirstExonerateMatch,
+                                                  idbyexo    => 1
                                                  );
             push (@$HYPPROTS,  $newhypprot);
             
@@ -1780,6 +2212,7 @@ sub FindExonsInHypProtArray {
                                                           );
                 push (@$newhypprotintronarray, $hypprotintron);
             }
+            &AdjustStart($newhypprot,$dna_seq);
         }
     }  # End of each prot
 } # End sub
@@ -1829,9 +2262,7 @@ sub Choose_best_solution {
     my $i              = shift;
     my $name           = shift;
     
-    # nom pour output = xxxx;
-    #creer un fichier avec la bd !!!
-    # 1. FORNATDB
+    # 1. FORMATDB
     my $base_name    = "$TMPDIR/Exonerate/mf_${name}_e$i";
     unlink($base_name) or die "Impossible to delete $base_name\n" if (-f $base_name);
     my $command      = "$FORMATDBPATH -p 'T' -t banque -i $protein_file -n $base_name -l $TMPDIR/Exonerate/fdb_exon.log >/dev/null 2>/dev/null";
@@ -1911,23 +2342,11 @@ sub Add_comment_for_transpliced {
 # Subs for processing ORFs => genes  #
 #------------------------------------#
 
-sub FindStartEndAndTreatGeneFusion {
+sub TreatGeneFusion {
     # This function is supposing to find start
     # to find end for gene with exons and introns
     # to treat the case of gene fusion
     my $pirmaster      = shift;
-    my $possiblestarts = ['ATG', 'AUG'];
-    
-    # In order to find stop codon when gene had exons/introns.
-    foreach my $hypprot (@$HYPPROTS) {
-        my $exons   = $hypprot->get_exons();
-        next if !@$exons;
-        my $isMinus = ($hypprot->get_strand() == 1 ? 0 : 1);
-        my $contig      = $pirmaster->GetContigByName ($hypprot->get_contigname());  
-        my $seq         = $contig->get_sequence();                                   
-           $seq         =~ s/!//g;
-        &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
-    }
     
     &AddInfoAboutGeneFusion($HYPPROTS);
 
@@ -1940,25 +2359,13 @@ sub FindStartEndAndTreatGeneFusion {
         
         my $seq         = $contig->get_sequence();                                   
            $seq         =~ s/!//g;
-        my $reverse_seq = $seq;
-           $reverse_seq =~ tr/ACGT/TGCA/;
-           $reverse_seq = reverse $reverse_seq;
-        my $use_seq     = ($isMinus ? "$reverse_seq" : "$seq");
+        my $len_seq     = length($seq);
         
         # We have a gene fusion.
         my $isFusioned = $hypprot->get_hypfusiongene() || undef;
         if ($isFusioned) {
-            &TreatmentOfFusion($pirmaster,$hypprot,$contig,$isMinus,$use_seq,$exons);
+            &TreatmentOfFusion($pirmaster,$hypprot,$contig,$isMinus,$len_seq,$exons);
         }
-        next if $isFusioned;
-        
-        # We haven't a gene fusion
-        my $newstartpos = &SearchForStart($pirmaster,$use_seq,$hypprot,$isMinus) if $idByExo;
-           $newstartpos = &SearchForCloseStart($pirmaster,$hypprot,$isMinus,$use_seq);
-           
-        next if !$idByExo;
-        my $first_exon = $exons->[0];
-        $first_exon->set_dnastart($newstartpos);
     } # End foreach $hypprot
 } # End function
 
@@ -1979,10 +2386,11 @@ sub AddInfoAboutGeneFusion {
             
             my $contigname2 = $hypprot2->get_contigname();
             next if $contigname1 ne $contigname2;
-            
+             
             my $genename2   = $hypprot2->get_name();
             next if $genename2 ne $namefusiongene1;
-            $infofusiongene1->set_start($hypprot2->get_start());
+            my $start_f = $hypprot2->get_blaststart() || $hypprot2->get_exostart();
+            $infofusiongene1->set_start($start_f);
             $infofusiongene1->set_end($hypprot2->get_end());
         }
     }
@@ -1993,205 +2401,37 @@ sub TreatmentOfFusion {
     my $hypprot   = shift;
     my $contig    = shift;
     my $isMinus   = shift;
-    my $use_seq   = shift;
+    my $len_seq   = shift;
     my $exons     = shift;
     my $idByExo   = (scalar(@$exons) != 0 ? 1 : 0);
-    
-    my $len_seq      = length($use_seq);
-    my $fusion_info  = $hypprot->get_hypfusiongene();
+        
     my $start_gene   = $hypprot->get_start();
        $start_gene   = ( $isMinus ? $len_seq - $start_gene + 1 : $start_gene);
+    my $fusion_info  = $hypprot->get_hypfusiongene();
     my $start_fusion = $fusion_info->get_start();
        $start_fusion = ( $isMinus ? $len_seq - $start_fusion + 1 : $start_fusion);
-    my $fusion_name = $fusion_info->get_name();
-    
+    my $fusion_name  = $fusion_info->get_name();
+     
     # Add comment for the second gene
     if ($start_gene > $start_fusion) {
+        my $simi_start = $hypprot->get_blaststart() || $hypprot->get_exostart();
+        $hypprot->set_start($simi_start);
+        my $first_exon =  $exons->[0]          if $idByExo;
+        $first_exon->set_dnastart($simi_start) if $idByExo;
         $hypprot->set_multicomment(";; Contiguous and in phase with $fusion_name");
         $hypprot->set_posiffusion(2);
         return;
     }
     
     $hypprot->set_posiffusion(1);
-    
-    # Adjust start if it's the first gene
-    my $newstartpos = &SearchForStart($pirmaster,$use_seq,$hypprot,$isMinus)      if  $idByExo;
-       $newstartpos = &SearchForCloseStart($pirmaster,$hypprot,$isMinus,$use_seq) if !$idByExo;
-
     # Adjust end if it's first gene
     my $newendpos  = ( $isMinus ? $len_seq - $start_fusion + 2 : $start_fusion - 1);
     $hypprot->set_end($newendpos);
     
     # Adjust end of last exon
-    my $end_exon   = $exons->[-1]     if $idByExo;
+    my $end_exon = $exons->[-1]       if $idByExo;
     $end_exon->set_dnaend($newendpos) if $idByExo;
 }
-
-sub SearchForEndIfGeneHaveIntron {
-    my $hypprot     = shift;
-    my $exons       = shift;
-    my $isMinus     = shift;
-    my $seq         = shift;
-    
-    my $len_seq    = length($seq);
-    my $first_exon = $exons->[0];
-    my $end_exon   = $exons->[-1];
-    my $end_e      = $end_exon->get_dnaend();
-
-    if (!$isMinus) {
-        for (my $i = -3;; $i += 3) {
-            last if $end_e + $i > $len_seq -3;
-            my $tri_nt  = uc (substr($seq, $end_e + $i, 3));
-            my $codon   = $CODON_TABLE->{$tri_nt};
-            next if $codon ne "*";
-            my $new_end = $end_e + $i + 3;
-            $end_exon->set_dnaend($new_end);
-            $hypprot->set_end($new_end);  # Set the new end to the protein
-            last; 
-        }
-    }
-    elsif ($isMinus) {
-        for (my $i = 0;; $i -= 3) {
-            last if $end_e +$i-1 < 0;
-            my $tri_nt = uc (substr($seq, $end_e + $i - 1 , 3));
-               $tri_nt =~ tr/ATUGCatugc/TAACGTAACG/;
-               $tri_nt = reverse ($tri_nt);# Reverse and complementary
-            my $codon  = $CODON_TABLE->{$tri_nt};
-            next if $codon ne "*";
-            my $new_end = $end_e + $i;
-            $end_exon->set_dnaend($new_end);
-            $hypprot->set_end($new_end);       # Set the new end to the protein
-            last; 
-        }
-    }
-}
-
-sub SearchForStart {
-    my $pirmaster = shift;
-    my $seq       = shift;
-    my $hypprot   = shift;
-    my $isMinus   = shift;
-    
-    my $len_seq = length($seq);
-    my $start = $hypprot->get_start();
-       $start = $len_seq - $start + 1 if $isMinus;
-    
-    my $exons = $hypprot->get_exons();
-    my $first_exon = $exons->[0];
-    
-    my $shift = -3;
-    for (my $currentpos = $start; ; $currentpos += $shift) {
-        last if $currentpos < 0;
-        my $tri_nt = uc (substr($seq, $currentpos - 1,3));
-        my $codon   = $CODON_TABLE->{$tri_nt};
-        last if $codon eq "*";
-        next if $tri_nt ne "ATG" && $tri_nt ne "GTG";
-        my $newstart = ($isMinus ? $len_seq - $currentpos + 1 : $currentpos);
-        $first_exon->set_dnastart($newstart);
-        $hypprot->set_start($newstart);
-        last;
-    }
-}
-
-sub SearchForCloseStart {
-    my $pirmaster = shift;
-    my $hypprot   = shift;
-    my $isMinus   = shift;
-    my $use_seq   = shift;
-    
-    my $oldstartpos = $hypprot->get_start();
-    my $newstartpos = $hypprot->get_start();
-    my $warning     = $hypprot->get_warning();
-    my $new_warning = $hypprot->get_warning();
-   
-    my %hash;
-    my @tab;
-    my @tab_ATG_pos;
-    my @tab_ATG_neg;
-    my @tab_ATG_neutre;
-    my @tab_GTG_pos;
-    my @tab_GTG_neg;
-    my @tab_GTG_neutre;
-        
-    my $len_seq     = length($use_seq);
-    my $currentpos  = $hypprot->get_start();
-       $currentpos  = $len_seq - $currentpos  + 1 if $isMinus;
-       $oldstartpos = $len_seq - $oldstartpos + 1 if $isMinus;
-           
-    my @i_start;
-    for (my $i = -$STARTBEFORE; $i <= $STARTAFTER; $i++, $currentpos += 3 ) {
-        my $pos = $currentpos - 1 - ($STARTBEFORE*3);
-        
-        next if ( $pos < 0           );
-        next if ( $pos > $len_seq - 3);
-        
-        my $tri_nt = uc (substr($use_seq, $pos, 3));
-        $hash{$i}  = $tri_nt;
-            
-        push(@tab, $i) if (defined($CODON_TABLE->{$hash{$i}})  && $CODON_TABLE->{$hash{$i}} eq "*");
-        push(@i_start, $i);
-    }
-
-    my $compt_i = $i_start[0];
-    my $compt_f = $i_start[-1];
-       $compt_i = $tab[-1] + 1 if @tab;
-
-    for (my $i = $compt_i ; $i <= $compt_f; $i++) {
-        if ($hash{$i} eq "ATG") {
-            push(@tab_ATG_pos,    $i) if ($i > 0);
-            push(@tab_ATG_neg,    $i) if ($i < 0);
-            push(@tab_ATG_neutre, $i) if ($i == 0);
-        }
-        elsif ($hash{$i} eq "GTG") {
-            push(@tab_GTG_pos,    $i) if ($i > 0);
-            push(@tab_GTG_neg,    $i) if ($i < 0);
-            push(@tab_GTG_neutre, $i) if ($i == 0);
-        }
-    }
-
-    if ( ! (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg)) { # If not ATG look for GTG
-         @tab_ATG_pos    = @tab_GTG_pos;
-         @tab_ATG_neg    = @tab_GTG_neg;
-         @tab_ATG_neutre = @tab_GTG_neutre;
-     }
-
-     if (@tab_ATG_pos || @tab_ATG_neutre || @tab_ATG_neg) {
-        if (@tab_ATG_neutre) {
-            $newstartpos = $oldstartpos;
-            $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
-        }
-        elsif ( @tab_ATG_pos  && !@tab_ATG_neg ) { # Start before if is strand +
-            $newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-            $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
-        }
-        elsif ( ! @tab_ATG_pos && @tab_ATG_neg ) { # Start after if is strand -
-            $newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-            $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
-        }
-        elsif ( @tab_ATG_pos && @tab_ATG_neg ) {
-           if (abs($tab_ATG_neg[-1]/3) > $tab_ATG_pos[0]) {
-                $newstartpos = $oldstartpos + (3*$tab_ATG_pos[0]);
-                $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
-            }
-            else {
-                $newstartpos = $oldstartpos + (3*$tab_ATG_neg[-1]);
-                $newstartpos = $len_seq - $newstartpos + 1 if $isMinus;
-             }
-        }
-    }
-
-    else { 
-        $newstartpos  = $oldstartpos;
-        $newstartpos  = $len_seq - $newstartpos + 1 if $isMinus;
-        $new_warning .= "See for start codon";
-    }
-
-    $hypprot->set_start($newstartpos);  # Set the new start to the protein
-    $hypprot->set_warning($new_warning);
-    return $newstartpos;
-}
-
-
 
 #-------------------------------------------------#
 # Subs for making annotations of mini exons       #
@@ -2201,7 +2441,7 @@ sub AnnotateMiniExons {
     # This fonction is used in order to identify mini exons
     my $pirmaster = shift;
     
-    mkdir("$TMPDIR/Clustalw",0700) or die "Error: can't create work directory '$TMPDIR/Clustalw': $!\n";
+    mkdir("$TMPDIR/Muscle_for_exons",0700) or die "Error: can't create work directory '$TMPDIR/Muscle_for_exons': $!\n";
     mkdir("$TMPDIR/Intron",0700) or die "Error: can't create work directory '$TMPDIR/Intron': $!\n";
     foreach my $hypprot (@$HYPPROTS) {
         my $name       = $hypprot->get_name();
@@ -2219,20 +2459,20 @@ sub AnnotateMiniExons {
         my $introns = $hypprot->get_introns();
         next if scalar(@$exons) < 2;    # For protein with exon/intron
         
-        my $prot_sequence      = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$name,$hypprot);
+        my $prot_sequence      = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot);
         next if $prot_sequence eq "Frame-Shift-Detected";
         $prot_sequence      = substr($prot_sequence, 0, -1);
         next if (index($prot_sequence,"*") >= 0 );
         
-        my $file_for_alignment = &MakeFileForAlignment($hypprot);
+        my $file_for_alignment = &MakeFileForAlignment($hypprot,"Muscle_for_exons",3);
         
-        my $cmd = "$CLUSTALWPATH $file_for_alignment >/dev/null 2>/dev/null";
+        my $result_file = $file_for_alignment;
+           $result_file =~ s/.fasta$/.aln/;
+
+        my $cmd = "$MUSCLEPATH -in $file_for_alignment -stable -clwstrict -out $result_file >/dev/null 2>/dev/null";
         print "\n$cmd\n" if $DEBUG;
         
         my $resultat = system ("$cmd");
-
-        my $result_file = $file_for_alignment; 
-           $result_file =~ s/\.[^.]+$/.aln/;
         
         my $alignio = new Bio::AlignIO(-format => 'clustalw',
                                        -file   => $result_file);
@@ -2310,7 +2550,7 @@ INTRON: for (my $i = 0; $i < @$introns; $i++) {
                                           || $a->{"core"}         <=> $b->{"core"}
                                           || $a->{"position"}     <=> $b->{"position"}} @$list_of_hyp_exons;
             my $best_solution     = shift(@$list_of_hyp_exons);
-            &AddCommentsForOtherSolutions($introns,$exons,$i,$list_of_hyp_exons,$isMinus,$pirmaster,$contigname) if scalar(@$list_of_hyp_exons) > 0 ;
+            &AddCommentsForOtherSolutions($hypprot,$i,$list_of_hyp_exons,$isMinus,$pirmaster,$contigname) if scalar(@$list_of_hyp_exons) > 0 ;
             &AddMiniExon($introns,$exons,$i,$best_solution,$isMinus);
             $i++; # Because we add an entry in @$introns
         }
@@ -2321,15 +2561,14 @@ sub GetProteinSequenceAndIntronsPos {
     my $exons   = shift;
     my $introns = shift;
     my $seq     = shift;
-    my $name    = shift;
     my $hypprot = shift;
     
+    my $name         = $hypprot->get_name();
     my $dna_sequence = "";
     my $length_tot   = 0;
     for (my $i = 0 ; $i < scalar(@$exons) ; $i++) {
         my $hasFrameshift = $exons->[$i]->frameshiftsize();
         return "Frame-Shift-Detected" if $hasFrameshift;
-        my $num_int       = $i + 1; 
         my $start         = $exons->[$i]->dnastart()   || next;
         my $end           = $exons->[$i]->dnaend()     || next;
         my $isMinus       = ($exons->[$i]->strand eq "+" ? 0 : 1);
@@ -2356,10 +2595,13 @@ sub GetProteinSequenceAndIntronsPos {
        
     my $prot_sequence = &TranslateInProt($dna_sequence);
     $hypprot->set_thisprot($prot_sequence);
+    return $prot_sequence;
 }
 
 sub MakeFileForAlignment {
     my $hypprot = shift;
+    my $dir     = shift;
+    my $length  = shift;
     
     my $name       = $hypprot->get_name();
     my $contigname = $hypprot->get_contigname();
@@ -2367,7 +2609,8 @@ sub MakeFileForAlignment {
     my $prot       = $hypprot->get_thisprot();
     my $flag       = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
     
-    my $name_of_file = "$TMPDIR/Clustalw/$contigname"."_$name"."_$flag.fasta";
+    my $full_5 = "";
+    my $name_of_file = "$TMPDIR/$dir/$contigname"."_$name"."_$flag.fasta";
     
     die "The file $name_of_file already exist"
         if (-e $name_of_file);
@@ -2376,8 +2619,15 @@ sub MakeFileForAlignment {
     my $file_for_alignment = new IO::File ">$name_of_file" or die "Impossible to open $name_of_file\n";
     
     # Write into the file
-    my $id = "a"; # Use in order to be sure that's two seq use by clustalW have differnt name
-    foreach my $homologous (@$homologous) {
+    
+    my $format_prot = &Format($prot); 
+    print $file_for_alignment $format_prot;
+    
+    my $id = "a"; # Use in order to be sure that's two seq use by muscle have differnt name
+    
+    for (my $i = 0; $i < $length; $i++) {
+        my $homologous = @$homologous[$i];
+        last if !$homologous;
         my $similar_prot = $homologous->get_similarprot();
            $similar_prot =~ s/\n+$//;
            $similar_prot =~ s/^>(.+)/>$id $1/;
@@ -2385,12 +2635,9 @@ sub MakeFileForAlignment {
         $id++;
     }
     
-    my $format_prot = &Format($prot); 
-    print $file_for_alignment $format_prot;
-    
     # Close the file
     $file_for_alignment->close() or die "Impossible to close $name_of_file\n";
-    return $name_of_file;
+    return ($name_of_file);
 }
 
 sub Format {
@@ -3094,19 +3341,21 @@ sub AddMiniExon {
 }
 
 sub AddCommentsForOtherSolutions {
-    my $introns        = shift;
-    my $exons          = shift;
+    my $hyprot         = shift;
     my $i              = shift;
     my $best_hyp_exons = shift;
     my $isMinus        = shift;
     my $pirmaster      = shift;
     my $contigname     = shift;
     
+    my ($introns,$exons) = ( $hyprot->get_introns(), $hyprot->get_exons());
+    
     my $strand       = ( $isMinus ? "-" : "+");
     my $arrow        = ( $isMinus ? "<==" : "==>");
     my $exon_prev    = $exons->[$i];
     my $exon_next    = $exons->[$i+1];
     
+    my $list_alt_exons = $hyprot->get_altexons();
     foreach my $solution (@$best_hyp_exons) {
         
         my $prefix_len            = ( $isMinus ? -$solution->{"prefix"} :  $solution->{"prefix"});
@@ -3130,17 +3379,19 @@ sub AddCommentsForOtherSolutions {
         my $start_line = ";; Alternative solution for exon $number_exon, end previous exon = $end_of_previous_exon";
         my $end_line   = ";; Alternative solution for exon $number_exon, start next exon = $start_of_next_exon";
         
-        my $ap = new PirObject::AnnotPair(
-                                      type      => "C",
-                                      genename  => "alternative",
+        my $AP = new PirObject::AnnotPair(
+                                      type      => "G",
+                                      genename  => "comment",
                                       startpos  => $start_of_hyp_exon,
                                       endpos    => $end_of_hyp_exon,
                                       direction => $arrow,
                                       startline => $start_line,
                                       endline   => $end_line,
-                                      );
-        &AddAnnotToPirMaster($pirmaster,$contigname,$ap);
+                                      ); 
+        push(@$list_alt_exons, $AP);
+        &AddAnnotToPirMaster($pirmaster,$contigname,$AP);
     }
+    $hyprot->set_altexons($list_alt_exons);
 }
 
 #-------------------------------------------------#
@@ -3155,38 +3406,34 @@ sub AnnotateMfFromHYPPROTSArray {
         my $name = $hyprot->name;
         next if (not (defined ($name)) or ($name eq ""));
         
-        my $contigname     = $hyprot->get_contigname();
-        my $start          = $hyprot->get_start();
-        my $end            = $hyprot->get_end();
-        my $prot           = $hyprot->get_protein();
+        my $contigname = $hyprot->get_contigname();
+        my $contig     = $pirmaster->GetContigByName($contigname);
+        my $start      = $hyprot->get_start();
+        my $alt_start  = $hyprot->get_altstart();
+        my $end        = $hyprot->get_end();
+        my $prot       = $hyprot->get_protein();
         my ($ref_length,$length_protein) = (0,0);                 
         # Length of the library protein and length of the annotated protein
+        my $exons      =  $hyprot->get_exons();
+        my $isMinus    = ($hyprot->get_strand() == 1 ? 0 : 1);
+        my $fusion     = $hyprot->get_hypfusiongene();
+        my $idByBlast  = $hyprot->get_idbyblast();
+        my $idByExo    = $hyprot->get_idbyexo();
+        my $frameshift = $hyprot->get_frameshift();
+        my $arrow      = ($isMinus ? '<==' : '==>');
+        
+        my $NotToAnnot = &CheckIfHypIsInAFamily($hyprot,$contig);
+        next               if $NotToAnnot == 1;
+        my $ToComment  = 1 if $NotToAnnot == 2;
 
         my @tab_prot = split(/\n/, $prot);
         for (my $i = 0 ; $i <= $#tab_prot ; $i++) {
             $ref_length += length($tab_prot[$i]) if (!($tab_prot[$i] =~ /^>/));
         }
-       
-        $ref_length = $ref_length - 1;
-
-        my $exons   =  $hyprot->get_exons();
-        my $isMinus = ($hyprot->get_strand() == 1 ? 0 : 1);
-        my $arrow   = ($isMinus ? '<==' : '==>'); 
+        $ref_length--;
 
         # Define the length of the protein in order to compare them at the length of homolog protein
-        if (@$exons){
-        # For protein with exon/intron
-            foreach my $exon (@$exons) {
-                my $length_exon = $exon->dnaend - $exon->dnastart + 1;
-                   $length_exon = $exon->dnastart - $exon->dnaend + 1 if $isMinus;
-                   $length_protein += $length_exon; # in NT
-            }
-            $length_protein = int($length_protein/3 + 0.5) - 1; # the 0.5 should never cause a prob
-        }
-        else {
-            # For protein without intron
-            $length_protein = int(( abs($start - $end) + 1 ) / 3 + 0.5 ) - 1;
-        }
+        $length_protein = &GetLengthProt($exons, $start, $end, $isMinus);
 
         # Define the interval of length
         my $size_percent  = (($SIZE * $ref_length) / 100);
@@ -3206,24 +3453,35 @@ sub AnnotateMfFromHYPPROTSArray {
 
         # Annot the gene
         my $linename  = $name;                     # The name gene in start and endline
-        my $startline = "";
-
-        $startline .= ";     G-$linename $arrow start ;; Warning : $warning" if $warning ne "";
-        $startline .= ";     G-$linename $arrow start" if $warning eq "";
-        $startline .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
-        my $endline = ";     G-$linename $arrow end";
-        $endline   .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
+        my ($startline,$endline) = ( $ToComment ? (";",";") : ("",""));
         
-        my $isFusioned = $hyprot->get_hypfusiongene() || undef;
+        $startline  .= ";     G-$linename $arrow start ;; Warning : $warning" if $warning ne "";
+        $startline  .= ";     G-$linename $arrow start" if $warning eq "";
+        $startline  .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
+        $endline    .= ";     G-$linename $arrow end";
+        $endline    .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
+        
+        my $isFusioned      = $hyprot->get_hypfusiongene() || undef;
         my $startlinenumber = ( $isMinus && $isFusioned ? 0 : 2);
         my $endlinenumber   = ( $isMinus && $isFusioned ? 2 : 0);
         
-        my $info_fusion = $hyprot->get_hypfusiongene() || undef;
-        my $fusion_name = $info_fusion->get_name()     || undef if $info_fusion;
-        my $posiffusion = $hyprot->get_posiffusion()   || undef;
+        my $info_fusion     = $hyprot->get_hypfusiongene() || undef;
+        my $fusion_name     = $info_fusion->get_name()     || undef if $info_fusion;
+        my $posiffusion     = $hyprot->get_posiffusion()   || undef;
         
+        my $len_orf = 0;
+        if ( !(defined($isFusioned)) && $alt_start && (abs($start-$alt_start)/3 >= 100)  ) {
+            $len_orf     = abs($start-$alt_start)/3;
+            $fusion_name = "orf$len_orf";
+            $posiffusion = 2;
+            $startlinenumber = ( $isMinus ? 0 : 2);
+            $endlinenumber   = ( $isMinus ? 2 : 0);
+        }
+        
+        my $A_type    = "C" if $ToComment;
+        my $altexons  = $hyprot->get_altexons();
         my $protannot = new PirObject::AnnotPair (
-                                                   type              => "G", 
+                                                   type              => $A_type || "G", 
                                                    genename          => "$name",
                                                    startpos          => $start,
                                                    endpos            => $end,
@@ -3235,12 +3493,48 @@ sub AnnotateMfFromHYPPROTSArray {
                                                    lengthofref       => $ref_length,
                                                    lengthofthis      => $length_protein,
                                                    posiffusion       => $posiffusion,
-                                                   namefusiongene    => $fusion_name
+                                                   namefusiongene    => $fusion_name,
+                                                   idbyblast         => $idByBlast,
+                                                   idbyexo           => $idByExo,
+                                                   altexons          => $altexons
                                                  );
         my $comment = [];
-        if ($warning =~ m/See for start codon/ 
-         && $hyprot->get_firstExonerateMatch()
-         && $hyprot->get_firstExonerateMatch() > 10) {
+        
+        # Add comment for frameshift 
+        push (@$comment,";; Present probably a frameshift") if $frameshift;
+        
+        # Add comment for alternative start
+        if (!$fusion || (defined($fusion) && $posiffusion == 1)) {
+            push (@$comment,";; Alternative start at pos : $alt_start") if $alt_start && $len_orf < 100 && !$fusion;
+            push (@$comment,";; Alternative start at pos : $alt_start") if $alt_start && defined($fusion) && $posiffusion == 1;
+        }
+        
+        # Annotation of fusion between Orf and gene
+        if ($alt_start && $len_orf >= 100 && !$fusion) {
+            my $orf_end                = ( $isMinus ? $start + 1 : $start - 1);
+            my ($start_line,$end_line) = ( $ToComment ? (";",";") : ("",""));
+               $start_line            .= ";     G-$fusion_name $arrow start";
+               $end_line              .= ";     G-$fusion_name $arrow end";
+            
+            my $orfannot = new PirObject::AnnotPair (
+                                       type              => $A_type || "G", 
+                                       genename          => $fusion_name,
+                                       startpos          => $alt_start,
+                                       endpos            => $orf_end,             # gene start
+                                       direction         => $arrow,
+                                       startline         => $start_line,
+                                       endline           => $end_line,
+                                       startlinenumber   => $startlinenumber,
+                                       endlinenumber     => $endlinenumber,
+                                       namefusiongene    => $name,
+                                       posiffusion       => 1
+                                     );
+            &AddAnnotToPirMaster($pirmaster,$contigname,$orfannot);
+            push (@$comment,";; Contiguous and in phase with $fusion_name");
+        }
+        
+        if ( $hyprot->get_firstExonerateMatch()
+          && $hyprot->get_firstExonerateMatch() > 10) {
            push (@$comment,";; Suspected missing first exon");
            $protannot->set_firstmissingexon(1);
         }
@@ -3249,7 +3543,7 @@ sub AnnotateMfFromHYPPROTSArray {
         push (@$comment,$comments) if $comments;
         $protannot->set_startmulticomment($comment);
         my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
-        
+
         # Go out of the function if the protein has not been added
         if (!defined ($res) or $res == 0) {
             $ANNOT_STATS->{'Rediscovered'}->{$protannot->genename}->{'E'} += scalar (@$exons) if (scalar (@$exons) > 0);
@@ -3266,14 +3560,16 @@ sub AnnotateMfFromHYPPROTSArray {
             my $end    = $exon->get_dnaend();
             my $strand = $exon->get_strand();
             my $frameshift_size = $exon->get_frameshiftsize();
- 
-            my $start_line  = ";     G-$linename-E$number $arrow start";
+            
+            my ($start_line,$end_line) = ( $ToComment ? (";",";") : ("",""));
+
+               $start_line .= ";     G-$linename-E$number $arrow start";
                $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
-            my $end_line    = ";     G-$linename-E$number $arrow end";
+               $end_line   .= ";     G-$linename-E$number $arrow end";
                $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
 
             my $annot = new PirObject::AnnotPair (
-                                                       type            => "E",
+                                                       type            => $A_type || "E",
                                                        genename        => "$name",
                                                        startpos        => $start,
                                                        endpos          => $end,
@@ -3298,16 +3594,17 @@ sub AnnotateMfFromHYPPROTSArray {
             my $type     = $intron->get_type();
             my $idbyRNAw = $intron->get_idbyRNAw();
             my $comment  = $intron->get_comment() || "";
-
-            my $start_line  = ";     G-$linename-I$number $arrow start";
+            
+            my ($start_line,$end_line) = ( $ToComment ? (";",";") : ("",""));
+               $start_line .= ";     G-$linename-I$number $arrow start";
                $start_line .= " /group=$type" if $type;
                $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
-            my $end_line    = ";     G-$linename-I$number $arrow end";
+               $end_line   .= ";     G-$linename-I$number $arrow end";
                $end_line   .= " /group=$type" if $type;
                $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
 
             my $annot = new PirObject::AnnotPair (
-                                                         type       => "I",
+                                                         type       => $A_type || "I",
                                                          genename   => "$name",
                                                          startpos   => $start,
                                                          endpos     => $end,
@@ -3330,6 +3627,198 @@ sub AnnotateMfFromHYPPROTSArray {
         } # End foreach $intron
     } # End foreach $hyprot
 } # End sub
+
+sub GetLengthProt {
+    my ($exons, $start, $end, $isMinus) = @_;
+    
+    my $length_protein = 0;
+    if (@$exons){
+        # For protein with exon/intron
+            foreach my $exon (@$exons) {
+                my $length_exon = $exon->dnaend - $exon->dnastart + 1;
+                   $length_exon = $exon->dnastart - $exon->dnaend + 1 if $isMinus;
+                   $length_protein += $length_exon; # in NT
+            }
+            $length_protein = int($length_protein/3 + 0.5) - 1; # the 0.5 should never cause a prob
+        }
+        else {
+            # For protein without intron
+            $length_protein = int(( abs($start - $end) + 1 ) / 3 + 0.5 ) - 1;
+        }
+    return $length_protein;
+}
+
+sub CheckIfHypIsInAFamily {
+    my ($hyprot,$contig) = @_;
+    my $HP_start     = $hyprot->get_start();
+    my $HP_stop      = $hyprot->get_end();
+    my $HP_idbyblast = $hyprot->get_idbyblast();
+    
+    ($HP_start, $HP_stop) = ($HP_stop, $HP_start) if $HP_start > $HP_stop;
+    my $annot_who_overlap = &WhatOverlapsThis($HP_start,$HP_stop,$contig);
+    
+    my $IsInAP    = []; # If HP is in an other Gene
+    my $ContainAP = []; # List of AP contained in HP
+    
+    foreach my $list_who_overlap (@$annot_who_overlap) {
+        foreach my $AP_who_overlap (@$list_who_overlap ) {
+            my $AP      = $AP_who_overlap->[2];
+            my $All     = $AP_who_overlap->[3];
+            my $AP_type = $AP->get_type();
+            next if $AP_type ne "G";
+            my ($AP_start, $AP_stop) = ($AP_who_overlap->[0],$AP_who_overlap->[1]);
+               ($AP_start, $AP_stop) = ($AP_stop, $AP_start) if $AP_start > $AP_stop;
+            if ($HP_start <= $AP_start && $HP_stop >= $AP_stop) { 
+                # AP in HP
+                push(@$ContainAP, $list_who_overlap);
+                last;
+            }
+            elsif ($AP_start <= $HP_start && $AP_stop >= $HP_stop) {
+                # HP in AP
+                push(@$IsInAP, $list_who_overlap);
+                last;
+            }
+        }
+    }
+    return 0 if scalar(@$ContainAP) ==  0 && scalar(@$IsInAP) == 0;
+    
+    if (scalar(@$IsInAP) != 0) {
+        # HP is in AP
+        my $to_rm            = [];
+        foreach my $list_who_overlap (@$IsInAP) {
+            my $HP_isIntronic = 0;
+            my $G_AP                  = "";
+            foreach my $AP_who_overlap (@$list_who_overlap ) {
+                my $AP      = $AP_who_overlap->[2];
+                my $AP_type = $AP->get_type();
+                   $G_AP    = $AP if $AP_type eq "G";
+                next if $AP_type ne "I"; # Was id by exo
+                my ($I_start, $I_stop) = ($AP_who_overlap->[0],$AP_who_overlap->[1]);
+                   ($I_start, $I_stop) = ($I_stop, $I_start) if $I_start > $I_stop;
+                if ($I_start <= $HP_start && $I_stop >= $HP_stop) {
+                    $HP_isIntronic = 1;
+                    last;
+                }
+            }
+            if ($HP_isIntronic == 0) {
+                if ($HP_idbyblast) {
+                    push(@$to_rm,$list_who_overlap);
+                    next;
+                }
+                else {
+                    return 2 if $G_AP->get_idbyexo();
+                    return 1;
+                }
+            }
+        }
+        &RemoveAPlist($to_rm,$contig);
+    }
+    
+   if (scalar(@$ContainAP) != 0) {
+        # HP is in AP
+        my $to_rm   = [];
+        my $to_cm   = [];
+        my $introns = $hyprot->get_introns();
+        foreach my $list_who_overlap (@$ContainAP) {
+            my $G_AP_isIntronic = 0;
+            my $G_AP          = "";
+            foreach my $AP_who_overlap (@$list_who_overlap ) {
+                my $AP      = $AP_who_overlap->[2];
+                my $AP_type = $AP->get_type();
+                   $G_AP    = $AP if $AP_type eq "G";
+
+                next if $AP_type ne "G";
+                my ($AP_start, $AP_stop) = ($AP_who_overlap->[0],$AP_who_overlap->[1]);
+                   ($AP_start, $AP_stop) = ($AP_stop, $AP_start) if $AP_start > $AP_stop;
+                   
+                foreach my $intron (@$introns) {
+                    my ($I_start, $I_stop) = ($intron->get_start(),$intron->get_end());
+                       ($I_start, $I_stop) = ($I_stop, $I_start) if $I_start > $I_stop;
+                    if ($I_start <= $AP_start && $I_stop >= $AP_stop) {
+                        $G_AP_isIntronic     = 1;
+                        last;
+                    }
+                }
+                last if $G_AP_isIntronic;
+            }
+            
+            if ($G_AP_isIntronic == 0) {
+                if ($HP_idbyblast) {
+                    push(@$to_rm,$list_who_overlap);
+                    next;
+                }
+                else {
+                    push(@$to_cm,$list_who_overlap) if $G_AP->get_idbyexo();
+                    next if $G_AP->get_idbyexo();
+                    return 1;
+                }
+            }
+        }
+        &RemoveAPlist($to_rm,$contig);
+        &CommentAPlist($to_cm)
+    }
+    return 0;
+}
+
+sub RemoveAPlist {
+    my ($list_to_rm,$contig) = @_;
+    
+    my $all_annots = $contig->get_annotations();
+    my $alt_exons = [];
+    foreach my $list_who_overlap (@$list_to_rm) {
+        foreach my $AP_who_overlap (@$list_who_overlap ) {
+            my $AP_alt_exons  = $AP_who_overlap->[2]->get_altexons();
+            push(@$alt_exons,$AP_alt_exons) if scalar(@$AP_alt_exons) != 0;
+        }
+    }
+    
+    # Remove Gene Exon and Intron.
+    for (my $i = @$all_annots - 1; $i >= 0 ; $i--) {
+        my $contig_AP    = @$all_annots[$i];
+        my $id_contig_AP = $1 if  scalar($contig_AP) =~ m/0x(.+)\)/;
+        
+        foreach my $list_who_overlap (@$list_to_rm) {
+            foreach my $AP_who_overlap (@$list_who_overlap ) {
+                my $rm_AP         = $AP_who_overlap->[2];
+                my $AP_alt_exons  = $rm_AP->get_altexons();
+                my $id_rm_AP   =  $1 if  scalar($rm_AP) =~ m/0x(.+)\)/;
+                splice(@$all_annots, $i, 1) if $id_rm_AP eq $id_contig_AP;
+            }
+        }
+    }
+    
+    # Remove alt exons
+    return if !$alt_exons;
+    for (my $i = @$all_annots - 1; $i >= 0 ; $i--) {
+        my $contig_AP    = @$all_annots[$i];
+        my $id_contig_AP = $1 if  scalar($contig_AP) =~ m/0x(.+)\)/;
+        
+        foreach my $list_who_overlap (@$alt_exons) {
+            foreach my $rm_AP (@$list_who_overlap) {
+                my $id_rm_AP   =  $1 if  scalar($rm_AP) =~ m/0x(.+)\)/;
+                splice(@$all_annots, $i, 1) if $id_rm_AP eq $id_contig_AP;
+            }
+        }
+    }
+}
+
+sub CommentAPlist {
+    my $list_to_comment = shift; 
+    
+    foreach my $list_who_overlap (@$list_to_comment) {
+        foreach my $AP_who_overlap (@$list_who_overlap ) {
+            my $cm_AP      = $AP_who_overlap->[2];
+            my $genename   = $cm_AP->get_genename();
+            next if $genename eq "comment";
+            $cm_AP->set_type("C");
+            my ($startline,$endline) = (";",";");
+            $startline .= $cm_AP->get_startline();
+            $endline   .= $cm_AP->get_endline();
+            $cm_AP->set_startline($startline);
+            $cm_AP->set_endline($endline);
+        }
+    }
+}
 
 #-----------------------------------#
 # Subs for using external programs  #
@@ -4045,6 +4534,7 @@ sub Previous_and_next_exons {
     foreach my $annotation_who_overlap (@$annot_who_overlap){
         foreach my $feature_overlap (@$annotation_who_overlap) {
             my $feature            = $feature_overlap->[2];
+            next if $feature->get_genename() eq "comment";
             my $feature_startline  = $feature->get_startline();
             my ($annotname)        = ($feature_startline =~ m#^;\s+(\S+)#);
             $previous_exon_feat    = $feature if ($annotname eq $previous_exon_name);
@@ -4151,61 +4641,16 @@ sub CheckForCorrespondance {
 
 
 #---------------------------------#
-# Subs for adjust start position  #
+# Subs for comment gene fusion    #
 #---------------------------------#
 
-sub AdjustStartposAndAddCommentForFusion {
+sub CommentFusion {
     my $pirmaster = shift;
     my $contigs   = $pirmaster->get_contigs();
 
     foreach my $contig ( @$contigs) {
         my $annotations = $contig->get_annotations();
         my $contig_name = $contig->get_name();
-        
-        my $seq         = uc($contig->sequence());
-           $seq         =~ s/!//g;
-        my $reverse_seq = $seq;
-           $reverse_seq =~ tr/ACGT/TGCA/;
-           $reverse_seq = reverse $reverse_seq;
-        my $len_seq     = length($seq);
-        
-        foreach my $annot (@$annotations) {
-            my $startline   = $annot->get_startline();
-            my $genename    = $annot->get_genename();
-            next if $annot->get_type() ne "G";
-            next if !$startline;
-            next if $startline !~ m/See for start codon/;
-            next if $annot->get_firstmissingexon();
-
-            my $isMinus    = ($annot->get_direction() eq "<==" ? 1 : 0);
-            my $use_seq    = ($isMinus ? $reverse_seq : $seq);
-            my $i_startpos = ($isMinus ? $len_seq - $annot->get_startpos() + 1 : $annot->get_startpos());
-            my $limit      = &DefineLeftLimitForResearchOfStart($annotations,$annot,$len_seq,$isMinus);
-            my $hyp_starts = &SearchStartBefore($limit,$i_startpos,$use_seq,$genename);
-            my ($min_start,$max_start) = &DefMinAndMax($hyp_starts) if (%$hyp_starts);
-            if ($min_start) {
-                &AdjustAPIfStartBefore($annot,$i_startpos,$len_seq,$startline,$min_start,$isMinus);
-                if ($min_start != $max_start && ($i_startpos - $max_start) > 150) {
-                    # If an alternative start is found 50aa before the initial start
-                    &AddCommentIfStartIsFindFar($pirmaster,$contig_name,$genename,$max_start,$len_seq,$isMinus);
-                }
-                next;
-            }
-            my $first_exon = &ReturnFirstExonIfGeneHaveExonsAndIntron($annot,$contig);
-            $limit         = ($isMinus ? $len_seq - $annot->get_endpos() + 1: $annot->get_endpos())           if !$first_exon;
-            $limit         = ($isMinus ? $len_seq - $first_exon->get_endpos() + 1: $first_exon->get_endpos()) if $first_exon;
-            my $new_start  = &SearchStartAfter($limit,$i_startpos,$use_seq);
-            next if !$new_start;
-            
-            my $new_length = $annot->get_lengthofthis() - (($new_start - $i_startpos) / 3);
-            if ( $new_length < ($annot->get_lengthofref() * 0.5) ) {
-                # If an alternative start is found but make the gene too short
-                &AddCommentIfStartIsFindFar($pirmaster,$contig_name,$genename,$new_start,$len_seq,$isMinus);
-                next;
-            }
-            &AdjustAPIfStartAfter($annot,$new_length,$len_seq,$startline,$new_start,$isMinus);
-            $first_exon->set_startpos($annot->get_startpos()) if $first_exon;
-        }
         
         foreach my $annot (@$annotations) {
             my $posiffusion = $annot->get_posiffusion();
@@ -4214,9 +4659,9 @@ sub AdjustStartposAndAddCommentForFusion {
             my $gene_name   = $annot->get_genename();
             my $start       = $annot->get_startpos();
             my $end         = $annot->get_endpos();
-            my $fusion_name =$annot->get_namefusiongene();
-            &AddCommentForFusion($contig_name,$start,$arrow,$gene_name,$fusion_name,"start") if $posiffusion == 1;
-            &AddCommentForFusion($contig_name,$end,$arrow,$gene_name,$fusion_name,"end") if $posiffusion == 2;
+            my $fusion_name = $annot->get_namefusiongene();
+            &AddCommentForFusion($contig_name,$start,$arrow,$gene_name,$fusion_name,"start",1) if $posiffusion == 1;
+            &AddCommentForFusion($contig_name,$end,$arrow,$gene_name,$fusion_name,"end",1) if $posiffusion == 2;
         }
     }
 }
@@ -4229,6 +4674,7 @@ sub AddCommentForFusion {
     my $gene_name   = shift;
     my $fusion_name = shift;
     my $tag         = shift;
+    my $line_number = shift;
     
     $pos = $pos + 1 if $arrow eq "==>" and $tag eq "end";
     $pos = $pos - 1 if $arrow eq "<==" and $tag eq "end";
@@ -4242,202 +4688,10 @@ sub AddCommentForFusion {
                                             startpos        => $pos,
                                             direction       => $arrow,
                                             startline       => $line,
-                                            startlinenumber => 1
+                                            startlinenumber => $line_number
                                            );
     &AddAnnotToPirMaster($pirmaster,$contigname,$comment);
 }
-
-sub DefineLeftLimitForResearchOfStart {
-    my $annotations = shift;
-    my $my_annot    = shift;
-    my $len_seq     = shift;
-    my $my_isMinus  = shift;
-    
-    my $my_start                  = $my_annot->get_startpos();
-    my ($my_min_pos, $my_max_pos) = ($my_annot->get_startpos(),$my_annot->get_endpos());
-       ($my_min_pos, $my_max_pos) = ($my_max_pos,$my_min_pos) if $my_isMinus;  
-                
-    my $hyp_neighbor = [];
-    # Contains all annots present before start of my_annot if !$isminus
-    # Contains all annots present after  start of my_annot if  $isminus
-    foreach my $annot (@$annotations) {
-        next if $annot eq $my_annot;
-        next if $annot->get_type() ne "G";
-        my $annot_isMinus                      = ( $annot->get_direction() eq "<==" ? 1 : 0);
-        my ($annot_min_pos, $annot_max_pos)    = ($annot->get_startpos(),$annot->get_endpos());
-           ($annot_min_pos, $annot_max_pos)    = ($annot_max_pos,$annot_min_pos) if $annot_isMinus;       
-        next if !$my_isMinus && $annot_min_pos > $my_min_pos;
-        next if  $my_isMinus && $annot_max_pos < $my_max_pos;
-        push(@$hyp_neighbor,$annot);
-    }
-    
-    my @allStartEnds         = map { $_->get_startpos(), $_->get_endpos(), } @$hyp_neighbor;
-    my @OnlyDefinedStartEnds = grep( $_ , @allStartEnds);
-    my @SortStartEnds        = sort { $a <=> $b } @OnlyDefinedStartEnds;
-    return 1 if ! @SortStartEnds;
-    my $limit = ($my_isMinus ? $SortStartEnds[0] + $OVERLAPPINGCUTOFF : $SortStartEnds[-1] - $OVERLAPPINGCUTOFF);
-       $limit = ($my_isMinus ? $len_seq - $limit + 1 : $limit);
-    return $limit;
-}
-
-sub SearchStartBefore {
-    my $limit    = shift;
-    my $startpos = shift;
-    my $seq      = shift;
-    my $genename = shift;
-    
-    my $pos_of_hyp_start  = {};
-    for (my $hyp_start = $startpos - 3; ; $hyp_start = $hyp_start - 3 ) {
-        return $pos_of_hyp_start if $hyp_start - 1 <= $limit;
-
-        my $tri_nt = uc(substr($seq,$hyp_start - 1,3));
-        my $codon  = $CODON_TABLE->{$tri_nt};
-        return $pos_of_hyp_start if $codon eq "*";
-
-        next if ($tri_nt ne "ATG" && $tri_nt ne "GTG");
-        
-        $pos_of_hyp_start->{ $hyp_start } = 'ATG' if $tri_nt eq "ATG";
-        $pos_of_hyp_start->{ $hyp_start } = 'GTG' if $tri_nt eq "GTG";
-    }
-}
-
-sub AdjustAPIfStartBefore {
-    my $annot      = shift;
-    my $startpos   = shift;
-    my $len_seq    = shift;
-    my $startline  = shift;
-    my $min_start  = shift;
-    my $isMinus    = shift;
-    
-    my $new_length = $annot->get_lengthofthis() + (($startpos - $min_start) / 3);
-    $annot->set_lengthofthis($new_length);
-    my $new_start  = ( $isMinus ?  $len_seq - $min_start + 1 : $min_start);
-    $annot->set_startpos($new_start);
-    my $new_startline = &CreateNewStartLine($startline);
-    $annot->set_startline($new_startline);
-    &AddCommentForLengthIfStartBefore($annot) if $new_startline !~ m/Sequence is too large/i;
-}
-
-sub AddCommentForLengthIfStartBefore {
-    my $annot = shift;
-    
-    my $prot_length  = $annot->get_lengthofthis();
-    my $ref_length   = $annot->get_lengthofref();
-    my $startline    = $annot->get_startline();
-    my $size_percent = (($SIZE * $ref_length) / 100);
-    my $length_max   = $ref_length + $size_percent;
-    if ($prot_length > $length_max) {
-        my $new_startline = "$startline and Sequence is too large"          if $startline =~ m/(.+);; Warning :\s+(.+)/;
-           $new_startline = "$startline ;; Warning : Sequence is too large" if $startline !~ m/(.+);; Warning :\s+(.+)/;
-        $annot->set_startline($new_startline);
-    }
-}
-
-sub AddCommentIfStartIsFindFar {
-     my $pirmaster  = shift;
-     my $contigname = shift;
-     my $genename   = shift;
-     my $start      = shift;
-     my $len_seq    = shift;
-     my $isMinus    = shift;
-    
-    my $alternative_start = ($isMinus ? $len_seq - $start + 2 : $start);
-    my $arrow             = ($isMinus ? '<==' : '==>');
-    my $startline         = ";;     G-$genename $arrow start  ;; Alternative start";
-    my $Comment           = new PirObject::AnnotPair(
-                                                 type      => "C",  
-                                                 genename  => $genename,
-                                                 startpos  => $alternative_start,
-                                                 startline => $startline,
-                                               );
-    &AddAnnotToPirMaster($pirmaster,$contigname,$Comment);
-}
-
-sub DefMinAndMax {
-    my $hyp_starts = shift;
-    
-    my $min_start    = undef;
-    my $max_start    = undef;
-    my $t_hyp_starts = [];
-    foreach my $hyp_start (sort keys %$hyp_starts) {
-        push(@$t_hyp_starts,$hyp_start);
-    }
-    return (undef,undef) if !@$t_hyp_starts;
-    return(@$t_hyp_starts[-1],@$t_hyp_starts[0]);
-}
-
-sub CreateNewStartLine {
-    my $startline = shift;
-    
-    my ($prefix,$suffix) = ($1,$2) if $startline =~ m/(.+);; Warning :\s+(.+)/;
-        $suffix          =~ s/See for start codon// if $suffix;
-        $startline       = ($suffix eq "" ? "$prefix" : "$prefix ;; Warning : $suffix");
-        $startline       = "$1 ;; Warning : $2" if $startline =~ m/(.+);; Warning :\s+and\s+(.+)/;
-    return $startline;
-}
-
-sub SearchStartAfter {
-    my $limit    = shift;
-    my $startpos = shift;
-    my $seq      = shift;
-    
-    for (my $hyp_start = $startpos; $hyp_start - 1 < $limit - 3; $hyp_start = $hyp_start + 3 ) {
-        my $tri_nt = uc(substr($seq,$hyp_start - 1,3));
-        my $codon  = $CODON_TABLE->{$tri_nt};
-                
-        next if ($tri_nt ne "ATG" && $tri_nt ne "GTG");
-        return $hyp_start;
-    }
-    return undef;
-}
-
-sub AdjustAPIfStartAfter {
-    my $annot      = shift;
-    my $new_length = shift;
-    my $len_seq    = shift;
-    my $startline  = shift;
-    my $new_start  = shift;
-    my $isMinus    = shift;
-    
-    $annot->set_lengthofthis($new_length);
-       $new_start  = ( $isMinus ?  $len_seq - $new_start + 1 : $new_start);
-    $annot->set_startpos($new_start);
-    my $new_startline = &CreateNewStartLine($startline);
-    $annot->set_startline($new_startline);
-    &AddCommentForLengthIfStartAfter($annot) if $new_startline !~ m/Sequence is too small/i;
-}
-
-sub AddCommentForLengthIfStartAfter {
-    my $annot = shift;
-    
-    my $prot_length  = $annot->get_lengthofthis();
-    my $ref_length   = $annot->get_lengthofref();
-    my $startline    = $annot->get_startline();
-    my $size_percent = (($SIZE * $ref_length) / 100);
-    my $length_min   = $ref_length - $size_percent;
-    if ($prot_length < $length_min) {
-        my $new_startline = "$startline and Sequence is too small"          if $startline =~ m/(.+);; Warning :\s+(.+)/;
-           $new_startline = "$startline ;; Warning : Sequence is too small" if $startline !~ m/(.+);; Warning :\s+(.+)/;
-        $annot->set_startline($new_startline);
-    }
-}
-
-sub ReturnFirstExonIfGeneHaveExonsAndIntron {
-    my $annot  = shift;
-    my $contig = shift;
-    
-    my $annots_who_overlap = &WhatOverlapsThis($annot->get_startpos(),$annot->get_endpos(),$contig);
-    foreach my $info_who_overlap (@$annots_who_overlap) {
-        foreach my $feature_who_overlap (@$info_who_overlap ){
-            return $feature_who_overlap->[2] if $feature_who_overlap->[3] && $feature_who_overlap->[3] eq "YES"
-                                            && $feature_who_overlap->[4] && $feature_who_overlap->[4] eq "FIRST"
-                                            && $feature_who_overlap->[2] && $feature_who_overlap->[2]->get_genename() eq $annot->get_genename();
-        }
-    }
-    return undef;
-}
-
-
 
 #---------------------------------#
 # Subs for processing empty ORFs  #
@@ -5500,7 +5754,7 @@ sub RenumberFeatures {
                 my $start     = $annot->get_startpos();
                 my $end       = $annot->get_endpos();
                 print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
-                    if $type eq "G" && $origname eq $genename; # no warn if "cox1_1-I1-orf344"
+                    if $type eq "G" && $origname eq $genename && $genename ne "comment"; # no warn if "cox1_1-I1-orf344"
                 # print " -> To $newsuf : $startline ";
                 $startline = &ReplaceNumber($startline,$newsuf);
                 # print " -> $startline\n";
