@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.23 2009/02/17 20:33:30 nbeck Exp $
+#    $Id: mfannot,v 2.24 2009/02/24 18:13:48 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.24  2009/02/24 18:13:48  nbeck
+#    Now all introns are defined by RNASpinner, by default.
+#
 #    Revision 2.23  2009/02/17 20:33:30  nbeck
 #    Checked format of the Masterfile.
 #    Checked the existence of the directory for HMMweasel models.
@@ -234,7 +237,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.23 2009/02/17 20:33:30 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.24 2009/02/24 18:13:48 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -281,7 +284,7 @@ my @PEPFILES;                                   # The pepfiles, used in the prog
 my $SIZE;                                       # The sensitivite of warning for the long protein, it's a percentage
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 my $EXTSELECTPROG;                              # List of name for external programs.
-my $ALL_INTRONS;                                # Indicate if all introns detected by RNAweasel must be annotated
+my $PART_INTRONS;                               # Indicate if all introns detected by RNAweasel must be annotated
 my $BLASTOUTPUT       = "";                     # The path for blast file results
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
@@ -734,7 +737,7 @@ sub GetOptions {
     $SIZE                    = $option->size;              # The sensitivite of warning for the long protein, it's a percentage
     $EXTCONFIGFILE           = $option->ext_config;        # Path for configfile
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
-    $ALL_INTRONS             = $option->all_introns;       # Indicate if all introns detected by RNAweasel must be annotated
+    $PART_INTRONS            = $option->part_introns;      # Indicate if RNASpinner must run which all introns
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
     $MINLENGTHORF            = $option->flip2;             # This is the minimum length for creating an ORF with flip
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
@@ -1671,7 +1674,7 @@ sub GetFull5 {
      my $shift  = -3;
      my $tail_5 = [];
      for (my $currentpos = $start - 3; ; $currentpos += $shift) {
-         last if $currentpos < 0;
+         last if $currentpos < 1;
          my $tri_nt = uc (substr($use_seq, $currentpos - 1,3));
          my $aa     = $CODON_TABLE->{$tri_nt};
          $aa        = lc($aa) if $tri_nt eq "GTG" && $CODON_TABLE->{$tri_nt} eq "V";
@@ -1941,6 +1944,7 @@ sub FindExonsInHypProtArray {
     my $pirmaster = shift;        # The masterfile object
     
     mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create work directory '$TMPDIR/Exonerate': $!\n";
+    mkdir("$TMPDIR/Intron",0700) or die "Error: can't create work directory '$TMPDIR/Intron': $!\n";
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
 
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
@@ -2183,11 +2187,11 @@ sub FindExonsInHypProtArray {
                 push(@intron_start_end, $tri);
             }
 
-            my $newhypprot = undef;
+            my $hypprot = undef;
             my $start = $exon_start_end[0]->[0];
             my $end   = $exon_start_end[-1]->[1];
             my $FirstExonerateMatch = $exon_start_end[0]->[3];
-            $newhypprot = new PirObject::HypProt (
+            $hypprot = new PirObject::HypProt (
                                                   name       => $name,
                                                   contigname => $contigname,
                                                   exostart   => $start,
@@ -2203,14 +2207,14 @@ sub FindExonsInHypProtArray {
                                                   firstExonerateMatch => $FirstExonerateMatch,
                                                   idbyexo    => 1
                                                  );
-            push (@$HYPPROTS,  $newhypprot);
+            push (@$HYPPROTS,  $hypprot);
             
             if ($namefusiongene) {
                 my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
-                $newhypprot->set_hypfusiongene($info_gene_fusion);
+                $hypprot->set_hypfusiongene($info_gene_fusion);
             }
 
-            my $newhypprotexonarray = $newhypprot->exons;
+            my $hypprotexonarray = $hypprot->exons;
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
                 my $attributes      = $exon_start_end[$i]->[4] || "";
@@ -2221,10 +2225,10 @@ sub FindExonsInHypProtArray {
                                                        strand    => $exon_start_end[$i]->[2],
                                                        frameshiftsize => $frameshift_size
                                                       );
-                push (@$newhypprotexonarray, $hypprotexon); 
+                push (@$hypprotexonarray, $hypprotexon); 
             }
             
-            my $newhypprotintronarray = $newhypprot->introns;
+            my $hypprotintronarray = $hypprot->introns;
             for (my $i = 0; $i < @intron_start_end; $i++){
                 # Fill information about intron
                 my $hypprotintron = new PirObject::Intron (
@@ -2232,9 +2236,17 @@ sub FindExonsInHypProtArray {
                                                            end    => $intron_start_end[$i]->[1],
                                                            strand => $intron_start_end[$i]->[2],
                                                           );
-                push (@$newhypprotintronarray, $hypprotintron);
+                push (@$hypprotintronarray, $hypprotintron);
             }
-            &AdjustStart($newhypprot,$dna_seq);
+            &AdjustStart($hypprot,$dna_seq);
+            
+            next if $PART_INTRONS == 1;
+            my $introns = $hypprot->get_introns();
+            for (my $i = 0; $i < @$introns; $i++) {
+                 my $intron             = $introns->[$i];
+                 my $isMinus            = ($intron->get_strand() eq "+" ? 0 : 1);
+                 &LocateIntrons($dna_seq,$intron,$name,$contigname,$pirmaster,$isMinus);
+            }
         }
     }  # End of each prot
 } # End sub
@@ -2466,7 +2478,6 @@ sub AnnotateMiniExons {
     my $pirmaster = shift;
     
     mkdir("$TMPDIR/Muscle_for_exons",0700) or die "Error: can't create work directory '$TMPDIR/Muscle_for_exons': $!\n";
-    mkdir("$TMPDIR/Intron",0700) or die "Error: can't create work directory '$TMPDIR/Intron': $!\n";
     foreach my $hypprot (@$HYPPROTS) {
         my $name       = $hypprot->get_name();
         my $contigname = $hypprot->get_contigname();
@@ -2537,7 +2548,7 @@ INTRON: for (my $i = 0; $i < @$introns; $i++) {
             my $previous_exon = @$exons[$i]   || next;
             my $next_exon     = @$exons[$i+1] || next;
             &AdjustExonsIntron ($intron,$previous_exon,$next_exon,$length_adjust_previous,$length_adjust_next,"deconstruct",$isMinus);
-            &LocateIntrons($seq,$intron,$name,$contigname,$pirmaster,$isMinus);
+            &LocateIntrons($seq,$intron,$name,$contigname,$pirmaster,$isMinus) if $PART_INTRONS == 1;
             my $apc = $intron->get_idbyRNAw() || die "idbyRNAw() is Empty\n";
             my $apl = $apc->get_annotpairlist();
             my $nb_intron = scalar(@$apl);
@@ -3619,11 +3630,11 @@ sub AnnotateMfFromHYPPROTSArray {
             $annot->set_startline($I_startline);                                          
             $number++;
             my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$annot);
-            if ($idbyRNAw && $ALL_INTRONS == 1) {
+            if ($idbyRNAw) {
                 my $apc             = $idbyRNAw;
                 my $apl             = $apc->get_annotpairlist();
                 foreach my $ap (@$apl) {
-                    &AddAnnotToPirMaster($pirmaster,$contigname,$ap)
+                    &AddAnnotToPirMaster($pirmaster,$contigname,$ap) if scalar(@$apl > 1);
                 }
             }
         } # End foreach $intron
@@ -4004,9 +4015,10 @@ sub AnnotateFromExternalAPC {
             }
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
-                $add_external_annot = &AdjustIntronicAnnot_ForInitialAnnot($pirmaster,$contigname,$annot);
+                &AdjustIntronicAnnot_ForInitialAnnot($pirmaster,$contigname,$annot);
+                $add_external_annot = scalar(@$annotpairs) > 1 ? 1 : 0;
             }
-            &AddAnnotToPirMaster($pirmaster,$contigname,$annot) if $add_external_annot == 1 ;
+            &AddAnnotToPirMaster($pirmaster,$contigname,$annot) if $add_external_annot == 1;
         } # End foreach annotpair
     } # End foreach annotpaircollection (one per contig)
 } # End sub
@@ -4046,11 +4058,8 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
             $feature_startline  =~ s/\s*\/\s*group\s*=\s*\S+//i;
             $feature_startline .= " /group=$intron_type";
             $feature->set_startline($feature_startline);
-            return 0 if $ALL_INTRONS == 0;
-            return 1 if $ALL_INTRONS == 1;
         } # End foreach $features_who_overlap
     } # End foreach $info_who_overlap
-    return 1;
 } # End sub
 
 
@@ -4102,8 +4111,33 @@ sub Adjust_all_intronic_junctions {
             push (@introns_info,[$contig,$annot,$seq,$use_seq]);
         }
     }
-
+    
     return if !@introns_info;
+    
+    # Add comment if 0 or 2 introns are id.
+    if ($PART_INTRONS != 1 ) {
+        foreach my $intron (@introns_info) {
+            my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
+    
+            my $a_introntype   = $annot->get_introntype()   || "";
+            my $a_startline    = $annot->get_startline()    || next;
+            my @intron_type    = split(/,/, $a_introntype);
+            my $nb_type        = @intron_type;
+    
+            if ($nb_type == 0) {
+                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                              " / no intron type identified" 
+                            : " ;; no intron type identified";
+                $annot->set_startline($a_startline);
+            }
+            elsif ($nb_type == 2 ) {
+                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                              " / two introns identified" 
+                            : " ;; two introns identified";
+                $annot->set_startline($a_startline);
+            }
+        } # End foreach $intron
+    }
 
     # Research intron type II 
     if ($annotate_intron_typeII  == 0) {
@@ -4207,13 +4241,13 @@ sub Adjust_all_intronic_junctions {
         my @intron_type    = split(/,/, $a_introntype);
         my $nb_type        = @intron_type;
 
-        if ($nb_type == 0) {
+        if ($nb_type == 0 && $PART_INTRONS == 1) {
             $a_startline .= $a_startline =~ m/ ;; \.+/ ?
                           " / no intron type identified" 
                         : " ;; no intron type identified";
             $annot->set_startline($a_startline);
         }
-        elsif ($nb_type == 2 ) {
+        elsif ($nb_type == 2 && $PART_INTRONS == 1) {
             $a_startline .= $a_startline =~ m/ ;; \.+/ ?
                           " / two introns identified" 
                         : " ;; two introns identified";
