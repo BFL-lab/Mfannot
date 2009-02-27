@@ -35,9 +35,13 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.24 2009/02/24 18:13:48 nbeck Exp $
+#    $Id: mfannot,v 2.25 2009/02/27 19:21:17 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.25  2009/02/27 19:21:17  nbeck
+#    Removed useless options.
+#    Keep only the annotations identified by ";; keep" in the masterfile of origin.
+#
 #    Revision 2.24  2009/02/24 18:13:48  nbeck
 #    Now all introns are defined by RNASpinner, by default.
 #
@@ -237,7 +241,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.24 2009/02/24 18:13:48 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.25 2009/02/27 19:21:17 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -249,12 +253,8 @@ my $USER = getpwuid($<) or getlogin or die "Can't find USER from environment!\n"
 ##################################
 
 # Command-line args (first, original program)
-my $TAGNAME          = undef;                   # Tag : is present in masterfile within the annotations made with Mfannot
 my $FORCEANNOT       = 0;
-my $ANNOT_STATS      = {
-                         'Added'        => {},  # It means, never see it before
-                         'Rediscovered' => {},  # Means exist at the same place (not added into the file)
-                       };
+my $ANNOT_STATS      = {'Added' => {} };        # Use for create the header.
 my $EMPTYORFS;                                  # An array containing, EmptyOrf object. It means ORFs having
                                                 # no corresponding genes
 my %PENAMEDISPLAY;                              # An hash array, containing the name to display, associate with peplibraries and pepfiles
@@ -263,7 +263,7 @@ my %PENAMEDISPLAY;                              # An hash array, containing the 
 my $DEBUG;                                      # Debug mode. If true, display message on the screen
 my $GENCODE          = undef;                   # Genetique code
 my $TMPDIR           = "/tmp/mfannot.$$";       # Temporary directory
-my $LOG_FILE;                                    # Log file : store all the information about run
+my $LOG_FILE;                                   # Log file : store all the information about run
 my $SIMILARITYSEARCH;                           # Usefull for running similaritie gene process for annot.
 my $ISLOGFILE        = 0;                       # Just to know if the $LOG_FILE is not empty (0 or 1)
 my $MASTERFILE       = undef;                   # Path for Masterfile
@@ -276,12 +276,10 @@ my $HYPPROTS;                                   # Array containing the Proteins 
 my $OUTPUTFILE;                                 # Path for the new
 my $ORFPROCESS;                                 # Allows ORF appearing in the masterfile as annotations
 my $LOADSTRICT;                                 # Load strict Masterfile
-my $ADDCOMMENTS;                                # Add comments into masterfile (0 or 1) as mfeat=.....
 my $CHECKORFS;                                  # Say if yes or not have to check for orf, if no all orfs appears in mf
 my $PEPLIBRARIES;                               # The libraries, in input, by default datagenescollection and dataorfcollection
 my $INPUTPEPFILES;                              # The input files
 my @PEPFILES;                                   # The pepfiles, used in the programm. They come from $PEPLIBRARIES and $INPUTPEPFILES
-my $SIZE;                                       # The sensitivite of warning for the long protein, it's a percentage
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 my $EXTSELECTPROG;                              # List of name for external programs.
 my $PART_INTRONS;                               # Indicate if all introns detected by RNAweasel must be annotated
@@ -381,7 +379,6 @@ my $matrix           = $parser->next_matrix;
 my $SHORT_HSPS_MIN_EVALUE = "1e-11";
 my $MULTIORFS             = 1;         # Permit 2 annotations for an ORF, before it was an option
 
-
 ################
 # Trap Signals #
 ################
@@ -416,11 +413,8 @@ my $options ="----------------------------------\n".
 $options .= "Masterfile used : $MASTERFILE\n";
 $options .= "new Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
-$options .= "Tag for annotation : $TAGNAME\n" if $ADDCOMMENTS;
 $options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
-$options .= "Add comments in Masterfile\n" if $ADDCOMMENTS;
 $options .= "Usage of RNAweasel\n";
-$options .= "Warning if the protein make +/- $SIZE percent of homologous protein\n";
 $options .= "The Path of configfile is : $EXTCONFIGFILE\n";
 $options .= "Look in the peptide library $PEPLIBRARIES\n";
 
@@ -473,21 +467,13 @@ print $LOG_F $options if $ISLOGFILE;
 # - Load the sequence of each contig 
 
 print "Parsing masterfile $MASTERFILE...\n";
-my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE, $LOADSTRICT);
+my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = scalar (@$contigs);        # Number of contigs in the masterfile
 die "No contig header can be found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
-my %Intron_are_already_annot = ();
-
-foreach my $contig ( @$contigs) {
-    my $annotations = $contig-> get_annotations();
-    $numberannot += scalar (@$annotations);
-    foreach my $annot (@$annotations) {
-        $Intron_are_already_annot{$annot} = $annot if ($annot->type() eq "I");
-    }
-}
+&CleanPirmaster();
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
       "Number of annotations (or comments) detected : $numberannot\n" if $DEBUG;
@@ -524,7 +510,7 @@ $step += 1;
 # Parse the blast result, create a flipblastprot object
 print "$step) Parse Information From Blast Results...\n";
 $step += 1;
-&ParseInformationFromBlastResult ($pirmaster, $TAGNAME);
+&ParseInformationFromBlastResult ($pirmaster);
 
 # Selection of protein
 print "$step) Select hypotetical protein for Exonerate...\n";
@@ -721,20 +707,16 @@ sub GetOptions {
     # Now The object contains all the options
 
     # General options
-    $TAGNAME                 = $option->tagname;           # Adds a tag  
     $FORCEANNOT              = $option->force;             # Force the annotation when 2 annotations have the same name
     $DEBUG                   = $option->debug;             # Debug mode. If true, display message on the screen
     $GENCODE                 = $option->genetic;           # Genetique code
     $MASTERFILE              = $option->masterfile;        # Path for Masterfile
     $OUTPUTFILE              = $option->outputfile;        # Path for the new
     $ORFPROCESS              = $option->orf;               # For Orf process, allowing presence or not in the masterfile
-    $LOADSTRICT              = $option->loadstrict;        # Load strict masterfile
-    $ADDCOMMENTS             = $option->addcomments;       # Add comments in the masterfile
     my $allorfs              = $option->allorfs;           # All orfs will apear and won't be checked if option is checked
     $CHECKORFS               = 0 if ($allorfs == 1);       # A little calculation 
     $CHECKORFS               = 1 if ($allorfs == 0);       # To find the opposite
     $PEPLIBRARIES            = $option->pepdirectory;      # List of path for peplibrary directory
-    $SIZE                    = $option->size;              # The sensitivite of warning for the long protein, it's a percentage
     $EXTCONFIGFILE           = $option->ext_config;        # Path for configfile
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
     $PART_INTRONS            = $option->part_introns;      # Indicate if RNASpinner must run which all introns
@@ -814,7 +796,52 @@ sub CacheCodonTableWithGeneticId {
     return $ct_cache; 
 } # End sub
 
+sub CleanPirmaster {
+     
+     my $AP_to_rm = [];
+     # Check each annot push all annot to remove on $AP_to_rm, changed the other one
+     foreach my $contig (@$contigs) {
+         my $annotations = $contig->get_annotations();        
+         foreach my $AP (@$annotations) {
+             my $type      = $AP->get_type();
+             my $startline = $AP->get_startline() || "";
+             my $endline   = $AP->get_endline()   || "";
+             my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
+             if ($type eq "C") {
+                 my ($new_startline,$next) = ("$1",1) if $startline =~ m/(.+)\s*;;\s*keep\s*$/;
+                 $AP->set_startline($new_startline);
+                 next if defined($next);
+                 push (@$AP_to_rm, $id_AP);
+             }
+             else {
+                 my ($new_startline,$next) = (";$1",1) if $startline =~ m/(.+)\s*;;\s*keep\s*$/;
+                 $new_startline .= " ;; no end found" if $endline eq "";
+                 $AP->set_startline($new_startline);
+                 if ($endline ne "") {
+                     my $new_endline = ";$endline";
+                     $AP->set_endline($new_endline);
+                 }
+                 $AP->set_type("C");
+                 next if defined($next);
+                 push (@$AP_to_rm, $id_AP);
+             }
+         }
+         &Remove_AP($AP_to_rm,$contig);
+     }
+}
 
+sub Remove_AP {
+    my ($AP_to_rm,$contig) = @_;
+    
+    my $all_annots = $contig->get_annotations();
+    for (my $i = @$all_annots - 1; $i >= 0 ; $i--) {
+        my $contig_AP    = @$all_annots[$i];
+        my $id_contig_AP = $1 if  scalar($contig_AP) =~ m/0x(.+)\)/;
+        foreach my $id_rm_AP (@$AP_to_rm) {
+            splice(@$all_annots, $i, 1) if $id_rm_AP eq $id_contig_AP;
+        }
+    }
+}
 
 #-----------------------------------#
 # Subs forming the core of Mfannot  #
@@ -905,7 +932,6 @@ sub BlastFlipVSGene {
 
 sub ParseInformationFromBlastResult {
     my $pirmaster   = shift;
-    my $tag         = shift || "aVwXyZ";
 
     my $type        = 'PROT';
     my $file        = $LIB_FILE;
@@ -920,7 +946,7 @@ sub ParseInformationFromBlastResult {
     while (my $result = PirObject::BlastOutput->FileHandleToObject($searchfh)) {
         my $iterations = $result->BlastOutput_iterations() || next;
         foreach my $iteration (@$iterations) {
-            &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$iteration,$tag);
+            &FillFLIPBLASTPROTArrayFromBlastResult($pirmaster,$type,$result,$iteration);
         }
     }
 
@@ -1008,7 +1034,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $type      = shift; # 'DNA' or 'PROT'
     my $result    = shift; # An object implementing PirObject::BlastOutput
     my $iteration = shift; # An object implementing PirObject::BlastOutput::Iteration
-    my $tag       = shift || "bVwXyZ";
 
     return if (!$result);
 
@@ -1415,7 +1440,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       end        => $orf->end,
                                                       strand     => $orf->strand,
                                                       numorfs    => 1,
-                                                      remark     => "",
                                                       protein    => $orf->protein,
                                                       evalue     => $orf->evalue(), 
                                                       exons      => [],
@@ -1438,7 +1462,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       end        => $orf->end,
                                                       strand     => $orf->strand,
                                                       numorfs    => 1,
-                                                      remark     => "",
                                                       protein    => $orf->protein,
                                                       evalue     => $orf->evalue(),  
                                                       exons      => [],
@@ -1483,7 +1506,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           end        => $orf->end,
                                                           strand     => $orf->strand,
                                                           numorfs    => 1,
-                                                          remark     => "",
                                                           protein    => $orf->protein,
                                                           evalue     => $orf->evalue(), 
                                                           exons      => [],
@@ -1527,7 +1549,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                           end        => $orf->end,
                                                           strand     => $orf->strand,
                                                           numorfs    => 1,
-                                                          remark     => "", 
                                                           protein    => $orf->protein,
                                                           evalue     => $orf->evalue(), 
                                                           exons      => [],
@@ -2199,7 +2220,6 @@ sub FindExonsInHypProtArray {
                                                   end        => $end,
                                                   strand     => $strand,
                                                   numorfs    => 1,
-                                                  remark     => "",
                                                   protein    => $protein,
                                                   exons      => [],
                                                   introns    => [],
@@ -3455,7 +3475,6 @@ sub AnnotateMfFromHYPPROTSArray {
         my $frameshift = $hyprot->get_frameshift();
         my $homologous = $hyprot->get_homologous();
         my $arrow      = ($isMinus ? '<==' : '==>');
-        my $tag        = $hyprot->get_remark();
         
         my $NotToAnnot = &CheckIfHypIsInAFamily($hyprot,$contig);
         next               if $NotToAnnot == 1;
@@ -3469,9 +3488,7 @@ sub AnnotateMfFromHYPPROTSArray {
         
         # Define start line and end line
         $startline  .= ";     G-$linename $arrow start";
-        $startline  .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
         $endline    .= ";     G-$linename $arrow end";
-        $endline    .= " ;; MFFEAT=$TAGNAME ;; $tag" if $ADDCOMMENTS; # Add comments if option is checked
         
         my $isFusioned      = $hyprot->get_hypfusiongene() || undef;
         my $startlinenumber = ( $isMinus && $isFusioned ? 0 : 2);
@@ -3558,10 +3575,7 @@ sub AnnotateMfFromHYPPROTSArray {
         my $res = &AddAnnotToPirMaster($pirmaster,$contigname,$protannot);
 
         # Go out of the function if the protein has not been added
-        if (!defined ($res) or $res == 0) {
-            $ANNOT_STATS->{'Rediscovered'}->{$protannot->genename}->{'E'} += scalar (@$exons) if (scalar (@$exons) > 0);
-            next;
-        } 
+        next if (!defined ($res) or $res == 0);
 
         next if ($name =~ /^orf/);       # if it's an ORF, then it goes to through, because an ORF must not have
         next if (scalar (@$exons) <= 1); # if there is only one exon, and if option is not checked, go to the next prot
@@ -3578,9 +3592,7 @@ sub AnnotateMfFromHYPPROTSArray {
 
                $start_line .= ";     G-$linename-E$number $arrow start";
                $start_line .= ";; frameshift of $frameshift_size nt" if $frameshift_size;
-               $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
                $end_line   .= ";     G-$linename-E$number $arrow end";
-               $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
             
             my $annot = new PirObject::AnnotPair (
                                                        type            => $A_type || "E",
@@ -3609,9 +3621,7 @@ sub AnnotateMfFromHYPPROTSArray {
             my ($start_line,$end_line) = ( $ToComment ? (";",";") : ("",""));
                $start_line .= ";     G-$linename-I$number $arrow start";
                $start_line .= " /group=$type" if $type;
-               $start_line .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
                $end_line   .= ";     G-$linename-I$number $arrow end";
-               $end_line   .= " ;; MFFEAT=$TAGNAME" if $ADDCOMMENTS;       # Option checked, add comments
                
            my $I_startwarning = "$comment" if $comment;
 
@@ -4040,7 +4050,6 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
             my $feature         = $features_who_overlap->[2];
             
             next if $feature->type ne 'I';
-            return 0 if defined $Intron_are_already_annot{$feature};
             next if $features_min >  $a_start || $a_start > $features_max ||
                     $features_min >  $a_end   || $a_end   > $features_max;
 
@@ -4104,7 +4113,6 @@ sub Adjust_all_intronic_junctions {
         foreach my $annot (@$annotations){
             my $a_type = $annot->type();
             next if $a_type ne "I";
-            next if defined $Intron_are_already_annot{$annot};
             my $a_strand    = $annot->direction()  || next;
             my $isMinus     = ($a_strand eq "==>" ? 0 : 1 );
             my $use_seq     = ($isMinus ? "$reverse_seq" : "$seq");
@@ -4286,11 +4294,11 @@ sub Adjust_TypeII {
     my $adjustement = shift;
     
     my $contig_name = $contig-> get_name();
-    my $a_start     = $annot->startpos()   || next;
-    my $a_end       = $annot->endpos()     || next;
-    my $a_startline = $annot->startline()  || next;
-    my $a_endline   = $annot->endline()    || next;
-    my $a_strand    = $annot->direction()  || next;
+    my $a_start     = $annot->startpos()   || return;
+    my $a_end       = $annot->endpos()     || return;
+    my $a_startline = $annot->startline()  || return;
+    my $a_endline   = $annot->endline()    || return;
+    my $a_strand    = $annot->direction()  || return;
     my $isMinus     = ($a_strand eq "==>" ? 0 : 1 );
     my ($name_intron , $num_intron)  = ($1,$2) if  $a_startline =~ m#;\s+(G-.+)-I(\d+).+#;
     my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
@@ -4995,10 +5003,8 @@ sub AnnotateEmptyOrfs {
         my $endline   = "";
         $startline    = ";     G-$GenenameORF $arrow start";
         $startline    = ";     G-$prefix-"."$GenenameORF $arrow start" if $prefix ne "";
-        $startline   .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # Add comments if option is activated
         $endline      = ";     G-$GenenameORF $arrow end";
         $endline      = ";     G-$prefix-"."$GenenameORF $arrow end" if $prefix ne "";
-        $endline     .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
    
         my $orfannot = new PirObject::AnnotPair(
                                                  type      => "G",  
@@ -5038,21 +5044,17 @@ sub AnnotateIntronicOrfs {
         my $test_prot  = "";
         foreach my $annot (@$annotation) {
             my $type      = $annot->get_type();
+            next if $type ne "I";
             my $direction = $annot->get_direction();
             my $start     = $annot->get_startpos();
             my $end       = $annot->get_endpos();
             my $startline = $annot->get_startline();
             my $endline   = $annot->get_endline();
-            my $prefix    = "";
-            my $prot      = "";
+            my ($prefix,$prot) = ("","");
             my @orf; 
             
-            next if $type ne "I";
-            
-            $prot          = "";
-            ($prefix)      = $endline =~ /;\s+G-(\S+)/;
-            $startline     =~ m#G-(\S+)-I(\d+)#;
-            my $num_intron = $2;
+               $prefix     = $1 if $endline   =~ /;\s+G-(\S+)/;
+            my $num_intron = $2 if $startline =~ m#G-(\S+)-I(\d+)#;
             for (my $j = 0; $j < 3; $j++) {
                 $start                 = $annot->get_startpos() + $j if $direction eq "==>";
                 $start                 = $annot->get_startpos() - $j if $direction eq "<==";
@@ -5207,10 +5209,8 @@ sub AnnotateIntronicOrfs {
             my $contigname  = $selected_orf->get_contigname();
             my $startline   = ";     G-$GenenameORF $direction start";
                $startline   = ";     G-$prefix-"."$GenenameORF $direction start" if $prefix ne "";
-               $startline  .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;     # Add comments if option is activated
             my $endline     = ";     G-$GenenameORF $direction end";
                $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
-               $endline    .= " ;; MFFEAT=$TAGNAME empty ORF" if $ADDCOMMENTS;
             
             #  Treatment to add a number after the genename #
             my $orfannot = new PirObject::AnnotPair(
@@ -5360,7 +5360,6 @@ sub MulticommentConfidence {
                     last if $line eq $endmulticomments->[-1];
                     $line    =~ s/\s*\\?\s*$/ \\/;
                 }
-                
             }
         }
     }
@@ -5400,19 +5399,14 @@ sub AddAnnotToPirMaster {
         }
 
         # Second case : No comment, both have same start end, and genename;
-        if (($annottype ne "C") and ($annotname eq $annot->genename) and
+        return 0 if (($annottype ne "C") and ($annotname eq $annot->genename) and
             ($annotstart == $annot->startpos) and
-            ($annotend == $annot->endpos)) {
-            $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {   'I' => 0, 'E' => 0, };
-            return 0;
-        }
+            ($annotend == $annot->endpos));
 
         # Third case : Exons
         if ($annot->type eq "E") { 
             # It's an exon. The protein has normally already been added
-            if (defined ($annot->genename)) {
-                $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++;
-            }
+            $ANNOT_STATS->{'Added'}->{$annot->genename}->{'E'} ++ if (defined ($annot->genename));
             push (@$annotations, $annot);
             return 1;
         }
@@ -5420,9 +5414,7 @@ sub AddAnnotToPirMaster {
         # 4th case : Introns
         if ($annot->type eq "I") { 
             # it's an intron. The protein has normally already been added
-            if (defined ($annot->genename)) {
-                $ANNOT_STATS->{'Added'}->{$annot->genename}->{'I'} ++;
-            }
+            $ANNOT_STATS->{'Added'}->{$annot->genename}->{'I'} ++ if (defined ($annot->genename));
             push (@$annotations, $annot);
             return 1;
         } 
@@ -5439,13 +5431,10 @@ sub AddAnnotToPirMaster {
         push (@$annotations, $annot);
         return 1;
      }
-
-     if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename)) {
-         # It mean,, this annotation has already been seen
-         $ANNOT_STATS->{'Rediscovered'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
-         return 0;
-     }
-
+     
+     # It mean,, this annotation has already been seen
+     return 0 if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename));
+     
      #  It means, force annot but this annotations doesn't seems to have an other copy
      $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
      push (@$annotations, $annot);
@@ -5835,31 +5824,23 @@ sub LogInfo {
     # This function is supposed to add information
     # in the head of the masterfile such as
     # - the genes added (with exons)
-    # - the rediscovered genes    
 
     my $pirmaster = shift;
-    my $header    = $pirmaster->header() || [];
+    my $comment   = $pirmaster->get_comment();
+    my $header    = [];
 
     my @report    = ();
     my $added     = $ANNOT_STATS->{'Added'};
-    my $redisc    = $ANNOT_STATS->{'Rediscovered'};
 
     my @added     = sort keys %$added;
     my $comp_add  = 0;
     foreach my $genename (@added){ 
-    $comp_add++ if ( $genename =~ /^!/);  
-    }
-    my @redisc    = sort keys %$redisc;
-    my $comp_red  = 0;
-    foreach my $genename (@redisc)
-    { 
-    $comp_red++ if ( $genename =~ /^!/);  
+        $comp_add++ if ( $genename =~ /^!/);  
     }
 
     my $gene_add = scalar(@added) - $comp_add;
-    my $red_add = scalar(@redisc) - $comp_red;
 
-    push(@report, ";;    - Gene Totals: " . $gene_add  . " added; " . $red_add . " rediscovered.",);
+    push(@report, ";;    - Gene Totals: " . $gene_add,);
 
     # Gene added #
     push(@report, ";;    - List of genes added:",) if @added;
@@ -5885,33 +5866,12 @@ sub LogInfo {
     }
     push(@report, $rep) if $cnt;
 
-    # Genes rediscovered #
-
-    push(@report, ";;    - List of genes rediscovered:",) if @redisc;
-
-    $cnt = 0;
-    $rep = "";
-    print "Rediscovered : ", $red_add, "\n" if $DEBUG;
-    print $LOG_F "Rediscovered : ", $red_add, "\n" if $ISLOGFILE;
-    foreach my $genename (@redisc) {
-        if ($genename =~ /^[^!]/) {
-            my ($e,$i) = ($redisc->{$genename}->{'E'},$redisc->{$genename}->{'I'});
-            $rep       = ";;     " if !$cnt;
-            $rep      .= sprintf(" %-20s", ("$genename" . ($e > 1 ? " ($e exons)" : "")));
-            $cnt++;
-            if ($cnt >= $COLS) {
-                push(@report, $rep);
-                $cnt = 0;
-            }
-        }
-    }
-    push(@report, $rep) if $cnt;
     push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
     push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
-    push (@$header, ";;    - New annotations labeled with: MFFEAT=$TAGNAME") 
-    if $ADDCOMMENTS;  # We only put this sentence if option addcomments is activated
-    push (@$header, @report, ";;",);
+    push(@$header, @report, ";;",);
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
+    push(@$header, ";; end mfannot\n;;");
+    push(@$header, @$comment);
     $pirmaster->set_header($header);
 }
 
