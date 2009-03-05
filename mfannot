@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.25 2009/02/27 19:21:17 nbeck Exp $
+#    $Id: mfannot,v 2.26 2009/03/05 15:51:59 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.26  2009/03/05 15:51:59  nbeck
+#    Added score when RNA is in a gene or a gene into RNA.
+#
 #    Revision 2.25  2009/02/27 19:21:17  nbeck
 #    Removed useless options.
 #    Keep only the annotations identified by ";; keep" in the masterfile of origin.
@@ -241,7 +244,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.25 2009/02/27 19:21:17 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.26 2009/03/05 15:51:59 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -808,7 +811,8 @@ sub CleanPirmaster {
              my $endline   = $AP->get_endline()   || "";
              my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
              if ($type eq "C") {
-                 my ($new_startline,$next) = ("$1",1) if $startline =~ m/(.+)\s*;;\s*keep\s*$/;
+                 my ($new_startline,$next) = ("$1",1)         if $startline =~ m/(.+)\s*;;\s*keep\s*$/;
+                    ($new_startline,$next) = ("$startline",1) if $startline =~ m/(.+)\s*;\s*\(\s*\)\s*;s*$/;
                  $AP->set_startline($new_startline);
                  next if defined($next);
                  push (@$AP_to_rm, $id_AP);
@@ -891,6 +895,7 @@ sub RunFlip {
     $ifh->close();
 
     my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip.output";
+
     # -s start codon
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
     # -l minimum length ORF
@@ -3660,29 +3665,7 @@ sub CheckIfHypIsInAFamily {
     ($HP_start, $HP_stop) = ($HP_stop, $HP_start) if $HP_start > $HP_stop;
     my $annot_who_overlap = &WhatOverlapsThis($HP_start,$HP_stop,$contig);
     
-    my $IsInAP    = []; # If HP is in an other Gene
-    my $ContainAP = []; # List of AP contained in HP
-    
-    foreach my $list_who_overlap (@$annot_who_overlap) {
-        foreach my $AP_who_overlap (@$list_who_overlap ) {
-            my $AP      = $AP_who_overlap->[2];
-            my $All     = $AP_who_overlap->[3];
-            my $AP_type = $AP->get_type();
-            next if $AP_type ne "G";
-            my ($AP_start, $AP_stop) = ($AP_who_overlap->[0],$AP_who_overlap->[1]);
-               ($AP_start, $AP_stop) = ($AP_stop, $AP_start) if $AP_start > $AP_stop;
-            if ($HP_start <= $AP_start && $HP_stop >= $AP_stop) { 
-                # AP in HP
-                push(@$ContainAP, $list_who_overlap);
-                last;
-            }
-            elsif ($AP_start <= $HP_start && $AP_stop >= $HP_stop) {
-                # HP in AP
-                push(@$IsInAP, $list_who_overlap);
-                last;
-            }
-        }
-    }
+    my ($IsInAP,$ContainAP) = &IsInOrContainAP($annot_who_overlap,$HP_start,$HP_stop);
     return 0 if scalar(@$ContainAP) ==  0 && scalar(@$IsInAP) == 0;
     
     if (scalar(@$IsInAP) != 0) {
@@ -3761,6 +3744,35 @@ sub CheckIfHypIsInAFamily {
         &CommentAPlist($to_cm)
     }
     return 0;
+}
+
+sub IsInOrContainAP {
+    my ($annot_who_overlap,$HP_start,$HP_stop) = @_;
+    
+    my $IsInAP    = []; # If HP is in an other Gene
+    my $ContainAP = []; # List of AP contained in HP
+    
+    foreach my $list_who_overlap (@$annot_who_overlap) {
+        foreach my $AP_who_overlap (@$list_who_overlap ) {
+            my $AP      = $AP_who_overlap->[2];
+            my $All     = $AP_who_overlap->[3];
+            my $AP_type = $AP->get_type();
+            next if $AP_type ne "G";
+            my ($AP_start, $AP_stop) = ($AP_who_overlap->[0],$AP_who_overlap->[1]);
+               ($AP_start, $AP_stop) = ($AP_stop, $AP_start) if $AP_start > $AP_stop;
+            if ($HP_start <= $AP_start && $HP_stop >= $AP_stop) { 
+                # AP in HP
+                push(@$ContainAP, $list_who_overlap);
+                last;
+            }
+            elsif ($AP_start <= $HP_start && $AP_stop >= $HP_stop) {
+                # HP in AP
+                push(@$IsInAP, $list_who_overlap);
+                last;
+            }
+        }
+    }
+    return ($IsInAP,$ContainAP);
 }
 
 sub RemoveAPlist {
@@ -3892,9 +3904,10 @@ sub Annotate_Using_external_programs {
     foreach my $comsetnames (@extcomsets) {
         foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
             next if ! $progs_to_run{lc $genename};
-            my $commandobject = $genecomsets->{$comsetnames};
+            my $commandobject       = $genecomsets->{$comsetnames};
             my $annotpaircollection = &ExecuteExternalProgram($commandobject,$genename);
-            &AnnotateFromExternalAPC($pirmaster,$genename,$annotpaircollection);
+            my $idByHMM             = $commandobject->get_idByHMM();
+            &AnnotateFromExternalAPC($pirmaster,$genename,$idByHMM,$annotpaircollection);
             $annotate_intron_typeI  = 1 if lc($genename) eq lc("IntronI");
             $annotate_intron_typeII = 1 if lc($genename) eq lc("IntronII"); 
         } # End foreach genename1, genename2, ...
@@ -3946,6 +3959,7 @@ sub ExecuteExternalProgram {
 sub AnnotateFromExternalAPC {
     my $pirmaster            = shift;
     my $genename             = shift;
+    my $idByHMM              = shift;
     my $annotpaircollections = shift; # Ref to array of APC
     
     # Process each AnnotPairCollection
@@ -3971,20 +3985,29 @@ sub AnnotateFromExternalAPC {
             my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
                $arrow = "$arrow>" if defined($endpos) && $startpos < $endpos;
                $arrow = "<$arrow" if defined($endpos) && $startpos > $endpos;
-            my $direction  = $annot->get_direction()  || $arrow;
-            my $start_line = $annot->get_startline();
-               $start_line = ";     G-$genename $arrow start" if !defined($start_line);
-                
-            my $end_line   = $annot->get_endline();  # Can be undef
-               $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
+            my $direction   = $annot->get_direction()  || $arrow;
+            my $score       = $annot->get_score() || "";
+            my $start_line  = $annot->get_startline();
+               $start_line  = ";     G-$genename $arrow start" if !defined($start_line);
+            
+            my ($AP_start, $AP_stop) = $startpos > $endpos ? ($endpos, $startpos) : ($startpos, $endpos);
+            my $annot_who_overlap    = &WhatOverlapsThis($AP_start,$AP_stop,$contig);
+            my ($IsInAP,$ContainAP)  = ([],[]);
+               ($IsInAP,$ContainAP)  = &IsInOrContainAP($annot_who_overlap,$AP_start,$AP_stop) if $type ne "AC";
+            if (scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) {
+               $start_line .= ($idByHMM == 1 ? " ;; score : $score" : " ;; evalue : $score");
+            }
+            
+            my $end_line    = $annot->get_endline();  # Can be undef
+               $end_line    = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
             my $annot = new PirObject::AnnotPair(
-                                                 type      => $type,
-                                                 genename  => $a_genename,
-                                                 startpos  => $startpos,
-                                                 endpos    => $endpos,
-                                                 direction => $direction,
-                                                 startline => $start_line,
-                                                 endline   => $end_line,
+                                                 type            => $type,
+                                                 genename        => $a_genename,
+                                                 startpos        => $startpos,
+                                                 endpos          => $endpos,
+                                                 direction       => $direction,
+                                                 startline       => $start_line,
+                                                 endline         => $end_line,
                                                  startlinenumber => $annot->get_startlinenumber(), # Optional; usually undef
                                                  endlinenumber   => $annot->get_endlinenumber(),   # Optional; usually undef
                                                 );
@@ -4284,7 +4307,7 @@ sub Research_for_intron {
     $MF->close();
     my $annotpaircollections = &ExecuteExternalProgram($commandobject,$intron_group,undef,$masterfile_for_introns);
     $annotpaircollections    = &Adjust_coord_for_postannot($annotpaircollections,$r_hash_of_new_contigname);
-    &AnnotateFromExternalAPC($pirmaster,$intron_group,$annotpaircollections);
+    &AnnotateFromExternalAPC($pirmaster,$intron_group,"",$annotpaircollections);
 } # End sub
 
 sub Adjust_TypeII {
