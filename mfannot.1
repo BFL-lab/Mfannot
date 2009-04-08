@@ -22,24 +22,7 @@ DESCRIPTION
     
 OPTIONS
     
-    --ac, --addcomments 
-              Add Comments
-              If activated, comments are added in the masterfile.
-              Default false.
-    
-    --allorfs
-              Display the all orf, even those wich are overlapping with other
-              annotations.
-              Default: false.
-      
-    --all_introns
-              Choose if only the introns who was not identified by Exonerate
-              must be annotated by RNAweasel or if all introns must be annotated
-              including those already discovered by Exonerate.
-              Default  is 1 : introns annotated by RNAweasel add in comments.
-              If value is 0 : introns annotated by RNAweasel not add in comments.
-
-    --blast   Blast e-value cutoff
+     --blast  Blast e-value cutoff
               This option allows the user to set the minimum signifiant e-value
               for ORF threshold.
               Default: 1e-10
@@ -101,27 +84,24 @@ OPTIONS
     -h, --help
               Display a help and usage, with syntax and options of the
               programme.
-
-    -i, --inputfile inputpeptidefile(s)
-              Peptide file(s) used for annotation of the masterfile. By default
-              mfannot uses a collection of default peptide libraries. This
-              option will override the default, and allow the user to name
-              a specific library file of their choosing.
-              See below for more information.
+              
+    -i, --insertion
+              This option allows the user to change the length of insertion in order 
+              to report them.
 
     -l, --logfile logfile
               This option allows the user to log the state of mfannot into a user
               chosen file.
     
-    --matrix  Matrix
-              This allows the user to choose which alignment matrix is used
-              during the blast
+    --matrix  This allows the user to choose which alignment matrix is used
+              during the blast. 
 
-              BLOSUM45, BLOSUM50, BLOSUM62 (default),BLOSUM62_20, BLOSUM 80, BLOSUM90,
-              PAM30, PAM70
+              Available matrix is this usually used by BLAST:
+              BLOSUM45, BLOSUM62 (default), BLOSUM 80.
+              PAM30, PAM70.
 
     --maxis, --maxintronsize   Maximum intron size
-              This option allows the user to modify the defualt maximum intron
+              This option allows the user to modify the default maximum intron
               size (in nucleotides). During annotation, ORFs are grouped
               together to form a hypothetical protein. When this size is bigger,
               the gap can not be considered as an intron and the multiple ORFs
@@ -145,15 +125,6 @@ OPTIONS
               (in amino acids) that are produced using Flip. This value must be
               an integer.
               Default: 40
-
-    --newrc, --newrcfile
-              This option will create a file called '.mfannotrc' based on the 
-              current selected and default options. If a such file exists, it
-              will be replaced.
-
-    --norc, --norcfile
-              This option tells mfannot to ignore any existing rcfile should one
-              exist in the current working directory.
     
     -o, --outputfile  outputfile
               This is name of the new masterfile to be created. The default
@@ -168,60 +139,20 @@ OPTIONS
               gene in nucleotide.
               Default : 30
     
-    -p, --pepdirectory  pepdirectory(ies)
+    -p, --pepdirectory
               Path to the peptide directory containing peptide files. By
               default mfannot uses a collection of default peptide libraries.
-              See below for more information. Peptide files must contain the
-              suffix '.pep'.
+              Peptide files must contain the suffix '.pep'.
+              
+    --part_introns
+              Default 1     : run RNASpinner in order to defined intron type 
+              for all introns.
+              If value is 0 : run RNASpinner only for a part of introns.
               
     --partial
               Must be used when the genome his known to be partial or incomplete;
-              this will cause mfannot to only run a subset of all its built-in analysis.
-
-    --rc, --rcfile       rcfile
-              Load the options presented in the file. By default mfannot will
-              look for the file '.mfannotrc' in the current working directory.
-
-    -S
-              Do not search for genes proteins coding genes.
-          
-    --startbefore	
-              The distance use to search start codon upstream the start define by blast
-              Default: 10
-    
-    --startafter
-              The distance use to search start codon downstream the start define by blast
-              Default: 5	
-    --strict
-              Strict masterfile loading.
-              Default: false
-    
-    --size	
-              Use in order to define the size of the homologous protein.
-              Use in order to put a Warning if the annotated protein is too 
-              small or too large. The annotated protein must make +/- size%
-              of the homologous protein
-              Default: 5
-    
-    -t, --tagname        tagname
-              This option allows the insertion of a user defined tag in each
-              annotation made by the mfannot.
-              Default: None
-
-    --withmap [ svg | png ]
-              This option requires an argument to determine the format of the
-              graphic file which will be created. SVG (Scalable Vector Graphics)
-              format produces a file which is best for print, is scalable, and
-              allows string modifications. PNG format produces a compressed
-              bitmap image which is best for use on the internet, such as web
-              page.
-              The map option uses two programmes, mf2xml and cgview to produce
-              a circular genetic map, and as a result may not be used on 
-              masterfiles which include more than one contig. The map file is
-              has the same name as the output masterfile, but with the
-              appropriate graphics format extension.
-              Default: No map produced.
-
+              this will cause mfannot to only run a subset of all its built-in analysis.'
+              
 MORE 
     Masterfile:
         The file given for input should be in masterfile format (ogmp web site)
@@ -247,38 +178,9 @@ MORE
         If the protein name (in one piece) is not followed by ;, it will not be
         recognized.
 
-CONFIGURATION FILE
-        Mfannot automatically searches for a file called ".mfannot" in the
-        current working directory upon starting. This file can be used to save
-        prefered command line options instead of writing them on the command 
-        line at the time of execution.
-        
-        This file uses the same options as the command line except;
-            -i,     --inputfile
-            -o,     --outputfile
-            -p,     --peplibrary
-            --rc,   --rcfile
-            --norc, --norcfile
-            --newrc, --newrcfile
-
-        The format to store the options are slightly different than the command 
-        line options. Instead of a prefix of '-' or '--' no prefix is added, and
-        if the option requires an argument, it is separated by an '=' as shown
-        below : 
-        
-            option_name = value
-      
-        If no argument is require for the equivilent command line option (ie the
-        presence of the option indicates a boolean state), the user must supply
-        a value of 0 or 1, which is separated from the option by an '='. If the
-        user does not supply an argument, the option is ignored. It is also
-        ignored if the value is erroneous. Lines begining with '#' are
-        considered to be comments.
-      
 SEE ALSO
     blastall(1), flip(1),  formatdb(1), mf2xml(1)
     Bioperl:   http://www.bioperl.org/
-    Cgview:    http://wishart.biology.ualberta.ca/cgview/
     Exonerate: http://www.ebi.ac.uk/~guy/exonerate/
     RNAweasel: http://megasun.bch.umontreal.ca/RNAweasel/
     Bioperl:   http://www.bioperl.org/
@@ -289,7 +191,8 @@ VERSION
   
 AUTHORS
   Natacha BECK,
-  David TO,
   Pierre RIOUX,
-  Franz LANG (Project Manager),
+  David TO,
   Thomas HOELLINGER.
+  Franz LANG (Project Manager),
+
