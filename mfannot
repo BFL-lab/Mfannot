@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.28 2009/04/08 15:49:46 nbeck Exp $
+#    $Id: mfannot,v 2.29 2009/04/28 20:56:46 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.29  2009/04/28 20:56:46  nbeck
+#    Added new methods and options in order to define introns and introns type.
+#
 #    Revision 2.28  2009/04/08 15:49:46  nbeck
 #    Modified annotation of mini-exons.
 #
@@ -248,7 +251,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.28 2009/04/08 15:49:46 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.29 2009/04/28 20:56:46 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -282,7 +285,7 @@ my $PEPLIBRARIES;                               # The libraries, in input, by de
 my $INPUTPEPFILES;                              # The input files
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 my $EXTSELECTPROG;                              # List of name for external programs.
-my $PART_INTRONS;                               # Indicate if all introns detected by RNAweasel must be annotated
+my $LVL_INTRON;                                 # Indicate level of intron identification (0,1 or 2).
 my $BLASTOUTPUT       = "";                     # The path for blast file results
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
@@ -309,11 +312,6 @@ my $FORMATDBPATH            = &GetPath("formatdb");
 my $FLIPPATH                = &GetPath("flip");
 my $EXONERATEPATH           = &GetPath("exonerate");
 my $MUSCLEPATH              = &GetPath("muscle");
-my $HWCOMBINERPATH          = &GetPath("HWcombiner");
-my $POTRES2APCOLPATH        = &GetPath("PotRes2APCol");
-my $TRNA_RES2APCOLPATH      = &GetPath("tRNA_res2APcol");
-my $INTRONIC_RES2APCOLPATH  = &GetPath("Intronic_res2APcol");
-my $RNAWEASEL_RES2APCOLPATH = &GetPath("RNAweasel_res2APcol");
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
@@ -487,7 +485,6 @@ print "\n****** Annotation from " . $tabname [$#tabname] . " ******\n";
 
 # Core #
 # Run the programm step by, to know the right step  
-
 # Flip running, generate ORFS
 print "$step) Run Flip...\n";
 $step += 1; 
@@ -513,6 +510,12 @@ print "$step) Identify similar ORFs...\n";
 $step += 1; 
 &FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
 
+# Annotation of all introns
+if ($LVL_INTRON == 2 ) {
+    print "$step) Introns identification...\n";
+    &Annotate_Using_external_programs("IntronII,IntronI");
+}
+
 # Make the alignement and give the exons
 print "$step) Internal structure prediction...\n"; 
 $step += 1; 
@@ -537,7 +540,7 @@ $step += 1;
 
 # Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
 print "$step) Annotation with external programs...\n"; 
-$step += 1; 
+$step += 1;
 &Annotate_Using_external_programs;
 
 # Adjust intronic boundaries with rules for type I and type II 
@@ -562,6 +565,7 @@ $step += 1;
 &AnnotateIntronicOrfs;
 
 &MulticommentConfidence;
+&LcIntrons;
 # PROGRAMME ENDING #
 
 print "----------------------------------\n",
@@ -689,7 +693,8 @@ sub GetOptions {
     $PEPLIBRARIES            = $option->pepdirectory;      # List of path for peplibrary directory
     $EXTCONFIGFILE           = $option->ext_config;        # Path for configfile
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
-    $PART_INTRONS            = $option->part_introns;      # Indicate if RNASpinner must run which all introns
+    $LVL_INTRON              = $option->lvlintron;         # Indicate level of intron identification (0,1 or 2).
+    die "Option --lvlintron must be 0,1 or 2\n" if $LVL_INTRON < 0 || $LVL_INTRON > 2;
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
     $MINLENGTHORF            = $option->flip2;             # This is the minimum length for creating an ORF with flip
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
@@ -704,7 +709,7 @@ sub GetOptions {
 
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
-            $ISLOGFILE       = $option->islogfile;      #  Just to know if the $LOG_FILE is not empty (0 or 1)
+            $ISLOGFILE       = $option->islogfile;     #  Just to know if the $LOG_FILE is not empty (0 or 1)
             $LOG_FILE        = $option->logfile;       #  log file : store all the information about run
         }
         else {
@@ -771,6 +776,7 @@ sub CleanPirmaster {
          my $annotations = $contig->get_annotations();
          my $seq = $contig->get_sequence();
             $seq =~ s/\!//g;
+            $seq = uc($seq);
          $contig->set_sequence($seq);
          foreach my $AP (@$annotations) {
              my $type      = $AP->get_type();
@@ -1338,15 +1344,15 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
 
         next if ($numberorfs < 1); # Impossible but ..........
         
-        my $contig      = $pirmaster->GetContigByName ($contigname);
+        my $contig      = $pirmaster->GetContigByName($contigname);
         my $seq         = $contig->get_sequence();
 
         # if there is more than one orf
-        my $neworfs = [];
-
+        my ($neworfs,$newhypprot) = ([],undef);
+        
         # Sort the orf #
         # The ORFs are classified and sorted by strand and start, stop positions
-        @$orfs = sort { 
+        @$orfs = sort {
             my ($stranda,$strandb) = ($a->strand,$b->strand);
             if ($stranda != $strandb) {
                 $a->strand <=> $b->strand;
@@ -1358,8 +1364,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                 $a->end    <=> $b->end;
             }    
         } @$orfs;    
-
-        my $newhypprot = undef;
 
         foreach my $orf(@$orfs) {
             # Now the thing is to create a new hyp prot if the conditions are not required
@@ -1386,7 +1390,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                                                       idbyblast  => 1,
                                                       frameshift => $frameshift
                                                      );
-                    next; 
+                next; 
             }
 
             # Case 2 : not the same strand
@@ -1415,7 +1419,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             if ($orf->strand == 1) {
                 # Two case : right strand or opposite strand
                 if (($newhypprot->end > $orf->start) or (abs ($orf->start - $newhypprot->end) < $MAXLENGTHFORGROUPINGORF)) {
-                    
                     my $newstart = ( $orf->start < $newhypprot->start ? $orf->start : $newhypprot->start);
                     $newhypprot->set_start ($newstart);
                     
@@ -1458,7 +1461,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             else {
                 # Opposite strand
                 if (($newhypprot->start > $orf->end) or (abs ($orf->end - $newhypprot->start) < $MAXLENGTHFORGROUPINGORF)) {
-
                     my $newstart = ( $orf->start > $newhypprot->start ? $orf->start : $newhypprot->start);
                     $newhypprot->set_start ($newstart);
                     
@@ -1509,8 +1511,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
 } # End sub
 
 sub AdjustStart {
-    my $hypprot = shift;
-    my $seq     = shift;
+    my ($hypprot,$seq) = @_;
 
     my $genename   = $hypprot->get_name();
     my $isMinus    = $hypprot->get_strand() == 1 ? 0 : 1;
@@ -1666,8 +1667,7 @@ sub DefEachStartInAli {
 sub DefMaxAndMinStartInAli {
     my $each_start = shift;
     
-    my $max_start  = 0;
-    my $min_start  = 999999;
+    my ($max_start,$min_start)  = (0,999999);
     while ( my ($seq_id, $val) = each(%$each_start) ) {
         $max_start = $val if $val > $max_start;
         $min_start = $val if $val < $min_start;
@@ -1913,7 +1913,7 @@ sub FindExonsInHypProtArray {
         # In order to have the contig sequence
         my $contig  = $pirmaster->GetContigByName($contigname)
             or die "Internal error: can't find contig named '$contigname'.\n";
-        my $dna_seq = $contig->sequence;
+        my $dna_seq = $contig->get_sequence();
         my $seq     = ">sequence\n";
            $seq    .= $dna_seq;
 
@@ -2186,15 +2186,29 @@ sub FindExonsInHypProtArray {
             }
             &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
             &AdjustStart($hypprot,$dna_seq);
+
+            next if $LVL_INTRON == 0;
             
-            next if $PART_INTRONS == 1;
             my $introns = $hypprot->get_introns();
             for (my $i = 0; $i < @$introns; $i++) {
-                 my $intron             = $introns->[$i];
+                 my $intron  = $introns->[$i];
+                 my $isMinus = ($intron->get_strand() eq "+" ? 0 : 1);
+                 my $OV      = &WhatOverlapsThis($intron->get_start(),$intron->get_end(),$contig);
+                 my $APC     = &MakeApCollection($OV,$contigname);
+                 $intron->set_idbyRNAw($APC);
+                 foreach my $info_who_overlap (@$OV){
+                     foreach my $OV_AP (@$info_who_overlap ){
+                         my ($AP_min,$AP_max,$AP)  = @$OV_AP;
+                         my $id_AP  = $1 if scalar($AP) =~ m/0x(.+)\)/;
+                         my $tab_id = [$id_AP];
+                         &Remove_AP($tab_id,$contig);
+                         &AddGroupUseAP($intron,$AP);
+                     }
+                 }
                  next if $intron->get_type();
-                 my $isMinus            = ($intron->get_strand() eq "+" ? 0 : 1);
-                 &LocateIntrons($dna_seq,$intron,$name,$contigname,$pirmaster,$isMinus);
+                 &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
             }
+            
         }
     }  # End of each prot
 } # End sub
@@ -2248,8 +2262,7 @@ sub SortAndGroupC4Report {
 sub DefineBestSol {
     my ($Group_ER_cp,$p_startGR,$p_endGR,$g_startGR,$g_endGR,$OV_authorized,$i) = @_;
     
-    my $best_sol = undef;
-    my $min_dist = undef;
+    my ($best_sol,$min_dist) = (undef,undef);
     for (my $j = @$Group_ER_cp - 1; $j >= 0 ; $j--) {
         # pour def la meilleur solution si plusieur meilleur regarder celle qui est le plus proche dans le genome
         next if $i == $j;
@@ -2270,23 +2283,19 @@ sub DefineBestSol {
             next if !($p_startGR > $p_endGR_cp || $p_endGR_cp - $p_startGR < $OV_authorized);
             my $dist  = abs($g_endGR_cp - $g_startGR);
                ($min_dist,$best_sol) = ($dist,$j) if !(defined($min_dist));
-               ($min_dist,$best_sol) = ( $dist < $min_dist ? ($dist, $j): ($min_dist, $best_sol));
+               ($min_dist,$best_sol) = ( $dist < $min_dist ? ($dist, $j) : ($min_dist, $best_sol));
         }
     }
     return $best_sol
 }
 
 sub Create_alternative_prot {
-    my $dna_seq        = shift;
-    my $exon_start_end = shift;
-    my $i              = shift;
-    my $name           = shift;
+    my ($dna_seq,$exon_start_end,$i,$name) = @_;
     
      my $r_dna_seq = $dna_seq;
         $r_dna_seq =~ tr/ACGT/TGCA/;
         $r_dna_seq = reverse $r_dna_seq;
-    my ($with_exons,$without_exons) = "";
-    my $count = 0;
+    my ($with_exons,$without_exons,$count) = ("","",0);
     foreach my $exon_coord (@$exon_start_end) {
        my $use_seq   = ( $exon_coord->[2] eq "-" ? $r_dna_seq : $dna_seq );
        my ($start,$stop) = ( $exon_coord->[2] eq "-" ? 
@@ -2316,10 +2325,7 @@ sub Create_alternative_prot {
 
 sub Choose_best_solution {
     # return 1 if we must to delete the exon else 0
-    my $file_for_blast = shift;  # file with the 2 alternative seq
-    my $protein_file   = shift;  # file with reference.
-    my $i              = shift;
-    my $name           = shift;
+    my ($file_for_blast,$protein_file,$i,$name) = @_;
     
     # 1. FORMATDB
     my $base_name    = "$TMPDIR/Exonerate/mf_${name}_e$i";
@@ -2362,7 +2368,7 @@ sub Choose_best_solution {
 }
 
 sub CheckRealIntrons {
-    my ($hypprot,$seq,$name,$contigname,$pirmaster) = @_;
+    my ($hypprot,$seq,$name,$contigname) = @_;
 
     my $exons   = $hypprot->get_exons();
     my $introns = $hypprot->get_introns();
@@ -2375,14 +2381,16 @@ sub CheckRealIntrons {
         my $next_exon = $exons->[$i + 1];
         my $isMinus   = ($intron->get_strand() eq "+" ? 0 : 1);
         
-        my $intron_start = ( $isMinus ? $intron->get_start() : $intron->get_start());
-        my $intron_end   = ( $isMinus ? $intron->get_end() - 2 : $intron->get_end());
+        my $intron_start = $intron->get_start();
+        my $intron_end   = $intron->get_end();
+           $intron_end   = $intron_end - 2 if $isMinus;
         my $intron_len   =  !$isMinus ? ($intron_end - $intron_start + 1) : ($intron_start - $intron_end - 1);
         next if $intron_len % 3 != 0;
         my $intron_seq   = &GetProteinForGeneWithoutIntrons($seq, $intron_start, $intron_end, $isMinus);
         next if length($intron_seq) == 0;
         next if $intron_seq =~ m/\*/;
-        &LocateIntrons($seq,$intron,$name,$contigname,$pirmaster,$isMinus);
+        
+        &LocateIntrons($seq,$intron,undef,$name,$contigname,$isMinus);
         my $intron_type = $intron->get_type();
         next if $intron_type;
         
@@ -2425,8 +2433,7 @@ sub Add_comment_for_transpliced {
         
         my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
         
-        my $arrow = "==>" if $strand_exon eq "+";
-           $arrow = "<==" if $strand_exon eq "-";
+        my $arrow = $strand_exon eq "+" ? "==>" : "<==";
         my $start_line  = ";; $name-E$number $arrow start";
            $start_line .= ";; frameshift of $frameshift_size nt" if $frameshift_size;
         my $end_line    = ";; $name-E$number $arrow end";
@@ -2445,6 +2452,39 @@ sub Add_comment_for_transpliced {
      }
 }
 
+sub MakeApCollection {
+    my ($OV,$contigname) = @_;
+    
+    my $APC = new PirObject::AnnotPairCollection(
+                  genename   => "Intron",
+                  contigname => $contigname,
+                  annotpairlist => [],
+    );
+    
+    my $APL = $APC->get_annotpairlist();
+    foreach my $info_who_overlap (@$OV){
+       foreach my $features_who_overlap (@$info_who_overlap ){
+           my $AP = $features_who_overlap->[2];
+           push(@$APL,$AP);
+       }
+    }
+    return $APC;
+}
+
+sub CommentAllRNAwIntron {
+    my $contigs   = $pirmaster->get_contigs();
+   
+    foreach my $contig (@$contigs) {
+    my $annotations = $contig->get_annotations();
+    foreach my $annot (@$annotations) {
+        my $genename = $annot->get_genename();
+        next if $genename && $genename ne "comment";
+        my $start_line = $annot->get_startline();
+        next if $start_line !~ m/group=/;
+        $annot->set_type("C")
+        }
+    }
+}
 
 #------------------------------------#
 # Subs for processing ORFs => genes  #
@@ -2632,6 +2672,7 @@ INTRON: for (my $i = 0; $i < @$introns; $i++) {
             }
             my $HaveBadConservation = 1 if $max_percent < 0.7;
             
+            &LocateIntrons($seq,$intron,undef,$name,$contig->get_name(),$isMinus) if $LVL_INTRON == 0;
             my $apc = $intron->get_idbyRNAw() || die "idbyRNAw() is Empty\n";
             my $apl = $apc->get_annotpairlist();
             my $nb_intron = scalar(@$apl);
@@ -2647,7 +2688,7 @@ INTRON: for (my $i = 0; $i < @$introns; $i++) {
             my $previous_exon = @$exons[$i]   || next;
             my $next_exon     = @$exons[$i+1] || next;
             &AdjustExonsIntron ($intron,$previous_exon,$next_exon,$len_adjust_prev,$len_adjust_next,"deconstruct",$isMinus);
-            &LocateIntrons($seq,$intron,$name,$contigname,$pirmaster,$isMinus) if $PART_INTRONS == 1;
+            my ($intron_start,$intron_end) = ($intron->get_start(),$intron->get_end());
             if ($nb_intron > 2) {
                 my $comment = "three introns found";
                 $intron->set_comment($comment);
@@ -2681,7 +2722,7 @@ INTRON: for (my $i = 0; $i < @$introns; $i++) {
                                           || $a->{"core"}         <=> $b->{"core"}
                                           || $a->{"position"}     <=> $b->{"position"}} @$list_of_hyp_exons;
             my $best_solution     = shift(@$list_of_hyp_exons);
-            &AddCommentsForOtherSolutions($hypprot,$i,$list_of_hyp_exons,$isMinus,$pirmaster,$contigname) if scalar(@$list_of_hyp_exons) > 0 ;
+            &AddCommentsForOtherSolutions($hypprot,$i,$list_of_hyp_exons,$isMinus,$contigname) if scalar(@$list_of_hyp_exons) > 0 ;
             &AddMiniExon($introns,$exons,$i,$best_solution,$isMinus);
             $i++; # Because we add an entry in @$introns
         }
@@ -2984,11 +3025,7 @@ sub AdjustExonsIntron {
 }
 
 sub DefineSeqAndAliOfResearchExon {
-    my $percent         = shift;
-    my $sub_ali_homo    = shift;
-    my $intron_pos_sub  = shift;
-    my $len_adjust_prev = shift;
-    my $len_adjust_next = shift;
+    my ($percent,$sub_ali_homo,$intron_pos_sub,$len_adjust_prev,$len_adjust_next) = @_;
     
     my $start = $intron_pos_sub - $len_adjust_prev + 1;
     my $end   = $intron_pos_sub + $len_adjust_next;
@@ -3048,13 +3085,12 @@ sub Arrondi {
 sub HaveABadPos { 
     my ($exon_ali,$score_each_pos,$initial_solution) = @_;
 
-    my $length  =  length($initial_solution);    
+    my $length     =  length($initial_solution);    
     my $max_sc_pos = {};
     foreach my $seq ($exon_ali->each_seq) {
         die "Hypothetic exon have not the same length that research seq" 
             if $length != length($seq->seq);
-        my $pos = 0;
-        my $max_score  = -999;
+        my ($pos,$max_score) = (0,-999);
         for (;;) {
             my $nt_ini     = substr($initial_solution,$pos,1);
             my $nt_homo    = substr($seq->seq,$pos,1);
@@ -3074,25 +3110,22 @@ sub HaveABadPos {
 }
 
 sub LocateIntrons {
-    my $seq        = shift;
-    my $intron     = shift;
-    my $name       = shift;
-    my $contigname = shift;
-    my $pirmaster  = shift;
-    my $isMinus    = shift;
+    my ($seq,$intron,$annot,$name,$contigname,$isMinus) = @_;
     
-    my $start = $intron->get_start();
-    my $end   = $intron->get_end();
-    ($start,$end) = ($end,$start) if $isMinus;
-    my $length       = $end - $start + 1;
-    my $intron_seq   = substr($seq,$start - 1,$length);
+    my $isExoIntron = defined($intron) ? 1 : 0;
+    my $start       = $isExoIntron ? $intron->get_start() : $annot->get_startpos();
+    my $end         = $isExoIntron ? $intron->get_end()   : $annot->get_endpos();
+    ($start,$end)   = ($end,$start) if $isMinus;
+    my $length      = $end - $start + 1;
+    my $intron_seq  = substr($seq,$start - 1,$length);
     
     my $conf_file       = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
     my $genecomsets     = $conf_file->get_geneprogs(); # This is a HASH genename => <MfAnnotGeneCommandSet>
     my $commandobjectII = $genecomsets->{"IntronII"};
     my $commandobjectI  = $genecomsets->{"IntronI"};
     
-    my $flag = $1 if  scalar($intron) =~ m/0x(.+)\)/;
+    my $flag = $1 if $intron && scalar($intron) =~ m/0x(.+)\)/;
+       $flag = $1 if $annot  && scalar($annot)  =~ m/0x(.+)\)/;
     
     my $name_of_file      = "$TMPDIR/Intron/$name.$flag.fasta";
     my $outputfile_prefix = "$TMPDIR/Intron/$name.$flag";
@@ -3102,101 +3135,104 @@ sub LocateIntrons {
    
     # Open the file
     my $intron_file = new IO::File ">$name_of_file" or die "Impossible to open $name_of_file\n";
-    
     # Write into the file
     print $intron_file ">myintron\n";
     print $intron_file $intron_seq;
-    
     # Close the file
     $intron_file->close() or die "Impossible to close $name_of_file\n";
     
     my $annotpaircollectionsII = &ExecuteExternalProgram($commandobjectII,"IntronII",undef,$name_of_file,"$outputfile_prefix-II.xml");
     my $annotpaircollectionsI  = &ExecuteExternalProgram($commandobjectI,"IntronI",  undef,$name_of_file,"$outputfile_prefix-I.xml");
     my $annotpaircollection    = &MakeOneApCollection($annotpaircollectionsII,$annotpaircollectionsI,$contigname);
-    &AddGroup($intron,$annotpaircollection);
-    &AddInfoAboutIdIntrons($intron,$annotpaircollection,$contigname,$isMinus);
+    if ($isExoIntron == 1) {
+        &AddGroupUseAPC($intron,$annotpaircollection);
+        &AddInfoAboutIdIntrons($intron,$annotpaircollection,$contigname,$isMinus);
+    }
+    else {
+        my $APL = $annotpaircollection->get_annotpairlist();
+        foreach my $AP (@$APL) {
+            my ($AP_start,$AP_end) = ($AP->get_startpos(),$AP->get_endpos());
+            &AdjustCoordInWholeMF($annot->get_startpos(),$annot->get_endpos(),$AP,$isMinus);
+            my $contig = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in LocateIntrons\n";
+            $AP->set_type("C");
+            &AddAnnotToPirMaster($contigname,$AP);
+        }
+    }
 }
 
 sub MakeOneApCollection {
-    my $annotpaircollectionsII = shift;
-    my $annotpaircollectionsI  = shift;
-    my $contigname             = shift;
+    my ($APCII,$APCI,$contigname) = @_;
     
-    my $annotpaircollection = new PirObject::AnnotPairCollection(
-                                   genename   => "Intron",
-                                   contigname => $contigname,
-                                   annotpairlist => [],
+    my $APC = new PirObject::AnnotPairCollection(
+                             genename      => "Intron",
+                             contigname    => $contigname,
+                             annotpairlist => [],
     );
     
-    my $annotpairlistarray = $annotpaircollection->get_annotpairlist();
-
-    foreach my $AnnotPairCollection (@$annotpaircollectionsI,@$annotpaircollectionsII) {
-        my $annotpairlist = $AnnotPairCollection->get_annotpairlist();
-        push(@$annotpairlistarray, @$annotpairlist);
+    my $annotpairlistarray = $APC->get_annotpairlist();
+    foreach my $APCs (@$APCII,@$APCI) {
+        my $APL = $APCs->get_annotpairlist();
+        push(@$annotpairlistarray, @$APL);
     }
-    
-    return $annotpaircollection;
+    return $APC;
 }
 
-sub AddGroup {
-    my $intron = shift;
-    my $annotpaircollection = shift;
+sub AddGroupUseAPC {
+    my ($intron,$APC) = @_;
     
-    my $annotpairlist = $annotpaircollection->get_annotpairlist();
-    foreach my $AnnotPair (@$annotpairlist) {
-        my $AP_startline = $AnnotPair->get_startline();
-        my $AP_endline   = $AnnotPair->get_endline();
-            
-        my $type        = $1    if $AP_startline =~ m#;;.*start\s*:\s*(.+)#;
-        die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
-            
-        my $intron_type  = $intron->get_type() || "";
-           $intron_type .= "," if $intron_type;
-           $intron_type .= $type;    
-           $intron->set_type($intron_type);
+    my $APL = $APC->get_annotpairlist();
+    foreach my $AP (@$APL) {
+        &AddGroupUseAP($intron,$AP);
     }
 }
+
+sub AddGroupUseAP {
+    my ($intron,$AP) = @_;
+    
+    my $AP_startline = $AP->get_startline();
+    my $AP_endline   = $AP->get_endline();
+            
+    my $type        = $1    if $AP_startline =~ m#;;\s+group=(.+)#;
+       die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
+    
+    my $intron_type  = $intron->get_type() || "";
+       $intron_type .= "," if $intron_type;
+       $intron_type .= $type;    
+       $intron->set_type($intron_type);
+} 
 
 sub AddInfoAboutIdIntrons {
     # Used in order to define position of AP in whole masterfile
-    my $intron               = shift;
-    my $annotpaircollection  = shift;
-    my $contigname           = shift;
-    my $isMinus              = shift;
-    my $i_start              = $intron->get_start();
-    my $i_end                = $intron->get_end();
-
+    my ($intron,$APC,$contigname,$isMinus,$IsExoIntron) = @_;
     
-    my $annotpairlist = $annotpaircollection->get_annotpairlist();
-    foreach my $AnnotPair (@$annotpairlist) {
-        my $AP_start = $AnnotPair->get_startpos();
-        my $AP_end   = $AnnotPair->get_endpos();
-        my $new_start = ($isMinus ? $i_end   + $AP_start - 1 : $i_start + $AP_start - 1);
-        my $new_end   = ($isMinus ? $i_end   + $AP_end   - 1 : $i_start + $AP_end   - 1);
-        $AnnotPair->set_startpos($new_start);
-        $AnnotPair->set_endpos($new_end);
+    my ($i_start,$i_end) = ($intron->get_start(),$intron->get_end());
+    my $APL = $APC->get_annotpairlist();
+    foreach my $AP (@$APL) {
+        &AdjustCoordInWholeMF($i_start,$i_end,$AP,$isMinus);
     }
-    $intron->set_idbyRNAw($annotpaircollection);
+    $intron->set_idbyRNAw($APC);
+}
+
+sub AdjustCoordInWholeMF {
+    my ($start,$end,$AP,$isMinus) = @_;
+
+    my $AP_start  = $AP->get_startpos();
+    my $AP_end    = $AP->get_endpos();
+    my $new_start = ($isMinus ? $end + $AP_start - 1 : $start + $AP_start - 1);
+    my $new_end   = ($isMinus ? $end + $AP_end   - 1 : $start + $AP_end   - 1);
+    $AP->set_startpos($new_start);
+    $AP->set_endpos($new_end);
 }
 
 sub SortAPL {
-    my $apl     = shift;
-    my $isMinus = shift;
+    my ($apl,$isMinus) = @_;
 
-    @$apl = sort { $a->get_startpos() <=> $b->get_startpos() } @$apl
-        if !$isMinus;    
-    @$apl = sort { $b->get_startpos() <=> $a->get_startpos() } @$apl
-        if $isMinus;
+    @$apl = sort { $a->get_startpos() <=> $b->get_startpos() } @$apl if !$isMinus;    
+    @$apl = sort { $b->get_startpos() <=> $a->get_startpos() } @$apl if  $isMinus;
 }
 
 sub FindHypMiniExon {
-    my $seq          = shift;
-    my $intron       = shift;
-    my $research_seq = shift;
-    my $isMinus      = shift;
-    my $nb_intron    = shift;
-    my $apl          = shift;
-    my $best_pam_sc  = shift;
+    my ($seq,$intron,$research_seq,$isMinus,$nb_intron,$apl,$best_pam_sc) = @_;
     
     my $len_seq      = length($seq);
     my $intron_start = $intron->get_start();                           # Bio coord
@@ -3399,7 +3435,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_first_intron"}) { 
         my $first_intron            = $best_hyp_exon->{"ap_first_intron"};
         my $first_intron_startline  = $first_intron->get_startline();
-           $type_first_intron       = $1    if $first_intron_startline =~ m#;;.*start\s*:\s*(.+)#;
+           $type_first_intron       = $1    if $first_intron_startline =~ m#;;\s+group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_first_intron;
         }
         
@@ -3410,7 +3446,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_second_intron"}) { 
         my $second_intron           = $best_hyp_exon->{"ap_second_intron"} if $best_hyp_exon->{"ap_second_intron"};
         my $second_intron_startline = $second_intron->get_startline();
-           $type_second_intron      = $1    if $second_intron_startline =~ m#;;.*start\s*:\s*(.+)#;
+           $type_second_intron      = $1    if $second_intron_startline =~ m#;;\s+group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_second_intron;
         }
         
@@ -3496,7 +3532,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_first_intron];
         $apc1->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_first_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;.*start\s*:\s*(.+)#;
+        my $type       = $1    if $startline =~ m#;;\s+group=(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $first_intron->set_type($type);
     }
@@ -3519,7 +3555,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_second_intron];
         $apc2->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_second_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;.*start\s*:\s*(.+)#;
+        my $type       = $1    if $startline =~ m#;;\s+group=(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $second_intron->set_type($type);
     }
@@ -3533,7 +3569,6 @@ sub AddCommentsForOtherSolutions {
     my $i              = shift;
     my $best_hyp_exons = shift;
     my $isMinus        = shift;
-    my $pirmaster      = shift;
     my $contigname     = shift;
     
     my ($introns,$exons) = ( $hyprot->get_introns(), $hyprot->get_exons());
@@ -3589,7 +3624,7 @@ sub AddCommentsForOtherSolutions {
 sub AnnotateMfFromHYPPROTSArray {
     # This function annotates the masterfile from the blast results
     foreach my $hyprot (@$HYPPROTS) {
-        my $name = $hyprot->name;
+        my $name = $hyprot->get_name();
         next if (not (defined ($name)) or ($name eq ""));
         
         my $contigname = $hyprot->get_contigname();
@@ -3598,7 +3633,7 @@ sub AnnotateMfFromHYPPROTSArray {
         my $alt_start  = $hyprot->get_altstart();
         my $end        = $hyprot->get_end();
         my $prot       = $hyprot->get_protein();
-        my $exons      =  $hyprot->get_exons();
+        my $exons      = $hyprot->get_exons();
         my $isMinus    = ($hyprot->get_strand() == 1 ? 0 : 1);
         my $fusion     = $hyprot->get_hypfusiongene();
         my $idByBlast  = $hyprot->get_idbyblast();
@@ -3759,7 +3794,6 @@ sub AnnotateMfFromHYPPROTSArray {
                $start_line .= ";     G-$linename-I$number $arrow start";
                $start_line .= " /group=$type" if $type;
                $end_line   .= ";     G-$linename-I$number $arrow end";
-               
            my $I_startwarning = "$comment" if $comment;
 
             my $annot = new PirObject::AnnotPair (
@@ -3777,15 +3811,19 @@ sub AnnotateMfFromHYPPROTSArray {
             $annot->set_startline($I_startline);                                          
             $number++;
             &AddAnnotToPirMaster($contigname,$annot);
-            if ($idbyRNAw) {
-                my $apc             = $idbyRNAw;
-                my $apl             = $apc->get_annotpairlist();
-                foreach my $ap (@$apl) {
-                    &AddAnnotToPirMaster($contigname,$ap) if scalar(@$apl > 1);
+            
+            my $APC = $idbyRNAw;
+            next if !$idbyRNAw;
+            my $APL = $APC->get_annotpairlist();
+            my $nb_intron = scalar(@$APL);
+            if ($nb_intron > 1){
+                foreach my $AP (@$APL) {
+                    &AddAnnotToPirMaster($contigname,$AP) if scalar(@$APL > 1);
                 }
             }
         } # End foreach $intron
     } # End foreach $hyprot
+    &CommentAllRNAwIntron;
 } # End sub
 
 sub CheckIfHypIsInAFamily {
@@ -3825,8 +3863,7 @@ sub CheckIfHypIsInAFamily {
                     next;
                 }
                 else {
-                    return 2 if $G_AP->get_idbyexo();
-                    return 1;
+                    $G_AP->get_idbyexo() ? return 2 : return 1;
                 }
             }
         }
@@ -3917,7 +3954,7 @@ sub RemoveAPlist {
     my $all_annots = $contig->get_annotations();
     my $alt_exons = [];
     foreach my $list_who_overlap (@$list_to_rm) {
-        foreach my $AP_who_overlap (@$list_who_overlap ) {
+        foreach my $AP_who_overlap (@$list_who_overlap) {
             my $AP_alt_exons  = $AP_who_overlap->[2]->get_altexons();
             push(@$alt_exons,$AP_alt_exons) if scalar(@$AP_alt_exons) != 0;
         }
@@ -3997,7 +4034,7 @@ sub CommentAPlist {
 sub Annotate_Using_external_programs {
     my $conf_file       = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
     my $genecomsets     = $conf_file->get_geneprogs(); # This is a HASH genename => <MfAnnotGeneCommandSet>
-    my $ext_select_prog = $EXTSELECTPROG;
+    my $ext_select_prog = shift || $EXTSELECTPROG;
     # Here we build a list of external programs to run; by default all
     # of them are executed, but this can be modified by the option --ext_select, which
     # we parse here.
@@ -4057,8 +4094,17 @@ sub ExecuteExternalProgram {
     my $alternate_outfile         = shift;
 
     my $outfile_gene = $alternate_outfile || "$TMPDIR/result_for_$genename.xml";
-    print "    Using external programs for '$genename'...\n"
-        if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
+    
+    if ($LVL_INTRON == 2){
+        if (lc($genename) ne lc("IntronI") && lc($genename) ne lc("IntronII")) {
+            print "    Using external programs for '$genename'...\n"
+                if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
+        }
+    }
+    else {
+        print "    Using external programs for '$genename'...\n"
+            if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
+    }
 
     my $substitutions = {
         "OUTFILE"        => "$outfile_gene",       # What will be created, a series of AnnotPairCollections
@@ -4102,8 +4148,10 @@ sub AnnotateFromExternalAPC {
         my ($contigname) = ($header =~ m#^>?\s*(\S+)#)
             or die "Can't parse header line '$header'\n";
         next if $contigname eq "consensus";
-        my $contig      = $pirmaster->GetContigByName($contigname) 
-            or die "Can't get contig by name\n";
+        my $contig      = $pirmaster->GetContigByName($contigname)
+            or die "Can't get contig by name in AnnotateFromExternalAPC\n";
+        my $dna_seq     = $contig->get_sequence();
+           $dna_seq     =~ s/\!//g;
         my $seq_length  = $contig->get_sequencelength();
         # Annotate the results, using the annotpairlist field of
         # your annotcollection (an AnnotPairCollection object).
@@ -4115,25 +4163,28 @@ sub AnnotateFromExternalAPC {
                || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
              # || die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
-                
-            my $arrow = "==";  # Woh.. that's not a legal masterfile arrow
-               $arrow = "$arrow>" if defined($endpos) && $startpos < $endpos;
-               $arrow = "<$arrow" if defined($endpos) && $startpos > $endpos;
-            my $direction   = $annot->get_direction()  || $arrow;
-            my $score       = $annot->get_score() || "";
-            my $start_line  = $annot->get_startline();
-               $start_line  = ";     G-$genename $arrow start" if !defined($start_line);
+            
+            my $isMinus = 1  if defined($endpos) && $startpos > $endpos;
+            my $arrow = $isMinus ? "<==" : "==>";
+            &LocateIntrons($dna_seq,undef,$annot,$a_genename,$contigname,$isMinus)
+                if (lc($a_genename) eq "rnl" || lc($a_genename) eq "rns" || lc($a_genename) eq "rnpb")
+                                                   && $LVL_INTRON != 2;
+            
+            my $direction  = $annot->get_direction()  || $arrow;
+            my $score      = $annot->get_score() || "";
+            my $start_line = $annot->get_startline();
+               $start_line = ";     G-$genename $arrow start" if !defined($start_line);
+            my $end_line   = $annot->get_endline();  # Can be undef
+               $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
             
             my ($AP_start, $AP_stop) = $startpos > $endpos ? ($endpos, $startpos) : ($startpos, $endpos);
             my $annot_who_overlap    = &WhatOverlapsThis($AP_start,$AP_stop,$contig);
             my ($IsInAP,$ContainAP)  = ([],[]);
                ($IsInAP,$ContainAP)  = &IsInOrContainAP($annot_who_overlap,$AP_start,$AP_stop) if $type ne "AC";
             if (scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) {
-               $start_line .= ($idByHMM == 1 ? " ;; score : $score" : " ;; evalue : $score");
+               $start_line .= ($idByHMM == 1 ? " ;; score : $score" : " ;; evalue : $score") if $start_line !~ m/group=/;
             }
             
-            my $end_line    = $annot->get_endline();  # Can be undef
-               $end_line    = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
             my $annot = new PirObject::AnnotPair(
                                                  type            => $type,
                                                  genename        => $a_genename,
@@ -4183,7 +4234,7 @@ sub AnnotateFromExternalAPC {
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
                 &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
-                $add_external_annot = scalar(@$annotpairs) > 1 ? 1 : 0;
+                $add_external_annot = (scalar(@$annotpairs) > 1 || $LVL_INTRON == 2 )? 1 : 0;
             }
             &AddAnnotToPirMaster($contigname,$annot) if $add_external_annot == 1;
         } # End foreach annotpair
@@ -4191,8 +4242,7 @@ sub AnnotateFromExternalAPC {
 } # End sub
 
 sub AdjustIntronicAnnot_ForInitialAnnot {
-    my $contigname        = shift;
-    my $annot             = shift; # Intron annot as recreated from external program output
+    my ($contigname,$annot) = @_;
     
     my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
     my $a_start           = $annot->startpos() || die "Start position is not defined in AnnotPair :\n ".$annot->ObjectToXML()."\n";
@@ -4210,7 +4260,7 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
                     $features_min >  $a_end   || $a_end   > $features_max;
 
             my $a_startline = $annot->startline();
-            my $type        = $1    if $a_startline =~ m#;;.*start\s*:\s*(.+)#;
+            my $type        = $1    if $a_startline =~ m#;;\s+group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
 
             my $intron_type  = $feature->introntype() || "";
@@ -4227,37 +4277,25 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
     } # End foreach $info_who_overlap
 } # End sub
 
-
 #-----------------------------------------#
 # Subs for adjusting intronic boundaries  #
 #-----------------------------------------#
 
-
 sub Adjust_all_intronic_junctions {
     my $contigs     = $pirmaster->get_contigs();
-    my $count       = 1;
-    
-    my %adjustement = (   # This used to be a more complex table... 
-        -6 => [-6],
-        -5 => [-5],
-        -4 => [-4],
-        -3 => [-3],
-        -2 => [-2],
-        -1 => [-1],
-         0 => [0],
-         1 => [1],
-         2 => [2],
-         3 => [3],
-         4 => [4],
-         5 => [5],
-         6 => [6],
-    );
-
-    my @introns_info = ();
    
+   my %adjustement = (   # This used to be a more complex table... 
+        -6 => [-6],-5 => [-5],-4 => [-4],
+        -3 => [-3],-2 => [-2],-1 => [-1],
+         0 => [0],1 => [1],2 => [2],
+         3 => [3],4 => [4],5 => [5],
+         6 => [6]
+    );
+    
+    my @introns_info = ();
     foreach my $contig ( @$contigs) {
-        my $annotations = $contig-> get_annotations();
-        my $contig_name = $contig-> get_name();
+        my $annotations = $contig->get_annotations();
+        my $contig_name = $contig->get_name();
         
         my $seq         = uc($contig->sequence());
            $seq         =~ s/!//g;
@@ -4274,11 +4312,10 @@ sub Adjust_all_intronic_junctions {
             push (@introns_info,[$contig,$annot,$seq,$use_seq]);
         }
     }
-    
     return if !@introns_info;
     
     # Add comment if 0 or 2 introns are id.
-    if ($PART_INTRONS != 1 ) {
+     if ($LVL_INTRON == 1 || $LVL_INTRON == 2) {
         foreach my $intron (@introns_info) {
             my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
     
@@ -4302,7 +4339,8 @@ sub Adjust_all_intronic_junctions {
         } # End foreach $intron
     }
 
-    # Research intron type II 
+    # Research intron type II
+    my $count       = 1;
     if ($annotate_intron_typeII  == 0) {
         my %new_contig_for_intronII = ();
         my $add_to_mf_for_intronII  = "";
@@ -4321,7 +4359,7 @@ sub Adjust_all_intronic_junctions {
             my $name_of_gene  = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
             
             my $intron_seq    = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
-            my $signature     = "$contig_name,$name_of_gene,$a_start,$a_end,$a_strand";
+            my $signature     = [$contig_name,$name_of_gene,$a_start,$a_end,$a_strand];
             $new_contig_for_intronII{$count} = $signature;
             $add_to_mf_for_intronII .= ">A$count\n$intron_seq\n\n";
             $count++;
@@ -4359,7 +4397,7 @@ sub Adjust_all_intronic_junctions {
         
         my $a_splicescore = $annot->splicescore();
         next if $a_splicescore < 19;
-        &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus);
+        &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus,$contig);
         $intron->[1] = undef; # This intron is done
     }
     
@@ -4385,7 +4423,7 @@ sub Adjust_all_intronic_junctions {
             my $name_of_gene  = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
             
             my $intron_seq   = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
-            my $signature    = "$contig_name,$name_of_gene,$a_start,$a_end,$a_strand";
+            my $signature    = [$contig_name,$name_of_gene,$a_start,$a_end,$a_strand];
             $new_contig_for_intronI{$count} = $signature;
             $add_to_mf_for_intronI .= ">A$count\n$intron_seq\n\n";
             $count++;
@@ -4404,20 +4442,20 @@ sub Adjust_all_intronic_junctions {
         my @intron_type    = split(/,/, $a_introntype);
         my $nb_type        = @intron_type;
 
-        if ($nb_type == 0 && $PART_INTRONS == 1) {
+        if ($nb_type == 0 && $LVL_INTRON == 0) {
             $a_startline .= $a_startline =~ m/ ;; \.+/ ?
                           " / no intron type identified" 
                         : " ;; no intron type identified";
             $annot->set_startline($a_startline);
         }
-        elsif ($nb_type == 2 && $PART_INTRONS == 1) {
+        elsif ($nb_type == 2 && $LVL_INTRON == 0) {
             $a_startline .= $a_startline =~ m/ ;; \.+/ ?
                           " / two introns identified" 
                         : " ;; two introns identified";
             $annot->set_startline($a_startline);
         }
         elsif ($nb_type ==  1) {
-            &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus);
+            &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus,$contig);
         }
     } # End foreach $intron
 } # End sub
@@ -4500,10 +4538,9 @@ sub Adjust_TypeII {
 
     if (!$tab_scores[0]->[0] || $tab_scores[0]->[0] < 40) {
         &AddCommentToAnnotField($annot,"startline",";;  Cannot adjust boundaries");
-        &AddCommentToAnnotField($annot,"endline",";; Cannot adjust boundaries");
         return;
     }
-    &AdjustBoundaries(\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus);
+    &AdjustBoundaries(\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus,$contig);
 } # End sub
 
 sub Adjust_coord_for_postannot {
@@ -4515,11 +4552,10 @@ sub Adjust_coord_for_postannot {
         $contig =~ s/^>A//;
         # $signature is a quintuplet contig_name, name_of_gene, lower_pos, higher_pos, direction
         my $signature  = $r_hash_of_new_contigname->{$contig};
-        my @signature  = split(/,/, $signature);
-        my $sig_contig = $signature[0];
-        my $lower_pos  = $signature[2];
-        my $higher_pos = $signature[3];
-        my $strand     = $signature[4];
+        my $sig_contig = $signature->[0];
+        my $lower_pos  = $signature->[2];
+        my $higher_pos = $signature->[3];
+        my $strand     = $signature->[4];
         $annotpaircollection->set_contigname(">$sig_contig");
         my $annotpairs = $annotpaircollection->get_annotpairlist();
     
@@ -4573,7 +4609,6 @@ sub Add_splicescore {
     my $previous_exon_length = &Length_annot($previous_exon_feat);
     # Length of next exon
     my $next_exon_length     = &Length_annot($next_exon_feat);
-
     
     my @tab_scores = ();
     foreach my $adjust_start_pos (sort { $a <=> $b } keys %$adjustement) {
@@ -4601,7 +4636,7 @@ sub Add_splicescore {
                                   || $a->[3] <=> $b->[3]} @tab_scores;
 
     my $splice_score = $tab_scores[0]->[0];
-    if ($splice_score >= 19 && $annotate_intron_typeI  == 0){
+    if ($splice_score >= 19 && $LVL_INTRON == 0){
         $annot->set_introntype("sigI");
     }
     $annot->set_splicescore($tab_scores[0]->[0]);
@@ -4696,6 +4731,7 @@ sub AdjustBoundaries {
     my $annot_who_overlap = shift;
     my $feature_intron    = shift;
     my $isMinus           = shift;
+    my $contig            = shift;
     
     my ($adjust_start,$adjust_end) = ($tab_scores->[0]->[3],$tab_scores->[0]->[4]);
     my $previous_exon_name         = $name_intron."-E".$num_intron;
@@ -4758,11 +4794,9 @@ sub CheckForCorrespondance {
     
     my $startline = $annot->startline();
     
-    my ($adjust_start,$adjust_end) = split(/,/,$key);
-    my $old_substring1 = "";
-    my $old_substring2 = "";
-    my $new_substring1 = "";
-    my $new_substring2 = "";
+    my ($adjust_start,$adjust_end)       = split(/,/,$key);
+    my ($old_substring1,$old_substring2) = ("","");
+    my ($new_substring1,$new_substring2) = ("","");
     
     my $comp_phase     = $phase == 0 ? 0 : 3-$phase;
     my $new_phase      = ($phase + $adjust_start) % 3;
@@ -4938,10 +4972,8 @@ sub AnnotateEmptyOrfs {
         next EMPTYORF if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) && $strand_orf != 1;  #  Size Verification 
 
         # Other checking, such as overlapping..........
-    
         my $isMinus   = ($strand_orf == 1 ? 0 : 1);
         my $posOffset = ($isMinus ? -3 : 3);
-
         my $annotIsOK_gene_without_intron = 0;
    
         for (;;$start_orf += $posOffset) {
@@ -5261,7 +5293,7 @@ sub AnnotateIntronicOrfs {
         my $direction         = $intronic_orf->get_strand();
         my $contigname        = $intronic_orf->get_contigname();
         my $prefix            = $intronic_orf->get_prefix(); 
-        my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
         my $seq               = $contig->sequence;              # Get the sequence
            $seq               =~ s/!//g;                        # Remove ! from the sequence
         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
@@ -5276,10 +5308,10 @@ sub AnnotateIntronicOrfs {
             last if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf_nt) &&  $isMinus;  #  Size verification 
     
             my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
-               $codon    = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
-               $codon    =~ tr/ACGT/TGCA/ if $isMinus;
-               $codon    = reverse $codon if $isMinus;
-               $codon    = "ATG" if $isInPhase;
+               $codon = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
+               $codon =~ tr/ACGT/TGCA/ if $isMinus;
+               $codon = reverse $codon if $isMinus;
+               $codon = "ATG" if $isInPhase;
   
             next unless defined($CODON_TABLE->{$codon})  && $CODON_TABLE->{$codon} eq "M";
             $annotIsOk = 1;
@@ -5320,65 +5352,64 @@ sub AnnotateIntronicOrfs {
     }
     
     my %no_annotation;
-    if ($potential_intronic_orfs) {
-        for (my $i = 0; $i < @$potential_intronic_orfs; $i++) {
-            my $start_orf_1     = @$potential_intronic_orfs[$i]->get_start();
-            my $end_orf_1       = @$potential_intronic_orfs[$i]->get_end();
-            my $direction_orf_1 = @$potential_intronic_orfs[$i]->get_strand();
-            my $contig_orf_1    = @$potential_intronic_orfs[$i]->get_contigname();
-            my $min_pos_orf_1   = ($direction_orf_1 eq "==>" ? $start_orf_1 : $end_orf_1);
-            my $max_pos_orf_1   = ($direction_orf_1 eq "==>" ? $end_orf_1   : $start_orf_1);
-            my @tab_for_choose_intron;
-            my $selected_orf    = "";
-            push(@tab_for_choose_intron, [$i, @$potential_intronic_orfs[$i]]); 
-            for (my $j = 0; $j < @$potential_intronic_orfs; $j++) {
-                next if !($j != $i);
-                my $contig_orf_2    = @$potential_intronic_orfs[$j]->get_contigname();
-                next if ($contig_orf_1 ne $contig_orf_2);
-                my $start_orf_2     = @$potential_intronic_orfs[$j]->get_start();
-                my $end_orf_2       = @$potential_intronic_orfs[$j]->get_end();
-                my $direction_orf_2 = @$potential_intronic_orfs[$j]->get_strand();
-                my $min_pos_orf_2   = ($direction_orf_2 eq "==>" ? $start_orf_2 : $end_orf_2 );
-                my $max_pos_orf_2   = ($direction_orf_2 eq "==>" ? $end_orf_2   : $start_orf_2);
-                next if !(!($max_pos_orf_1 < $min_pos_orf_2 || $max_pos_orf_2 < $min_pos_orf_1));
-                push(@tab_for_choose_intron, [$j, @$potential_intronic_orfs[$j]]); 
-             }
- 
-            if (@tab_for_choose_intron > 1) {
-                my $num_selected_orf = &choice_orf(\@tab_for_choose_intron);
-                $selected_orf = @$potential_intronic_orfs[$i] if $num_selected_orf == $i;
-            }
-            else {
-                $selected_orf = @$potential_intronic_orfs[$i];
-            }
-    
-            next if !($selected_orf ne "");
-            #  Treatment to add a number after the genename #
-            my $GenenameORF = "orf".$selected_orf->get_size();
-            my $direction   = $selected_orf->get_strand();
-            my $prefix      = $selected_orf->get_prefix(); 
-            my $contigname  = $selected_orf->get_contigname();
-            my $startline   = ";     G-$GenenameORF $direction start";
-               $startline   = ";     G-$prefix-"."$GenenameORF $direction start" if $prefix ne "";
-            my $endline     = ";     G-$GenenameORF $direction end";
-               $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
-            
-            #  Treatment to add a number after the genename #
-            my $orfannot = new PirObject::AnnotPair(
-                                                    type      => "G",  
-                                                    genename  => $GenenameORF,
-                                                    startpos  => $selected_orf->get_start(),
-                                                    endpos    => $selected_orf->get_end(),
-                                                    direction => $direction,
-                                                    startline => $startline,
-                                                    endline   => $endline,
-                                                   );
-    
-            # Put into the table containing all of the masterfile annotations
-            # So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
-            &AddAnnotToPirMaster($contigname,$orfannot);
-        } # End for
-    } # End if
+    return if !$potential_intronic_orfs;
+    for (my $i = 0; $i < @$potential_intronic_orfs; $i++) {
+        my $start_orf_1     = @$potential_intronic_orfs[$i]->get_start();
+        my $end_orf_1       = @$potential_intronic_orfs[$i]->get_end();
+        my $direction_orf_1 = @$potential_intronic_orfs[$i]->get_strand();
+        my $contig_orf_1    = @$potential_intronic_orfs[$i]->get_contigname();
+        my $min_pos_orf_1   = ($direction_orf_1 eq "==>" ? $start_orf_1 : $end_orf_1);
+        my $max_pos_orf_1   = ($direction_orf_1 eq "==>" ? $end_orf_1   : $start_orf_1);
+        my @tab_for_choose_intron;
+        my $selected_orf    = "";
+        push(@tab_for_choose_intron, [$i, @$potential_intronic_orfs[$i]]); 
+        for (my $j = 0; $j < @$potential_intronic_orfs; $j++) {
+            next if !($j != $i);
+            my $contig_orf_2    = @$potential_intronic_orfs[$j]->get_contigname();
+            next if ($contig_orf_1 ne $contig_orf_2);
+            my $start_orf_2     = @$potential_intronic_orfs[$j]->get_start();
+            my $end_orf_2       = @$potential_intronic_orfs[$j]->get_end();
+            my $direction_orf_2 = @$potential_intronic_orfs[$j]->get_strand();
+            my $min_pos_orf_2   = ($direction_orf_2 eq "==>" ? $start_orf_2 : $end_orf_2 );
+            my $max_pos_orf_2   = ($direction_orf_2 eq "==>" ? $end_orf_2   : $start_orf_2);
+            next if !(!($max_pos_orf_1 < $min_pos_orf_2 || $max_pos_orf_2 < $min_pos_orf_1));
+            push(@tab_for_choose_intron, [$j, @$potential_intronic_orfs[$j]]); 
+         }
+
+        if (@tab_for_choose_intron > 1) {
+            my $num_selected_orf = &choice_orf(\@tab_for_choose_intron);
+            $selected_orf = @$potential_intronic_orfs[$i] if $num_selected_orf == $i;
+        }
+        else {
+            $selected_orf = @$potential_intronic_orfs[$i];
+        }
+
+        next if !($selected_orf ne "");
+        #  Treatment to add a number after the genename #
+        my $GenenameORF = "orf".$selected_orf->get_size();
+        my $direction   = $selected_orf->get_strand();
+        my $prefix      = $selected_orf->get_prefix(); 
+        my $contigname  = $selected_orf->get_contigname();
+        my $startline   = ";     G-$GenenameORF $direction start";
+           $startline   = ";     G-$prefix-"."$GenenameORF $direction start" if $prefix ne "";
+        my $endline     = ";     G-$GenenameORF $direction end";
+           $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
+        
+        #  Treatment to add a number after the genename #
+        my $orfannot = new PirObject::AnnotPair(
+                                                type      => "G",  
+                                                genename  => $GenenameORF,
+                                                startpos  => $selected_orf->get_start(),
+                                                endpos    => $selected_orf->get_end(),
+                                                direction => $direction,
+                                                startline => $startline,
+                                                endline   => $endline,
+                                               );
+
+        # Put into the table containing all of the masterfile annotations
+        # So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
+        &AddAnnotToPirMaster($contigname,$orfannot);
+    } # End for
 } # End sub
 
 sub choice_orf {
@@ -5443,30 +5474,29 @@ sub choice_orf {
 } # End sub
 
 sub IsInPhase {
-    my $intronic_orf      = shift;
-    my $annot_who_overlap = shift;
+    my ($intronic_orf,$annot_who_overlap) = @_;
     
     my $strand_orf     = $intronic_orf->get_strand();
     my $start_orf      = $intronic_orf->get_start();
     my $phase_orf      = $intronic_orf->get_phase();
     my $num_intron     = $intronic_orf->get_intron();
-    my $length_add     = 0;
-    my $distance_inf_3 = 0;
+    my ($length_add,$distance_inf_3) = (0,0);
     
-    foreach my $features_who_overlap (@$annot_who_overlap ) {
-        my $feature_type      = $features_who_overlap->[2]->get_type();    
-        my $feature_start     = $features_who_overlap->[2]->get_startpos();
-        my $feature_end       = $features_who_overlap->[2]->get_endpos();
-        my $feature_direction = $features_who_overlap->[2]->get_direction();
-        my $feature_startline = $features_who_overlap->[2]->get_startline();
-        next if !($feature_type eq "E");
-        $feature_startline =~ m#G-(\S+)-E(\d+)#;
+    foreach my $features_who_overlap (@$annot_who_overlap) {
+        my $feature     = $features_who_overlap->[2];
+        my $f_type      = $feature->get_type();    
+        my $f_start     = $feature->get_startpos();
+        my $f_end       = $feature->get_endpos();
+        my $f_direction = $feature->get_direction();
+        my $f_startline = $feature->get_startline();
+        next if !($f_type eq "E");
+        $f_startline =~ m#G-(\S+)-E(\d+)#;
         my $num_exon       = $2;
-        my $min_pos        = ($feature_direction eq "==>" ? $feature_start : $feature_end );
-        my $max_pos        = ($feature_direction eq "==>" ? $feature_end : $feature_start );
+        my $min_pos        = ($f_direction eq "==>" ? $f_start : $f_end );
+        my $max_pos        = ($f_direction eq "==>" ? $f_end   : $f_start );
         if ($num_exon == $num_intron) {
-            $distance_inf_3 = 1 if $feature_direction eq "==>" && $start_orf - $feature_end <= 3; 
-            $distance_inf_3 = 1 if $feature_direction eq "<==" && $feature_end - $start_orf <= 3;
+            $distance_inf_3 = 1 if $f_direction eq "==>" && $start_orf - $f_end <= 3; 
+            $distance_inf_3 = 1 if $f_direction eq "<==" && $f_end - $start_orf <= 3;
         }
         if ($num_exon <= $num_intron) {
             my $length   = $max_pos - $min_pos + 1;
@@ -5478,9 +5508,9 @@ sub IsInPhase {
     return 0;
 } # End sub
 
-#-----------------------------------#
-# Subs used for check Multicomments #
-#-----------------------------------#
+#--------------------------------------------------#
+# Subs used for check Multicomments And Lc Introns #
+#--------------------------------------------------#
 
 sub MulticommentConfidence {
     my $contigs   = $pirmaster->get_contigs();
@@ -5515,6 +5545,40 @@ sub MulticommentConfidence {
     }
 }
 
+sub LcIntrons {
+    my $contigs   = $pirmaster->get_contigs();
+    
+    foreach my $contig (@$contigs) {
+        my $seq = $contig->get_sequence();
+           $seq =~ s/!//g;
+        my $annotations = $contig->get_annotations();
+        foreach my $annot (@$annotations) {
+            my $type = $annot->get_type();
+            next if $type ne "I";
+            my $intron_type = $annot->get_introntype();
+            next if $intron_type && $intron_type =~ m/,/;
+            &LCIntronInSeqContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+        }
+        foreach my $annot (@$annotations) {
+            my $genename = $annot->get_genename();
+            next if !$genename || $genename ne "comment";
+            my $start_line = $annot->get_startline();
+            next if $start_line !~ m/group=/;
+            &LCIntronInSeqContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+        }
+    }
+}
+
+sub LCIntronInSeqContig {
+    my ($AP_start,$AP_end,$contig) = @_;
+    
+    my $seq = $contig->get_sequence();
+    my ($AP_min,$AP_max) = $AP_start < $AP_end ? ($AP_start,$AP_end) : ($AP_end,$AP_start);
+    my $intron_seq = lc(substr($seq,$AP_min-1,$AP_max-$AP_min+1));
+    substr($seq,$AP_min-1,length($intron_seq),$intron_seq);
+    $contig->set_sequence($seq);
+}
+
 #------------------------------------------#
 # Subs used at different times in Mfannot  #
 #------------------------------------------#
@@ -5525,7 +5589,7 @@ sub AddAnnotToPirMaster {
     # return 0 means function quit before the end, => rediscovered 
     my $contigname  = shift;
     my $annot       = shift;
-    my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name\n";
+    my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AddAnnotToPirMaster\n";
     my $annotations = $contig->get_annotations;
 
     # Here we compare all the annotations, with the one we try to add 
@@ -5540,16 +5604,14 @@ sub AddAnnotToPirMaster {
 
         # First case : if both are same comment on the same line 
         if (($annottype eq "C") and ($annot->type eq "C") and
-            ($annot->startpos == $annotstart) and
-            ($annot->startline eq $annotation->startline)) {
+            ($annot->startpos == $annotstart) and ($annot->startline eq $annotation->startline)) {
             # Nothing is done in this case,
             return 0;
         }
 
         # Second case : No comment, both have same start end, and genename;
         return 0 if (($annottype ne "C") and ($annotname eq $annot->genename) and
-            ($annotstart == $annot->startpos) and
-            ($annotend == $annot->endpos));
+                     ($annotstart == $annot->startpos) and ($annotend == $annot->endpos));
 
         # Third case : Exons
         if ($annot->type eq "E") { 
@@ -5790,18 +5852,13 @@ sub TranslateInProt {
 }
 
 sub ApPosStrandFW {
-    my $ap  = shift;
-    my $len_seq = shift;
+    my ($ap,$len_seq) = @_;
 
     my $apMinus  = ($ap->get_direction() eq "==>" ? 0 : 1);
-    my $ap_start = $ap->get_startpos();
-    my $ap_end   = $ap->get_endpos() ;
-       $ap_start = $len_seq + 1 - $ap_start if $apMinus;
-       $ap_end   = $len_seq + 1 - $ap_end   if $apMinus;
+    my $ap_start = $apMinus ? $len_seq + 1 - $ap->get_startpos() : $ap->get_startpos();
+    my $ap_end   = $apMinus ? $len_seq + 1 - $ap->get_endpos()   : $ap->get_endpos() ;
     return ($ap_start,$ap_end);
 }
-
-
 
 #---------------------------------#
 # Subs used at the end of Mfannot # 
