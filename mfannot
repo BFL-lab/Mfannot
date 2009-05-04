@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.29 2009/04/28 20:56:46 nbeck Exp $
+#    $Id: mfannot,v 2.30 2009/05/04 14:30:18 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.30  2009/05/04 14:30:18  nbeck
+#    Fixed bug due to contig name.
+#
 #    Revision 2.29  2009/04/28 20:56:46  nbeck
 #    Added new methods and options in order to define introns and introns type.
 #
@@ -251,7 +254,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.29 2009/04/28 20:56:46 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.30 2009/05/04 14:30:18 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -467,6 +470,7 @@ my $numbercontigs = scalar (@$contigs);        # Number of contigs in the master
 die "No contig header can be found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
+my $CONTIG = {};
 &CleanPirmaster();
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
@@ -565,7 +569,7 @@ $step += 1;
 &AnnotateIntronicOrfs;
 
 &MulticommentConfidence;
-&LcIntrons;
+&LcIntronsAndReplaceCgName ;
 # PROGRAMME ENDING #
 
 print "----------------------------------\n",
@@ -772,8 +776,19 @@ sub CleanPirmaster {
      my $AP_to_rm = [];
      
      # Check each annot push all annot to remove on $AP_to_rm, changed the other one
+     my $isUnique = {};
+     my $count    = 0;
      foreach my $contig (@$contigs) {
          my $annotations = $contig->get_annotations();
+         my $contigname  = $contig->get_name();
+         my $comments    = $contig->get_namecomments();
+         my $header      = $contigname.$comments;
+         $isUnique->{$header}++;
+         die "Two contig have same header '$header'\n" if $isUnique->{$header} > 1;
+         $count++;
+         $CONTIG->{"contig$count"} = "$header";
+         $contig->set_namecomments("");
+         $contig->set_name("contig$count");
          my $seq = $contig->get_sequence();
             $seq =~ s/\!//g;
             $seq = uc($seq);
@@ -805,6 +820,7 @@ sub CleanPirmaster {
          }
          &Remove_AP($AP_to_rm,$contig);
      }
+     $pirmaster->ObjectToMasterfile("$TMPDIR/Masterfile_copy");
 }
 
 sub Remove_AP {
@@ -841,8 +857,8 @@ sub RunFlip {
     unlink("uncompl")  if (-e "uncompl");
 
     # Checking the see if the masterfile path is aboslute or relative
-    my $tmpMasterfile = $MASTERFILE =~ m!^/! ? $MASTERFILE : "$cwd/$MASTERFILE";
-
+    my $tmpMasterfile = "$TMPDIR/Masterfile_copy";
+    
     # Need to remove CR from masterfile, so let's make a local copy
     print "Making local copy of masterfile with no CRs.\n" if $DEBUG;
     my $ifh = new IO::File "<$tmpMasterfile"
@@ -5545,10 +5561,13 @@ sub MulticommentConfidence {
     }
 }
 
-sub LcIntrons {
+sub LcIntronsAndReplaceCgName {
     my $contigs   = $pirmaster->get_contigs();
     
     foreach my $contig (@$contigs) {
+        my $name   = $contig->get_name();
+        my $header = $CONTIG->{"$name"};
+        $contig->set_name($header);
         my $seq = $contig->get_sequence();
            $seq =~ s/!//g;
         my $annotations = $contig->get_annotations();
