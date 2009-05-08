@@ -35,9 +35,13 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.30 2009/05/04 14:30:18 nbeck Exp $
+#    $Id: mfannot,v 2.31 2009/05/08 15:30:59 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.31  2009/05/08 15:30:59  nbeck
+#    Amendment of the annotation of RNA. Now, each contig is treated separately.
+#    Added annotation of rns by RNAweasel.
+#
 #    Revision 2.30  2009/05/04 14:30:18  nbeck
 #    Fixed bug due to contig name.
 #
@@ -254,7 +258,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.30 2009/05/04 14:30:18 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.31 2009/05/08 15:30:59 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -366,9 +370,7 @@ my $matrix_path = $ENV{"BLASTMAT"}."/PAM70";
 
 # Check if ~/.HMMweasel.cache exist and create them if they doesn't
 my $HMM_cache = "$HOME/.HMMweasel.cache";
-unless(-d $HMM_cache){
-    mkdir $HMM_cache or die "Cannot create '$HMM_cache'";
-}
+unless(-d $HMM_cache){ mkdir $HMM_cache or die "Cannot create '$HMM_cache'";}
 
 my $parser           = new Bio::Matrix::IO(-format => 'scoring',
                                            -file   => $matrix_path);
@@ -781,7 +783,7 @@ sub CleanPirmaster {
      foreach my $contig (@$contigs) {
          my $annotations = $contig->get_annotations();
          my $contigname  = $contig->get_name();
-         my $comments    = $contig->get_namecomments();
+         my $comments    = $contig->get_namecomments() || "";
          my $header      = $contigname.$comments;
          $isUnique->{$header}++;
          die "Two contig have same header '$header'\n" if $isUnique->{$header} > 1;
@@ -1944,10 +1946,8 @@ sub FindExonsInHypProtArray {
         my $overlappe_authorized = ((5*$length)/100);
 
         # Write protein and gene in fasta files
-        my $cleancontigname = $contigname;
-        $cleancontigname =~ s/\W/_/g;
         my $fileprot      = "$TMPDIR/Exonerate/prot_for_exonerate_${i}_${name}";
-        my $filecontig    = "$TMPDIR/Exonerate/gene_for_exonerate_${cleancontigname}";
+        my $filecontig    = "$TMPDIR/Exonerate/gene_for_exonerate_${contigname}";
         my $exonerate_out = "$TMPDIR/Exonerate/exonerate_${i}_${name}";
 
         # Check if it exists
@@ -2031,7 +2031,7 @@ sub FindExonsInHypProtArray {
                      my $feat        = $lineobj->get_feature();
                      next if $feat ne "exon";
                      
-                     my $start       = ($isMinus ? $lineobj->get_end() : $lineobj->get_start());
+                     my $start       = ($isMinus ? $lineobj->get_end()   : $lineobj->get_start());
                      my $end         = ($isMinus ? $lineobj->get_start() : $lineobj->get_end());
                      my $strand_exon = $lineobj->get_strand();
                      my $attributes  = $lineobj->get_attributes();
@@ -2056,7 +2056,7 @@ sub FindExonsInHypProtArray {
                  
                  $add_text_in_header .= ";; The gene coding for $name is probably transpliced (see annotation in comments)\n";
                  next;
-                 }
+             }
 
              @exon_start_end = sort {    ($a->[3] <=> $b->[3])
                                      ||  ($a->[0] <=> $b->[0])} @exon_start_end if $strand != -1; # Sort exons_start_end by start strand-
@@ -2221,7 +2221,7 @@ sub FindExonsInHypProtArray {
                          &AddGroupUseAP($intron,$AP);
                      }
                  }
-                 next if $intron->get_type();
+                 next if $intron->get_type() || $LVL_INTRON == 2;
                  &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
             }
             
@@ -4054,6 +4054,10 @@ sub Annotate_Using_external_programs {
     # Here we build a list of external programs to run; by default all
     # of them are executed, but this can be modified by the option --ext_select, which
     # we parse here.
+    
+    # Create one file per contig
+    my $work_dir = "$TMPDIR/Contig";
+    &CreateContigFile if (!(-d $work_dir));
 
     # Default: all of them
     my @allprogs      = map { split(/\s*,\s*/,$_) } keys %$genecomsets;
@@ -4089,18 +4093,44 @@ sub Annotate_Using_external_programs {
         $genecomsets->{$a}->get_filerank() <=> $genecomsets->{$b}->get_filerank()
     } keys %$genecomsets; # Now sorted; these are keys with possible MULTIPLE names, e.g. "rns,rnl"
 
+    my %dir = ();
+    tie %dir, 'IO::Dir', $work_dir;
     foreach my $comsetnames (@extcomsets) {
         foreach my $genename (split(/\s*,\s*/,$comsetnames)) {
             next if ! $progs_to_run{lc $genename};
-            my $commandobject       = $genecomsets->{$comsetnames};
-            my $annotpaircollection = &ExecuteExternalProgram($commandobject,$genename);
-            my $idByHMM             = $commandobject->get_idByHMM();
-            &AnnotateFromExternalAPC($genename,$idByHMM,$annotpaircollection);
-            $annotate_intron_typeI  = 1 if lc($genename) eq lc("IntronI");
-            $annotate_intron_typeII = 1 if lc($genename) eq lc("IntronII"); 
-        } # End foreach genename1, genename2, ...
-    } # End foreach "genename1,genename2"
+            if (lc($genename) ne lc("IntronI") && lc($genename) ne lc("IntronII")) {
+                print "    Using external programs for '$genename'...\n" if !$DEBUG;
+            }
+            foreach (keys %dir) {
+                next if $_ =~ /^\./;
+                next if $_ =~ /\.xml$/;
+                next if !(-f "$work_dir/$_");
+                my $commandobject = $genecomsets->{$comsetnames};
+                my $mf            = "$work_dir/$_";
+                my $out           = "$mf-$genename.xml";
+                my $APC           = &ExecuteExternalProgram($commandobject,$genename,undef,$mf,$out);
+                &AnnotateFromExternalAPC($genename,$APC);
+                $annotate_intron_typeI  = 1 if lc($genename) eq lc("IntronI");
+                $annotate_intron_typeII = 1 if lc($genename) eq lc("IntronII"); 
+            } # End foreach genename1, genename2, ...
+        } # End foreach "genename1,genename2"
+    } # End foreach keys
 } # End sub
+
+sub CreateContigFile {
+    mkdir("$TMPDIR/Contig",0700);
+    my $contigs = $pirmaster->get_contigs();
+    foreach my $contig (@$contigs) {
+        my $seq       = $contig->get_sequence();
+           $seq       =~ s/!//g;
+        my $name      = $contig->get_name();
+        
+        my $contig_file = "$TMPDIR/Contig/$name";
+        my $CF = new IO::File ">$contig_file" or die "Cannot open : $contig_file\n";
+        print $CF ">$name\n$seq\n";
+        $CF->close();
+    }
+}
 
 sub ExecuteExternalProgram {
     my $commandobject             = shift;
@@ -4110,18 +4140,7 @@ sub ExecuteExternalProgram {
     my $alternate_outfile         = shift;
 
     my $outfile_gene = $alternate_outfile || "$TMPDIR/result_for_$genename.xml";
-    
-    if ($LVL_INTRON == 2){
-        if (lc($genename) ne lc("IntronI") && lc($genename) ne lc("IntronII")) {
-            print "    Using external programs for '$genename'...\n"
-                if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
-        }
-    }
-    else {
-        print "    Using external programs for '$genename'...\n"
-            if !$DEBUG && !$alternate_outfile && !$alternate_masterfile && !$alternate_plainmasterfile;
-    }
-
+   
     my $substitutions = {
         "OUTFILE"        => "$outfile_gene",       # What will be created, a series of AnnotPairCollections
         "PLAINFASTAFILE" => ($alternate_plainmasterfile || "$TMPDIR/mf_noCr.all"),
@@ -4134,9 +4153,11 @@ sub ExecuteExternalProgram {
     };
 
     $commandobject->set_debug($DEBUG);
+    my $OutAndErrDir = dirname($outfile_gene)."/err_out";
+    unless(-d $OutAndErrDir) {mkdir $OutAndErrDir or die "Cannot create '$OutAndErrDir'";}
     my ($outfile,$errfile) = $commandobject->Execute(
-                                                     "$TMPDIR",
-                                                     "$TMPDIR",
+                                                     "$OutAndErrDir",
+                                                     "$OutAndErrDir",
                                                       $substitutions,
                                                      );
 
@@ -4155,7 +4176,6 @@ sub ExecuteExternalProgram {
 
 sub AnnotateFromExternalAPC {
     my $genename             = shift;
-    my $idByHMM              = shift;
     my $annotpaircollections = shift; # Ref to array of APC
     
     # Process each AnnotPairCollection
@@ -4173,12 +4193,11 @@ sub AnnotateFromExternalAPC {
         # your annotcollection (an AnnotPairCollection object).
         my $annotpairs = $annotcollection->get_annotpairlist();
         foreach my $annot (@$annotpairs){
-            my $type       = $annot->get_type()       || "G";
-            my $a_genename = $annot->get_genename()   || $genename;
+            my $type       = $annot->get_type()     || "G";
+            my $a_genename = $annot->get_genename() || $genename;
             my $startpos   = $annot->get_startpos()
                || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
-             # || die "Can't find endpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             
             my $isMinus = 1  if defined($endpos) && $startpos > $endpos;
             my $arrow = $isMinus ? "<==" : "==>";
@@ -4197,23 +4216,25 @@ sub AnnotateFromExternalAPC {
             my $annot_who_overlap    = &WhatOverlapsThis($AP_start,$AP_stop,$contig);
             my ($IsInAP,$ContainAP)  = ([],[]);
                ($IsInAP,$ContainAP)  = &IsInOrContainAP($annot_who_overlap,$AP_start,$AP_stop) if $type ne "AC";
-            if (scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) {
-               $start_line .= ($idByHMM == 1 ? " ;; score : $score" : " ;; evalue : $score") if $start_line !~ m/group=/;
+            if ((scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) &&  $start_line !~ m/group=/) {
+               $start_line .= $annot->get_idbyHMM() == 1 ? " ;; score : $score" :" ;; evalue : $score";
             }
             
-            my $annot = new PirObject::AnnotPair(
-                                                 type            => $type,
-                                                 genename        => $a_genename,
-                                                 startpos        => $startpos,
-                                                 endpos          => $endpos,
-                                                 direction       => $direction,
-                                                 startline       => $start_line,
-                                                 endline         => $end_line,
-                                                 startlinenumber => $annot->get_startlinenumber(), # Optional; usually undef
-                                                 endlinenumber   => $annot->get_endlinenumber(),   # Optional; usually undef
-                                                );
+            $annot->set_type($type);
+            $annot->set_genename($a_genename);
+            $annot->set_direction($direction);
+            $annot->set_startline($start_line);
+            $annot->set_endline($end_line);
+
             # Added comment and adjust pos for partial rna
-            my $a_startline    = $annot->get_startline()    || next;
+            my $a_startline    = $annot->get_startline() || next;
+            
+            if ($annot->get_idbyHMM() && $annot->get_idbyHMM() == 1) {
+                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                           " / Approximative annotation" 
+                         : " ;; Approximative annotation";
+                $annot->set_startline($a_startline);
+            }
 
             if ( $endpos < 0 || $startpos < 0 ) {
                 if ($startpos < 0) {
@@ -4492,7 +4513,7 @@ sub Research_for_intron {
     $MF->close();
     my $annotpaircollections = &ExecuteExternalProgram($commandobject,$intron_group,undef,$masterfile_for_introns);
     $annotpaircollections    = &Adjust_coord_for_postannot($annotpaircollections,$r_hash_of_new_contigname);
-    &AnnotateFromExternalAPC($intron_group,"",$annotpaircollections);
+    &AnnotateFromExternalAPC($intron_group,$annotpaircollections);
 } # End sub
 
 sub Adjust_TypeII {
