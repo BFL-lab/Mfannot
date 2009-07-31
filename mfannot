@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.32 2009/05/22 17:31:27 nbeck Exp $
+#    $Id: mfannot,v 2.33 2009/07/31 19:53:50 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.33  2009/07/31 19:53:50  nbeck
+#    Added annotation of first aa for intronic ORF.
+#
 #    Revision 2.32  2009/05/22 17:31:27  nbeck
 #    Fixed annotation when two genes were identified at the same place by Exonerate.
 #
@@ -261,7 +264,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.32 2009/05/22 17:31:27 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.33 2009/07/31 19:53:50 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -5358,7 +5361,11 @@ sub AnnotateIntronicOrfs {
                $codon = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
                $codon =~ tr/ACGT/TGCA/ if $isMinus;
                $codon = reverse $codon if $isMinus;
-               $codon = "ATG" if $isInPhase;
+               if ($isInPhase) {
+                   my $aa = $CODON_TABLE->{$codon};
+                   $intronic_orf->set_firstAA($aa);
+                   $codon = "ATG" if $isInPhase;
+               }
   
             next unless defined($CODON_TABLE->{$codon})  && $CODON_TABLE->{$codon} eq "M";
             $annotIsOk = 1;
@@ -5393,7 +5400,8 @@ sub AnnotateIntronicOrfs {
                                                               phase      => $intronic_orf->get_phase(),
                                                               prefix     => $prefix,
                                                               size       => $orfsize,
-                                                              seq        => $seq_orf_aa
+                                                              seq        => $seq_orf_aa,
+                                                              firstAA   => $intronic_orf->get_firstAA()
                                                              );
         push (@$potential_intronic_orfs, $potential_intronic_orf);
     }
@@ -5437,8 +5445,12 @@ sub AnnotateIntronicOrfs {
         my $direction   = $selected_orf->get_strand();
         my $prefix      = $selected_orf->get_prefix(); 
         my $contigname  = $selected_orf->get_contigname();
+        my $first_aa    = $selected_orf->get_firstAA();
         my $startline   = ";     G-$GenenameORF $direction start";
-           $startline   = ";     G-$prefix-"."$GenenameORF $direction start" if $prefix ne "";
+        if ($prefix ne "") {
+           $startline   = $first_aa ? ";     G-$prefix-"."$GenenameORF $direction start /first_aa=$first_aa"
+                                    : ";     G-$prefix-"."$GenenameORF $direction start";
+        }
         my $endline     = ";     G-$GenenameORF $direction end";
            $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
         
