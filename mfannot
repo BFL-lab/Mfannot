@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.33 2009/07/31 19:53:50 nbeck Exp $
+#    $Id: mfannot,v 2.34 2009/10/27 15:06:03 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.34  2009/10/27 15:06:03  nbeck
+#    Fixed undef value.
+#
 #    Revision 2.33  2009/07/31 19:53:50  nbeck
 #    Added annotation of first aa for intronic ORF.
 #
@@ -264,7 +267,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.33 2009/07/31 19:53:50 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.34 2009/10/27 15:06:03 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -526,6 +529,7 @@ $step += 1;
 if ($LVL_INTRON == 2 ) {
     print "$step) Introns identification...\n";
     &Annotate_Using_external_programs("IntronII,IntronI");
+    $step += 1; 
 }
 
 # Make the alignement and give the exons
@@ -1174,8 +1178,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         
         # If we can't find it, create it once, and push it on @$FLIPBLASTPROTS
         if (! defined ($newflipblastprot)) {
-            $newflipblastprot = new PirObject::FlipBlastProt (
-                                                                 name           => $hypprotein, # First we create the flipblast prot
+            $newflipblastprot = new PirObject::FlipBlastProt (   name           => $hypprotein, # First we create the flipblast prot
                                                                  contigname     => $contigname,
                                                                  orfs           => [],
                                                                  homologous     => []
@@ -4230,7 +4233,8 @@ sub AnnotateFromExternalAPC {
             my ($IsInAP,$ContainAP)  = ([],[]);
                ($IsInAP,$ContainAP)  = &IsInOrContainAP($annot_who_overlap,$AP_start,$AP_stop) if $type ne "AC";
             if ((scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) &&  $start_line !~ m/group=/) {
-               $start_line .= $annot->get_idbyHMM() == 1 ? " ;; score : $score" :" ;; evalue : $score";
+               my $idByHMMdef  = !$annot->get_idbyHMM() ? 0 : 1;
+               $start_line    .= $idByHMMdef && $annot->get_idbyHMM() == 1 ? " ;; score : $score" :" ;; evalue : $score";
             }
             
             $annot->set_type($type);
@@ -4283,7 +4287,7 @@ sub AnnotateFromExternalAPC {
             }
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
-                &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
+                &AdjustIntromnicAnnot_ForInitialAnnot($contigname,$annot);
                 $add_external_annot = (scalar(@$annotpairs) > 1 || $LVL_INTRON == 2 )? 1 : 0;
             }
             &AddAnnotToPirMaster($contigname,$annot) if $add_external_annot == 1;
@@ -4463,7 +4467,7 @@ sub Adjust_all_intronic_junctions {
             
             next if defined($annot->introntype());
             
-            my $contig_name   = $contig-> get_name();
+            my $contig_name   = $contig->get_name();
             my $a_start       = $annot->startpos()   || next;
             my $a_end         = $annot->endpos()     || next;
             my $a_strand      = $annot->direction()  || next;
@@ -4599,7 +4603,7 @@ sub Adjust_coord_for_postannot {
     
     foreach my $annotpaircollection (@$annotpaircollections) {
         my $contig = $annotpaircollection->get_contigname();
-        $contig =~ s/^>A//;
+        $contig =~ s/^>*A//;
         # $signature is a quintuplet contig_name, name_of_gene, lower_pos, higher_pos, direction
         my $signature  = $r_hash_of_new_contigname->{$contig};
         my $sig_contig = $signature->[0];
