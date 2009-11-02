@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.34 2009/10/27 15:06:03 nbeck Exp $
+#    $Id: mfannot,v 2.35 2009/11/02 16:12:45 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.35  2009/11/02 16:12:45  nbeck
+#    Changed Blast option, added -a removed -F.
+#
 #    Revision 2.34  2009/10/27 15:06:03  nbeck
 #    Fixed undef value.
 #
@@ -267,7 +270,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.34 2009/10/27 15:06:03 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.35 2009/11/02 16:12:45 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -483,6 +486,7 @@ my $numberannot   = 0;                         # Number of annotations detected 
 
 my $CONTIG = {};
 &CleanPirmaster();
+my $NB_PROC   = &DefineNumberOfProcessor();
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
       "Number of annotations (or comments) detected : $numberannot\n" if $DEBUG;
@@ -848,6 +852,20 @@ sub Remove_AP {
     }
 }
 
+sub DefineNumberOfProcessor {
+    my $nb_proc = "$TMPDIR/nb_proc";
+    system("grep processor /proc/cpuinfo > $nb_proc");
+    my $count_proc = 0;
+    my $infh = new IO::File "<$nb_proc"
+        or die "Can't read from file '$nb_proc': $!\n";
+    while (my $line = <$infh>) {
+        next if $line !~ m/^processor\s*:\s*\d+$/;
+        $count_proc++;
+    }
+    return $count_proc;
+}
+
+
 #-----------------------------------#
 # Subs forming the core of Mfannot  #
 #-----------------------------------#
@@ -907,7 +925,7 @@ sub BlastFlipVSGene {
     system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -F F2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -D $GENCODE -o $BLASTOUTPUT -a $NB_PROC 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     system ($cmdblast);
 } # End sub
