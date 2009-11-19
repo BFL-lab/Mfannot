@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.35 2009/11/02 16:12:45 nbeck Exp $
+#    $Id: mfannot,v 2.36 2009/11/19 20:50:55 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.36  2009/11/19 20:50:55  nbeck
+#    Fied Splice bug and comment bug.
+#
 #    Revision 2.35  2009/11/02 16:12:45  nbeck
 #    Changed Blast option, added -a removed -F.
 #
@@ -270,7 +273,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.35 2009/11/02 16:12:45 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.36 2009/11/19 20:50:55 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -520,7 +523,7 @@ $step += 1;
 &ParseInformationFromBlastResult;
 
 # Selection of protein
-print "$step) Select hypotetical protein for Exonerate...\n";
+print "$step) Select hypothetical protein for Exonerate...\n";
 $step += 1; 
 &Select_protein;
 
@@ -1738,9 +1741,7 @@ sub DefineAllPossibleStart {
 }
 
 sub ChooseBestStart {
-    my $each_st          = shift;
-    my $all_possible_st  = shift;
-    my $right_lim_for_st = shift;
+    my ($each_st,$all_possible_st,$right_lim_for_st) = @_;
     
     # No start was found before last start in alignment
     my $best_start  = undef;
@@ -1786,8 +1787,7 @@ sub ChooseBestStart {
 }
 
 sub ChooseStartIfTooFar {
-    my $all_possible_st = shift;
-    my $limite          = shift;
+    my ($all_possible_st,$limite) = @_;
     
     foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
         return $st_pos if $st_pos > $limite;
@@ -1826,7 +1826,7 @@ sub ChooseStartWithCloseHomo {
     my $nb_homo         = shift;
          
     while ( my ($st_pos, $hash) = each(%$all_possible_st) ) {
-        my ($aa,$count) = ($hash->{"aa"},$hash->{"count"});
+            my ($aa,$count) = ($hash->{"aa"},$hash->{"count"});
         next if !$count;
         if ($nb_homo >= 4) {
            return $st_pos if $count >= 3;
@@ -1852,7 +1852,7 @@ sub ChooseStartWithAllHomo {
     }
     
     my $close_hyp_st = undef;
-    my $min_diff     = 100000;  #very hight value
+    my $min_diff     = 100000;  # very hight value
     foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
         my $aa   = $all_possible_st->{$st_pos}->{"aa"};
         delete $all_possible_st->{$st_pos}->{"min"};
@@ -2283,8 +2283,8 @@ sub SortAndGroupC4Report {
         next if $best_sol_bs != $i;
         my $len_GR_bs = scalar(@$GR_bs);
         ($p_startGR < $p_startGR_bs ? 
-                splice(@$GR,$len_GR_bs,0,@$GR_bs) # add $best_sol at end
-              : splice(@$GR,0,0,@$GR_bs));        # add $best_sol at begin
+                splice(@$GR,@$GR,0,@$GR_bs) # add $best_sol at end
+              : splice(@$GR,0,0,@$GR_bs));  # add $best_sol at begin
         splice(@$Group_ER,$best_sol,1);
         next;
     }
@@ -3875,9 +3875,12 @@ sub CheckIfHypIsInAFamily {
         my $to_rm            = [];
         foreach my $list_who_overlap (@$IsInAP) {
             my ($HP_isIntronic,$G_AP,$G_score,$count) = (0,"",0,0);
+            my $containComment = 0;
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $AP        = $AP_who_overlap->[2];
                 my $AP_type   = $AP->get_type();
+                my $AP_name = $AP->get_genename();
+                $containComment = 1 if $AP_name eq "comment";
                    $G_AP      = $AP if $AP_type eq "G";
                 my $exo_score = $AP->get_exoscore();
                 $G_score     += $exo_score if $exo_score;
@@ -3891,6 +3894,7 @@ sub CheckIfHypIsInAFamily {
                     last;
                 }
             }
+            next if $containComment;
 
             $G_score = ($count == 0 ? $G_AP->get_exoscore : $G_score/$count);
             if ($HP_isIntronic == 0) {
@@ -3911,10 +3915,12 @@ sub CheckIfHypIsInAFamily {
         my ($to_rm,$to_cm,$same_annot) = ([],[],0);
         foreach my $list_who_overlap (@$ContainAP) {
             my ($G_AP_isIntronic,$G_AP,$G_score,$count) = (0,"",0,0);
+            my $containComment = 0;
             foreach my $AP_who_overlap (@$list_who_overlap) {
                 my $AP      = $AP_who_overlap->[2];
                 my $AP_type = $AP->get_type();
                 my $AP_name = $AP->get_genename();
+                $containComment = 1 if $AP_name eq "comment";
                    $G_AP    = $AP if $AP_type eq "G";
                 my $exo_score = $AP->get_exoscore();
                 $G_score += $exo_score if $exo_score;
@@ -3935,6 +3941,7 @@ sub CheckIfHypIsInAFamily {
                 }
                 last if $G_AP_isIntronic;
             }
+            next if $containComment;
 
             $G_score = ($count == 0 ? 0 : $G_score/$count);
             if ($G_AP_isIntronic == 0) {
@@ -4305,7 +4312,7 @@ sub AnnotateFromExternalAPC {
             }
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
-                &AdjustIntromnicAnnot_ForInitialAnnot($contigname,$annot);
+                &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
                 $add_external_annot = (scalar(@$annotpairs) > 1 || $LVL_INTRON == 2 )? 1 : 0;
             }
             &AddAnnotToPirMaster($contigname,$annot) if $add_external_annot == 1;
@@ -4609,7 +4616,7 @@ sub Adjust_TypeII {
                                   || $a->[3] <=> $b->[3]} @tab_scores;
 
     if (!$tab_scores[0]->[0] || $tab_scores[0]->[0] < 40) {
-        &AddCommentToAnnotField($annot,"startline",";;  Cannot adjust boundaries");
+        &AddCommentToAnnotField($annot,"startline",";;  Splice boundaries incertain");
         return;
     }
     &AdjustBoundaries(\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus,$contig);
