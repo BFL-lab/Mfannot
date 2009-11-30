@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.36 2009/11/19 20:50:55 nbeck Exp $
+#    $Id: mfannot,v 2.37 2009/11/30 18:35:29 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.37  2009/11/30 18:35:29  nbeck
+#    Fixed bug in AdjustStart.
+#
 #    Revision 2.36  2009/11/19 20:50:55  nbeck
 #    Fied Splice bug and comment bug.
 #
@@ -273,7 +276,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.36 2009/11/19 20:50:55 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.37 2009/11/30 18:35:29 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1568,7 +1571,7 @@ sub AdjustStart {
     my $old_start  = $hypprot->get_blaststart() || $start;
     my $exons      = $hypprot->get_exons();
     my $introns    = $hypprot->get_introns();
-    my $WithIntrons = (scalar(@$exons) != 0 ? 1 : 0);
+    my $WithIntrons = (scalar(@$exons) > 1 ? 1 : 0);
     
     my $this_prot = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
        $this_prot = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
