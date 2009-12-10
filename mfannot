@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.37 2009/11/30 18:35:29 nbeck Exp $
+#    $Id: mfannot,v 2.38 2009/12/10 16:43:41 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.38  2009/12/10 16:43:41  nbeck
+#    Added option for Webserver.
+#
 #    Revision 2.37  2009/11/30 18:35:29  nbeck
 #    Fixed bug in AdjustStart.
 #
@@ -276,7 +279,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.37 2009/11/30 18:35:29 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.38 2009/12/10 16:43:41 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -292,7 +295,7 @@ my $ANNOT_STATS      = {'Added' => {} };        # Use for create the header.
 my $FLIPBLASTPROTS   = [];                      # Array containing the Proteins predicted by Blast and Flip
 my $HYPPROTS         = [];                      # Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $EMPTYORFS        = [];                      # Array containing ORFs having no corresponding genes
-my $TMPDIR           = "/tmp/mfannot.$$";       # Temporary directory
+my $TMPDIR           = "";                      # Temporary directory
 my %PENAMEDISPLAY;                              # An hash array, containing the name to display, associate with peplibraries and pepfiles
 
 # General options
@@ -323,6 +326,7 @@ my $MINEXONSIZE;                                # Minimum exon size for intron.
 my $MATRIX;                                     # PAM or BLOSUM matrix
 my $PARTIAL;                                    # This will cause mfannot to only run a subset of all its built-in analysis
 my $INSERTION;                                  # Minimum length for report insertion.
+my $MAIL;                                       # Mail in order to send results
 
 # Two booleans used in order to know if annotation of introns has been made
 my ($annotate_intron_typeI,$annotate_intron_typeII)  = (0,0);
@@ -441,7 +445,10 @@ print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
 print $options if $DEBUG;                        # Print the options on the screen 
 
 # CREATE THE TMPDIR #
-mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
+$TMPDIR = "/tmp/mfannot.$$" if !$TMPDIR;
+if (! -d $TMPDIR) {
+    mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
+}
 
 # Initialization of $CODON_TABLE (Hashtable with genetic code)
 my $BIOCODONTABLE   = Bio::Tools::CodonTable->new( -id => $GENCODE);
@@ -622,6 +629,10 @@ if ($ISLOGFILE == 1) {
     print "close Logfile : $LOG_FILE\n" if $DEBUG;
     $LOG_F->close() or print "Logfile not closed\n";
 }
+
+my $filename = basename($OUTPUTFILE);
+system("cp $OUTPUTFILE $TMPDIR/$filename");
+&sendMail($filename) if $MAIL;
 exit 0;
 
 END { 
@@ -732,6 +743,8 @@ sub GetOptions {
     $MATRIX                  = $option->matrix;            # The matrix used in genewise alignement
     $PARTIAL                 = $option->partial;           # This will cause mfannot to only run a subset of all its built-in analysis
     $INSERTION               = $option->insertion;         # Minimum length for report insertion
+    $MAIL                    = $option->mail;              # Mail in order to send results
+    $TMPDIR                  = $option->tmpdir;            # Temporary work directory
 
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
@@ -6142,12 +6155,33 @@ sub LogInfo {
     push(@report, $rep) if $cnt;
 
     push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
-    push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
+    push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname()) if !$MAIL;
     push(@$header, @report, ";;",);
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
     push(@$header, ";; end mfannot\n;;");
     push(@$header, @$comment);
     $pirmaster->set_header($header);
+}
+
+sub sendMail {
+    my $filename = shift;
+    
+	my $subject   = "mfannot result on $filename";
+    my $mail_file = "/services/WWW/cgi-bin/mfannot/mail_core";
+    die "File for mail core doesn't exist" if !(-f "$mail_file");
+    my $new_file  = "$TMPDIR/$filename";
+	my $mailErr   = "$TMPDIR/mailErr";
+	my $mailOut   = "$TMPDIR/mailOut";
+	
+    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file\'";
+	print STDERR $cmd if $DEBUG;
+	my $ret = system("$cmd 2> $mailErr");
+	
+	if (($ret >> 8) > 1) {
+		print STDERR "There was an error sending mail.\n";
+		print STDERR "Content of STDERR output:\n";
+		system("cat",$mailErr);
+	}
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
