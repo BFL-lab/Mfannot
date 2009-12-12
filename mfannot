@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.38 2009/12/10 16:43:41 nbeck Exp $
+#    $Id: mfannot,v 2.39 2009/12/12 00:50:01 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.39  2009/12/12 00:50:01  nbeck
+#    Changed sub for annotation of ORF.
+#
 #    Revision 2.38  2009/12/10 16:43:41  nbeck
 #    Added option for Webserver.
 #
@@ -279,7 +282,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.38 2009/12/10 16:43:41 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.39 2009/12/12 00:50:01 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -295,6 +298,7 @@ my $ANNOT_STATS      = {'Added' => {} };        # Use for create the header.
 my $FLIPBLASTPROTS   = [];                      # Array containing the Proteins predicted by Blast and Flip
 my $HYPPROTS         = [];                      # Array containing the Proteins predicted by Blast and Flip and reprocessed after
 my $EMPTYORFS        = [];                      # Array containing ORFs having no corresponding genes
+my $START_COUNT      = {};                      # Hash with count of tri_nt start.
 my $TMPDIR           = "";                      # Temporary directory
 my %PENAMEDISPLAY;                              # An hash array, containing the name to display, associate with peplibraries and pepfiles
 
@@ -321,6 +325,8 @@ my $MAXLENGTHFORGROUPINGORF;                    # Minimum size of a gap between 
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
 my $MINLENEMPTYORF;                             # Minimum length for ORF empty orfs (non corresponding orfs)
 my $OVERLAPPINGCUTOFF;                          # Overlapping cutoff for ORFs
+my $OVERLORFOVORF;                              # Overlapping cutoff for ORFs 
+my $OVERLAPORFOVGENE;                           # Overlapping cutoff for ORFs 
 my $MININTRONSIZE;                              # Opposite of MAXLENGTHFORGROUPINGORF. Minimum size for intron
 my $MINEXONSIZE;                                # Minimum exon size for intron.
 my $MATRIX;                                     # PAM or BLOSUM matrix
@@ -737,7 +743,9 @@ sub GetOptions {
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
     $MAXLENINTRONS           = $option->maxintronsize;     # Max intron size for exonerate.
     $MINLENEMPTYORF          = $option->minlenemptyorf;    # Minimum length for ORF empty orfs (non corresponding orfs)
-    $OVERLAPPINGCUTOFF       = $option->overlappingcutoff; # Overlapping cutoff for ORFs 
+    $OVERLAPPINGCUTOFF       = $option->overlappingcutoff; # Overlapping cutoff for ORFs
+    $OVERLORFOVORF           = $option->orfOVorf;          # Overlapping cutoff for ORFs 
+    $OVERLAPORFOVGENE        = $option->orfOVgene;         # Overlapping cutoff for ORFs 
     $MININTRONSIZE           = $option->minintronsize;     # Opposite of $MAXLENGTHFORGROUPINGORF. Minimum size for intron
     $MINEXONSIZE             = $option->minexonsize;       # Minimum exon size for intron. In genewise.
     $MATRIX                  = $option->matrix;            # The matrix used in genewise alignement
@@ -1063,20 +1071,32 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     $rdesc =~ m/^\s*(\S+)/;
     my $contigname = $1 || "Unknown contig name";
     $contigname =~ s/;$//; # spurious semicolon introduced by flip
+    
+    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
+    $strand   = ($strand eq 'orig' ? 1 : -1);
 
     my $hitslist = $iteration->Iteration_hits() || return;
+    # If we have no match.
+    if (!@$hitslist){
+        my $newemptyorf = new PirObject::EmptyOrf (
+                                                   start      => $start,
+                                                   end        => $end,
+                                                   strand     => $strand,
+                                                   evalue     => 9999,
+                                                   contigname => $contigname,
+                                                  );
+        push (@$EMPTYORFS, $newemptyorf);          # Put into the array, to be processed after   
+        return;           
+    }
+    
     return if @$hitslist < 1; # normally, only one.
-
     # Note: the significance() method is defined in Hit.pir
     my @hits = sort { &CompareHighPrecisionFloats($a->significance(), $b->significance() ) } @$hitslist;
 
     # We have an hypothetical protein and we want to know if it'real
-    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
-    $strand   = ($strand eq 'orig' ? 1 : -1);
-
     # Quit the function if evalue is too weak #
     # Note: CompareHighPrecisionFloats(a,b) returns: 1 if a > b, -1 if a < b, 0 if a == b
-    my $hit   = $hits[0];    
+    my $hit   = $hits[0];
     if (&CompareHighPrecisionFloats($hit->significance(),$BLASTEVALUECUTOFF) == 1) { 
         # If the e-value is not enough for these ORF you can create an Empty ORF 
         my $newemptyorf = new PirObject::EmptyOrf (
@@ -1092,7 +1112,6 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     
     # Now we have the start, we have the end, the strand and we would like to know if more than one hit is allowed
     my @overlapping;
-
     my $homo_hash = {};
     for (my $i = 0 ;; $i++) {
         my $hit         = $hits[$i] || last;
@@ -1625,7 +1644,7 @@ sub AdjustStart {
     if ($WithIntrons) {
            $first_exon      = $exons->[0];
         my $end_first_exon  = $first_exon->get_protend();
-           $full5           = substr($full5,0,$end_first_exon);
+           $full5           = substr($full5,0,$end_first_exon+(length($full5)-length($this_prot)))
     }
     
     my $aa_accepted          = { "M" => 1, "v" => 1};
@@ -1656,11 +1675,11 @@ sub AdjustStart {
 
     # Change start value and add comment or not
     if (abs($best_start-$right_lim_for_st) > 2 && $best_start > $right_lim_for_st) {
-        &ChangeHypProtVal($hypprot, $new_start, $isMinus);
+        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         $hypprot->set_starttoodown(abs($best_start-$median)) if $best_start > $right_lim_for_st;
     }    
     else {
-        &ChangeHypProtVal($hypprot, $new_start, $isMinus);
+        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         $hypprot->set_starttooup(abs($best_start-$median)) if $best_start < $left_lim_for_st;
     }
     return if !$WithIntrons;
@@ -1910,13 +1929,25 @@ sub ChangeHypProtVal {
     my $hypprot    = shift; 
     my $new_start  = shift;
     my $isMinus    = shift;
+    my $seq        = shift;
     
     my $old_start  = $hypprot->get_start;
+    my $end        = $hypprot->get_end;
+    my $name       = $hypprot->get_name;
     my $new_st_pos = $isMinus ? ($old_start - ($new_start*3)) : ($old_start + ($new_start*3));
     my $exons      = $hypprot->get_exons();
     my $first_exon = $exons->[0] if scalar(@$exons);
     $first_exon->set_dnastart($new_st_pos) if $first_exon;
     $hypprot->set_start($new_st_pos);
+    
+    # 1. Def tri_nt start
+    my $start = $new_st_pos;
+    my $g_length =  !$isMinus ? $end - $start + 1 : $start - $end + 1;
+    my $nt_seq   =  !$isMinus ? substr($seq, $start - 1 , $g_length) : substr($seq, $end - 1 , $g_length);
+       $nt_seq   =~ tr/ACGT/TGCA/    if $isMinus;
+       $nt_seq   = reverse $nt_seq   if $isMinus;
+    my $tri_nt   = uc (substr($nt_seq, 0 , 3));
+    $START_COUNT->{$tri_nt}++;
 }
 
 sub SearchForEndIfGeneHaveIntron {
@@ -5013,13 +5044,13 @@ sub AddCommentForFusion {
     my $line = ";; G-$name $arrow $tag";
    
     my $comment = new PirObject::AnnotPair(
-                                            type            => "C",  
-                                            genename        => $name,
-                                            startpos        => $pos,
-                                            direction       => $arrow,
-                                            startline       => $line,
-                                            startlinenumber => $line_number
-                                           );
+                                        type            => "C",  
+                                        genename        => $name,
+                                        startpos        => $pos,
+                                        direction       => $arrow,
+                                        startline       => $line,
+                                        startlinenumber => $line_number
+                                       );
     &AddAnnotToPirMaster($contigname,$comment);
 }
 
@@ -5028,280 +5059,379 @@ sub AddCommentForFusion {
 #---------------------------------#
 
 sub AnnotateEmptyOrfs {
-    # This function takes the empty array of ORF and annotate it as ORFs
-    # It means ORF having non corresponding gene in a pepfile
-    my $orf_a_annoter = scalar(@$EMPTYORFS);
-
-    @$EMPTYORFS = sort {
-        $a->get_contigname()                 cmp $b->get_contigname()                 ||
-        abs($b->get_start() - $b->get_end()) <=> abs($a->get_start() - $a->get_end()) ||
-        $b->get_strand()                     <=> $a->get_strand()                     ||
-        $a->get_start()                      <=> $b->get_start()
-     } @$EMPTYORFS;     
+   # This function takes the empty array of ORF and annotate it as ORFs
+   # It means ORF having non corresponding gene in a pepfile
+   my $orf_a_annoter = scalar(@$EMPTYORFS);  
      
-    EMPTYORF : foreach my $emptyorf (@$EMPTYORFS) {
-        # Process each non corresponding orf
-        
-        # Get informations  about empty ORF
-        my $contigname = $emptyorf->contigname;     # Get the contigname corresponding to the empty ORFs
-        my $strand_orf = $emptyorf->strand;
+    foreach my $emptyorf (@$EMPTYORFS) {
+         # Process each non corresponding orf
+         # Get informations  about empty ORF
+         my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
+         my $strand_orf = $emptyorf->get_strand();
 
-        my $arrow = '==>' if $strand_orf == 1;
-           $arrow = '<==' if $strand_orf != 1;
-   
-        my $start_orf = $emptyorf->start;
-        my $end_orf   = $emptyorf->end;
-        my $min_orf   = ($strand_orf == 1 ? $start_orf : $end_orf);
-        my $max_orf   = ($strand_orf == 1 ? $end_orf : $start_orf);
-
-        my $overlappingcutoff = $OVERLAPPINGCUTOFF; # Authorized overlapping.
-        my $minimumlengthorf  = $MINLENEMPTYORF;    # Minimum Orf size, below this size, the ORF is no more kept
-        my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
-        my $annotations       = $contig->get_annotations; # Get the annotations, for the same contig belonging to empty ORF
-         my $seq              = $contig->sequence;        # Get the sequence
-            $seq              =~ s/!//g;                  # Remove ! from the sequence
-        my $prefix            = "";                       # Is use for orf intronic
-
-        # Size checking
-        next EMPTYORF if  (($end_orf - $start_orf + 1 ) < $minimumlengthorf) && $strand_orf == 1;  #  Size Verification 
-        next EMPTYORF if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) && $strand_orf != 1;  #  Size Verification 
-
+         my $arrow = $strand_orf == 1 ? '==>' : '<==';
+         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
+         
+         my $minimumlengthorf  = $MINLENEMPTYORF;    # Minimum Orf size, below this size, the ORF is no more kept
+         my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+         my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
+         my $seq               = $contig->get_sequence();    # Get the sequence
+            $seq               =~ s/!//g;                    # Remove ! from the sequence
+            
+        my $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
+        next if  ($length_orf < $minimumlengthorf);  #  Size Verification
+     
+        my $possible_start = ();
+        my $start_info     = ();
         # Other checking, such as overlapping..........
-        my $isMinus   = ($strand_orf == 1 ? 0 : 1);
-        my $posOffset = ($isMinus ? -3 : 3);
-        my $annotIsOK_gene_without_intron = 0;
-   
+        my $isMinus   = $strand_orf == 1 ?  0 : 1;
+        my $posOffset = $isMinus         ? -3 : 3;
         for (;;$start_orf += $posOffset) {
-            last if $start_orf >= $end_orf   && !$isMinus;
-            last if $end_orf   >= $start_orf && $isMinus;
-            last if  (($end_orf - $start_orf + 1 ) < $minimumlengthorf) && !$isMinus;
-            last if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf) &&  $isMinus;  #  Size verification 
+            my $start_info     = ();
+            $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
+            last if  ($length_orf < $minimumlengthorf);  #  Size Verification 
+            
             my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
                $codon = uc (substr($seq, $start_orf - 3, 3)) if  $isMinus;
                $codon =~ tr/ACGT/TGCA/ if $isMinus;
                $codon = reverse $codon if $isMinus;
-            next unless defined($CODON_TABLE->{$codon}) && $CODON_TABLE->{$codon} eq "M";
-            $annotIsOK_gene_without_intron = 1;
-            last;
+            $start_info = ["ATG",$start_orf] 
+                if defined($CODON_TABLE->{$codon}) && $CODON_TABLE->{$codon} eq "M" && $codon =~ m/ATG/i;
+            $start_info = ["GTG",$start_orf] 
+                if defined($CODON_TABLE->{$codon}) && $CODON_TABLE->{$codon} eq "V" && $codon =~ m/GTG/i && $START_COUNT->{"GTG"};
+            push(@$possible_start,$start_info) if $start_info;
         }
-
-        next EMPTYORF if $annotIsOK_gene_without_intron == 0;
-
-        my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
- 
-        my $annotIsOk         = 0;
-        my $number_of_annot   = 0;
-        my $overlap_an_intron = 0;
-        ANNOT : foreach my $info_who_overlap (@$annot_who_overlap) {
-            foreach my $features_who_overlap (@$info_who_overlap ){
-                my $features_min            = $features_who_overlap->[0];
-                my $features_max            = $features_who_overlap->[1];
-                my $feature_annot_type      = $features_who_overlap->[2]->type;
-                my $feature_annot_direction = $features_who_overlap->[2]->direction;
-                my $feature_startpos        = $features_who_overlap->[2]->startpos;
-                my $feature_endpos          = $features_who_overlap->[2]->endpos;
-                my $feature_endline         = $features_who_overlap->[2]->endline;
-                $number_of_annot++;
-                for (;;$start_orf += $posOffset) {
-                    last if $start_orf >= $end_orf && !$isMinus;
-                    last if $end_orf >= $start_orf && $isMinus;
-                    last if (($end_orf - $start_orf + 1 ) < $minimumlengthorf) && !$isMinus;
-                    last if (($start_orf - $end_orf + 1 ) < $minimumlengthorf) &&  $isMinus;  #  Size verification 
-                    last if ( ( ($features_min <= $start_orf                    #
-                             && $features_max >= $end_orf                       # ORF in strand 1 
-                             && !$isMinus)                                      #
-                                              ||
-                               ($features_min <= $end_orf                        #
-                             && $features_max >= $start_orf                      # ORF in strand -1
-                             && $isMinus)                                        #
-                              )
-                             && ($feature_annot_type eq "E" # An exon
-                                                     || 
-                                ($feature_annot_type eq "G" && $features_who_overlap->[3] eq "YES")  # Gene without intron
-                                )
-                            );
+        $emptyorf->set_possible_start($possible_start);
+    }
     
- #Case 1              ------------>         ORF strand 1
- #               * ------------------- **   Exon or gene without intron strand 1 or -1 we take the smallest value for start and we take the biggest values for end
- #Case2          <------------              ORF strand -1
- 
-                    my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
-                       $codon = uc (substr($seq, $start_orf - 3, 3)) if  $isMinus;
-                       $codon =~ tr/ACGT/TGCA/ if $isMinus;
-                       $codon = reverse $codon if $isMinus;
-     
-                    if (!($features_max < $min_orf || $max_orf < $features_min)){
-                        $overlap_an_intron = 1;
-                        last;
-                    }
+    my $hash_OV    = {};
+    foreach my $emptyorf (@$EMPTYORFS) {
+        # Process each non corresponding orf
+        # Get informations  about empty ORF
+        my $possible_starts   = $emptyorf->get_possible_start();
+        next if !$possible_starts || scalar(@$possible_starts) == 0;
+        my $strand_orf = $emptyorf->get_strand();
+        my $arrow = $strand_orf == 1 ? '==>' : '<==';
    
-                    next unless defined($CODON_TABLE->{$codon})  && $CODON_TABLE->{$codon} eq "M";
-       
-                    if ($features_who_overlap->[2]->genename =~ /^trn/){            # Overlap whith ARNt 
-                        if (!$isMinus){
-                            my $max_start = ( ( $features_min > $start_orf ) ? $features_min : $start_orf);
-                            my $min_end   = ( ( $features_max < $end_orf )   ? $features_max : $end_orf );
-                            next if ( 0 < ( $min_end - $max_start + 1));
-                        }
-                        if ($isMinus) {
-                            my $min_start = ( ( $features_max < $start_orf ) ? $features_max : $start_orf );
-                            my $max_end   = ( ( $features_min > $end_orf )   ? $features_min : $end_orf);
-                            next if ( 0 < ( $min_start - $max_end + 1));
-                        }
-                    }
-    
-                    if ( ($feature_annot_type eq "G" && $features_who_overlap->[3] eq "YES")    # Gene without intron
-                      || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")) { # First or last exon
-                        
-                        if (!$isMinus) {
-                            if ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
-                                               ||   
-                                 ( $features_who_overlap->[4] eq "FIRST"                           # Case
-                               && (  ($start_orf <= $features_min                                  # ---------->          ORF
-                                   && $end_orf   >= $features_min                                  #      --------->      E1
-                                   && $feature_annot_direction eq "==>"
-                                     )
-                                                 ||
-                                     ($start_orf <= $features_max                                  # Case
-                                   && $end_orf   >= $features_max                                  #     --------->          ORF
-                                   && $feature_annot_direction eq "<=="                            # <--------               E1
-                                     )
-                                  )
-                                 )
-                                               ||   
-                                 ( $features_who_overlap->[4] eq "LAST"
-                               && (  ($start_orf <= $features_max                                  # Case
-                                   && $end_orf   >= $features_max                                  #      -------->       ORF 
-                                   && $feature_annot_direction eq "==>"                            #  -------->           Ef
-                                     )
-                                                 ||
-                                     ($start_orf <= $features_min                                  # Case
-                                   && $end_orf   >= $features_min                                  # ------->             ORF
-                                   && $feature_annot_direction eq "<=="                            #      <---------      Ef
-                                      )
-                                  )
-                                 )
-                                ) {
-                                my $max_start = ( ( $features_min > $start_orf ) ? $features_min : $start_orf);
-                                my $min_end   = ( ( $features_max < $end_orf )   ? $features_max : $end_orf );
-                                next if (  $overlappingcutoff < ( $min_end - $max_start + 1));
-                            }    
-                        }
- 
-                        if ($isMinus) {
-                            if ( ( $feature_annot_type eq "G")                                     # Gene whithout intron
-                                               ||   
-                                 ( $features_who_overlap->[4] eq "FIRST"                           # Case
-                               && (  ($start_orf >= $features_min                                  # <--------          ORF
-                                   && $end_orf   <= $features_min                                  #      --------->    E1
-                                   && $feature_annot_direction eq "==>"
-                                     )
-                                                 ||
-                                     ($start_orf   >= $features_max                                # Case
-                                   && $end_orf      <= $features_max                               #     <---------     ORF
-                                   && $feature_annot_direction eq "<=="                            # <--------          E1
-                                     )
-                                  )
-                                 )
-                                               ||   
-                                 ( $features_who_overlap->[4] eq "LAST"
-                               && (  ($start_orf >= $features_max                                  # Case
-                                   && $end_orf   <= $features_max                                  #      <--------     ORF 
-                                   && $feature_annot_direction eq "==>"                            #  -------->         Ef
-                                     )
-                                                 ||
-                                     ($start_orf   >= $features_min                                # Case
-                                   && $end_orf     <= $features_min                                # <-------           ORF
-                                   && $feature_annot_direction eq "<=="                            #      <---------    Ef
-                                     )
-                                   )
-                                 )
-                                ) {
-                                my $min_start = ( ( $features_max < $start_orf ) ? $features_max : $start_orf );
-                                my $max_end   = ( ( $features_min > $end_orf )   ? $features_min : $end_orf);
-                                next if (   $overlappingcutoff < ( $min_start - $max_end + 1));
-                            }
-                        }
-                    }
- 
-                    if ($feature_annot_type eq "E") {
-                        if (!$isMinus) {
-                            if ( ($features_who_overlap->[3] ne "YES")                  # Intern exon
-                                                       ||                               # No overlap is accepted
-                                 ($features_who_overlap->[4] eq "FIRST"                 # First internal exon overlap
-                               && $start_orf <= $feature_endpos
-                               && $end_orf   >= $feature_endpos
-                                 )
-                                                       ||
-                                 ($features_who_overlap->[4] eq "LAST"                 # Last internal exon overlap
-                               && $start_orf <= $feature_startpos
-                               && $end_orf   >= $feature_startpos 
-                                 )
-                               ) {
-                                my $max_start = ( ( $features_min > $start_orf ) ? $features_min : $start_orf);
-                                my $min_end   = ( ( $features_max < $end_orf )   ? $features_max : $end_orf );
-                                next if ( 0 < ( $min_end - $max_start + 1));
-                            }
-                        }
-       
-                        if ($isMinus) {
-                            if ( ($features_who_overlap->[3] ne "YES")                 # Intern exon
-                                                       ||                              # No overlap is accepted
-                                 ($features_who_overlap->[4] eq "FIRST"                # First internal exon overlap
-                               && $start_orf >= $feature_endpos
-                               && $end_orf   <= $feature_endpos
-                                 )
-                                                       ||
-                                 ($features_who_overlap->[4] eq "LAST"                 # Last internale exon overlap
-                               && $start_orf >= $feature_startpos
-                               && $end_orf   <= $feature_startpos
-                                 )
-                               ) {
-                                my $min_start = ( ( $features_max < $start_orf ) ? $features_max : $start_orf );
-                                my $max_end   = ( ( $features_min > $end_orf )   ? $features_min : $end_orf);
-                                next if ( 0 < ( $min_start - $max_end + 1));
-                            }
-                        }
-                    }
-                    $annotIsOk++;
-                    last;
-                }
+        my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
+
+        my $contigname        = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
+        my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
+
+        my $tab_OV = !$hash_OV->{$contigname} ? () : $hash_OV->{$contigname};
+        
+        # Other checking, such as overlapping..........
+        my $isMinus   = ($strand_orf == 1 ? 0 : 1);
+
+        my $annotIsOK_gene_without_intron =  scalar(@$possible_starts) != 0 ? 1 : 0;
+        next if $annotIsOK_gene_without_intron == 0;
+
+        my ($ToAnnot,$isOV) = (0,0);
+        foreach my $possible_start (@$possible_starts) {
+            my $tri_nt    = $possible_start->[0];
+            next if $tri_nt eq "GTG";
+            
+            $start_orf    = $possible_start->[1];
+            my $min_orf   = $strand_orf == 1 ? $start_orf : $end_orf;
+            my $max_orf   = $strand_orf == 1 ? $end_orf   : $start_orf;
+            
+            # Special case
+            my $isLongOrf = ((($max_orf-$min_orf+1)/3)-1 >= $OVERLAPORFOVGENE) ? 1 : 0;
+            $ToAnnot = 1 if $isLongOrf;
+            
+            my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+            if (scalar(@$annot_who_overlap) == 0) {
+                $ToAnnot = 1;
+                last;
+            }
+            else {
+                ($tab_OV,$isOV,$ToAnnot) = &CheckIfOrfIsToAnnot($annot_who_overlap,$min_orf,$max_orf,$isLongOrf,$emptyorf,$tab_OV,$isOV);
+                last if $ToAnnot;
             }
         }
-
-        if ( (@$annot_who_overlap && $annotIsOk == $number_of_annot) || (!@$annot_who_overlap && $annotIsOK_gene_without_intron == 1) 
-           && $overlap_an_intron == 0) {
-        # Creating an annotation object for storing in the masterfile
-        my $orfsize = ($end_orf - $start_orf + 1)/3  if  !$isMinus;
-           $orfsize = ($start_orf - $end_orf + 1)/3  if   $isMinus;
-           $orfsize--; # minus 1 for the stop codon
-        my $GenenameORF = "orf". $orfsize;
-
-        #  Treatment to add a number after the genename #
-        my $startline = "";
-        my $endline   = "";
-        $startline    = ";     G-$GenenameORF $arrow start";
-        $startline    = ";     G-$prefix-"."$GenenameORF $arrow start" if $prefix ne "";
-        $endline      = ";     G-$GenenameORF $arrow end";
-        $endline      = ";     G-$prefix-"."$GenenameORF $arrow end" if $prefix ne "";
-   
-        my $orfannot = new PirObject::AnnotPair(
-                                                 type      => "G",  
-                                                 genename  => $GenenameORF,
-                                                 startpos  => $start_orf,
-                                                 endpos    => $end_orf,
-                                                 direction => $arrow,
-                                                 startline => $startline,
-                                                 endline   => $endline,
-                                               );
-    
-        # Put into the table containing all of the masterfile annotations
-        # So before, being put in the masterfile (means in a first time in the annotation table), there are some verification
-        &AddAnnotToPirMaster($contigname,$orfannot);
+        
+        if ( $ToAnnot == 1) {
+            my $orfannot = &CreateOrfAnnot($end_orf,$start_orf,$isMinus,$possible_starts);
+            &AddAnnotToPirMaster($contigname,$orfannot);
+            push(@$tab_OV,$orfannot) if $isOV;
         } # End of if
+        $hash_OV->{$contigname} = $tab_OV;
     } # End of for each empty orfs
-} # End sub
+    &RemovedOVOrfs($hash_OV);
+    &AnnotGTGUpstream();
+}
 
+sub CheckIfOrfIsToAnnot {
+    my ($annot_who_overlap,$min_orf,$max_orf,$isLongORF,$emptyorf,$tab_OV,$isOV) = @_;
+
+    my $ToAnnot = 0;
+    my $overlappingcutoff = "";
+    foreach my $info_who_overlap (@$annot_who_overlap){
+        FEAT: foreach my $features_who_overlap (@$info_who_overlap ){
+            my $features_min            = $features_who_overlap->[0];
+            my $features_max            = $features_who_overlap->[1];
+            my $feature_annot_type      = $features_who_overlap->[2]->type;
+            my $feature_annot_direction = $features_who_overlap->[2]->direction;
+            my $feature_startpos        = $features_who_overlap->[2]->startpos;
+            my $feature_endpos          = $features_who_overlap->[2]->endpos;
+            my $feature_endline         = $features_who_overlap->[2]->endline;
+            
+            #       ------------         ORF
+            # * ------------------- **   Gene
+            return ($tab_OV,$isOV,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "G" );
+            
+            # No overlap with tRNA
+            if ($isLongORF == 0) {
+                # Not to annot if OV tRNA
+                if ($features_who_overlap->[2]->genename =~ /^trn/){
+                    my $max_start = $features_min > $min_orf ? $features_min : $min_orf;
+                    my $min_end   = $features_max < $max_orf ? $features_max : $max_orf ;
+                    return ($tab_OV,$isOV,$ToAnnot) if (0 < ( $min_end - $max_start + 1));
+                }
+                
+                $overlappingcutoff = &DefineOVByPourcent($min_orf,$max_orf,$info_who_overlap,$emptyorf)
+                    if $feature_annot_type ne "O" && $overlappingcutoff eq "";
+                
+                # Overlap with gene start or end accepted if < overlappingcutoff
+                if ( ($feature_annot_type eq "G" && $features_who_overlap->[3] eq "YES")    # Gene without intron
+                || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")) {   # First or last exon
+                
+                    if ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
+                    || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
+                    && ( ! ($max_orf < $features_min || $min_orf > $features_max)))) {
+                        my $max_start = ( ( $features_min > $min_orf ) ? $features_min : $min_orf);
+                        my $min_end   = ( ( $features_max < $max_orf ) ? $features_max : $max_orf );
+                        return ($tab_OV,$isOV,$ToAnnot) if ($overlappingcutoff < ( $min_end - $max_start + 1)); # XXX tmp on accepte aucun OV 
+                    }
+                }
+            }
+            if ($feature_annot_type eq "O") {
+                push(@$tab_OV,$features_who_overlap->[2]);
+                $isOV = 1;
+            }
+        }
+    }
+    $ToAnnot = 1;
+    return($tab_OV,$isOV,$ToAnnot);
+}
+
+sub DefineOVByPourcent {
+    my ($min_orf,$max_orf,$info_who_overlap,$emptyorf) = @_;
+    
+    my $OV_autorized  = "";
+    foreach my $features_who_overlap (@$info_who_overlap ){
+        my $type   = $features_who_overlap->[2]->type;
+        my $isFull = $features_who_overlap->[3] eq "YES" ? 1 : 0;
+        next if $type eq "O" || $type ne "G";
+        $OV_autorized = $isFull ? 
+                     &DefineCutForGeneWithoutIntron($min_orf,$max_orf,$info_who_overlap,$emptyorf)
+                   : &DefineCutForGeneWithIntron($min_orf,$max_orf,$info_who_overlap,$emptyorf);
+        $OV_autorized = 1 if $OV_autorized eq  "";
+    }
+
+    return $OV_autorized;
+}
+
+sub DefineCutForGeneWithoutIntron {
+    my ($min_orf,$max_orf,$info_who_overlap,$emptyorf) = @_;
+    
+    foreach my $features_who_overlap (@$info_who_overlap ){
+        my $min_gen = $features_who_overlap->[0];
+        my $max_gen = $features_who_overlap->[1];
+        my $len_ORF = $max_orf - $min_orf + 1;
+        my $len_GEN = $max_gen - $min_gen + 1;
+        my $OV_autorized = $len_ORF < $len_GEN ? ($OVERLAPPINGCUTOFF*$len_ORF)/100 : ($OVERLAPPINGCUTOFF*$len_GEN)/100;
+        return $OV_autorized;
+    }
+}
+
+sub DefineCutForGeneWithIntron {
+    my ($min_orf,$max_orf,$info_who_overlap,$emptyorf) = @_;
+    
+    foreach my $features_who_overlap (@$info_who_overlap ){
+        next if  $features_who_overlap->[2]->type ne "E";
+        my $isFirst = $features_who_overlap->[4] eq "FIRST" ? 1 : 0;
+        my $isLast  = $features_who_overlap->[4] eq "LAST"  ? 1 : 0;
+        next if !$isLast && !$isFirst;
+        my $GEN_isMinus = $features_who_overlap->[2]->direction eq "<==" ? 1 : 0;
+        my $min_gen = $features_who_overlap->[0];
+        my $max_gen = $features_who_overlap->[1];
+        next if ($max_orf < $min_gen || $min_orf > $max_gen);
+        my $len_ORF = $max_orf - $min_orf + 1;
+        my $len_GEN = $max_gen - $min_gen + 1;
+        my $OV_autorized = $len_ORF < $len_GEN ? ($OVERLAPPINGCUTOFF*$len_ORF)/100 : ($OVERLAPPINGCUTOFF*$len_GEN)/100;
+        return $OV_autorized;
+    }
+}
+
+sub CreateOrfAnnot {
+    my ($end_orf,$start_orf,$isMinus,$possible_starts) = @_;
+
+    my $arrow   = !$isMinus ? "==>" : "<==";
+    my $orfsize = !$isMinus ? (($end_orf - $start_orf + 1)/3) - 1 : (($start_orf - $end_orf + 1)/3) -1;
+    my $GenenameORF = "orf". $orfsize;
+    
+    # Annotate the longer ORF and keep the other in comment.
+    my ($startline,$endline,$orfannot) = ("","","");
+    $startline    = ";     G-$GenenameORF $arrow start";
+    $endline      = ";     G-$GenenameORF $arrow end";
+    
+    $orfannot = new PirObject::AnnotPair(
+                                     type      => "O",  
+                                     genename  => $GenenameORF,
+                                     startpos  => $start_orf,
+                                     endpos    => $end_orf,
+                                     direction => $arrow,
+                                     startline => $startline,
+                                     endline   => $endline,
+                                     possStart => $possible_starts
+                                   );
+    return ($orfannot);
+}
+
+sub RemovedOVOrfs() {
+    my ($hash_ORFs) = @_;
+    
+    foreach my $contigname ( keys %$hash_ORFs ) {
+        my $OV_ORFs = $hash_ORFs->{$contigname};
+         
+        # Removed duplicate to $OV_ORFs
+        my ($already_in,$clean_ORFs) = ({},());
+        foreach my $ORF (@$OV_ORFs){
+            my $id = $1 if scalar($ORF) =~ m/0x(.+)\)/;
+            next if $already_in->{$id};
+            $already_in->{$id}++;
+            push(@$clean_ORFs,$ORF);
+        }
+        
+        # Set ATG start foreach ORF in $OV_orfs
+        my $ATG_ORFs = &SetATGstartForOrfs($clean_ORFs);
+                            
+        # Make a list of AP to rm.
+        my $AP_toRM = &MakeListOfORFsToRM($ATG_ORFs);
+        
+        my $tab_AP_toRM = ();
+        foreach my $id (keys %$AP_toRM) {
+            push(@$tab_AP_toRM,$id);
+        }
+        
+        my $contig = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        &Remove_AP($tab_AP_toRM,$contig)   
+    }
+}
+
+sub SetATGstartForOrfs {
+    my ($clean_ORFs) = @_;
+    
+    my $ATG_ORFs = ();
+    foreach my $ORF (@$clean_ORFs) {
+        my $possStarts = $ORF->get_possStart();
+        my $first_ATG  = "";
+        foreach my $posStart (@$possStarts) {
+            next if $posStart->[0] ne "ATG";
+            $first_ATG = $posStart->[1];
+        }
+        next if !$first_ATG;
+        $ORF->set_startpos($first_ATG) if $ORF->get_startpos() != $first_ATG;
+        push(@$ATG_ORFs,$ORF);
+    }
+    
+    @$ATG_ORFs = sort { abs($b->get_startpos() - $b->get_endpos()) <=> abs($a->get_startpos() - $a->get_endpos()) ||
+                        $b->get_direction()                        <=> $a->get_direction()                        ||
+                        $a->get_startpos()                         <=> $b->get_startpos()} @$ATG_ORFs;
+
+    return $ATG_ORFs;
+}
+
+sub MakeListOfORFsToRM {
+    my ($ATG_ORFs) = @_;
+    
+    my $AP_toRM = {};
+    foreach my $ORF_1 (@$ATG_ORFs) {
+        my $id_1 = $1 if scalar($ORF_1) =~ m/0x(.+)\)/;
+        next if $AP_toRM->{$id_1};
+        my $start_1   = $ORF_1->get_startpos();
+        my $end_1     = $ORF_1->get_endpos();
+        my $isMinus_1 = $ORF_1->get_direction() eq "==>" ? 0 : 1;
+        my ($min_1,$max_1) = !$isMinus_1 ? ($start_1,$end_1) : ($end_1,$start_1);
+        my $orfsize_1   = (($max_1 - $min_1 + 1)/3) - 1;
+        foreach my $ORF_2 (@$ATG_ORFs){ # Attention a ne pas retraiter 2 * les meme cas
+            my $id_2 = $1 if scalar($ORF_2) =~ m/0x(.+)\)/;
+            next if $AP_toRM->{$id_2};
+            next if $ORF_1 eq $ORF_2;
+            my $start_2   = $ORF_2->get_startpos();
+            my $end_2     = $ORF_2->get_endpos();
+            my $isMinus_2 = $ORF_2->get_direction() eq "==>" ? 0 : 1;
+            my ($min_2,$max_2) = !$isMinus_2 ? ($start_2,$end_2) : ($end_2,$start_2);
+            my $orfsize_2   = (($max_2 - $min_2 + 1)/3) - 1;
+            next if $orfsize_2 >= $OVERLORFOVORF;
+            my $OV_autorized = ($OVERLAPPINGCUTOFF*$orfsize_2)/100;
+            $OV_autorized    =  &Arrondi(abs($OV_autorized),1);
+            my $max_start = ( ( $min_1 > $min_2) ? $min_1 : $min_2);
+            my $min_end   = ( ( $max_1 < $max_2) ? $max_1 : $max_2);
+            my $OV_len = ( $min_end - $max_start + 1);
+            next if $OV_len < 0;
+            next if ($OV_autorized > ( $min_end - $max_start + 1));
+            $AP_toRM->{$id_2}++;
+        }
+    }
+    return $AP_toRM;
+}
+
+sub AnnotGTGUpstream {
+    my $contigs   = $pirmaster->get_contigs();
+    
+    foreach my $contig (@$contigs) {
+        my $annotations = $contig->get_annotations();
+        foreach my $annot (@$annotations) {
+        next if $annot->get_type() ne "O";
+        my $lim_5 = &define5lim($annot,$annotations);
+        my $GTGup = &DefineGTGup($annot,$lim_5);
+        }
+    }
+}
+
+sub define5lim {
+    my ($ORFannot,$annotations)= @_;
+    
+    my $lim_5 = "";
+    foreach my $annot (@$annotations) {
+        next if $ORFannot eq $annot;
+        my $ORF_five   = $ORFannot->get_startpos();
+        my $ORFisMinus = $ORFannot->get_direction eq "==>" ? 0 : 1;
+        if ($ORFisMinus == 1) {
+            my $min = $annot->get_startpos() < $annot->get_endpos() ? $annot->get_startpos : $annot->get_endpos();
+            next if $min < $ORF_five;
+            $lim_5 = $min if !$lim_5;
+            $lim_5 = $lim_5 < $min ? $lim_5 : $min;
+        }
+        else {
+            my $max = $annot->get_startpos() > $annot->get_endpos() ? $annot->get_startpos : $annot->get_endpos();
+            next if $max > $ORF_five;
+            $lim_5 = $max if !$lim_5;
+            $lim_5 = $lim_5 > $max ? $lim_5 : $max;
+        }
+    }
+    return $lim_5;
+}
+
+sub DefineGTGup {
+    my ($annot,$lim_5) = @_;
+
+    my $possible_starts = $annot->get_possStart();
+    my $isMinus = $annot->get_direction eq "<==" ? 1 : 0;
+    my $alt_GTG = "";
+    foreach my $pos_start (@$possible_starts) {
+        next if ($pos_start->[1] < $lim_5) && !$isMinus;
+        next if ($pos_start->[1] > $lim_5) && $isMinus;
+        next if $pos_start->[0] eq "ATG";
+        $alt_GTG = $pos_start->[1];
+    }
+    my $startline = $annot->get_startline();
+    $startline .= " ;; GTG upstream: $alt_GTG" if $alt_GTG;
+    $annot->set_startline($startline);
+}
 
 #------------------------------------#
 # Subs for processing intronic ORFs  #
@@ -5784,8 +5914,8 @@ sub WhatOverlapsThis {
     
     ($wstart, $wend) = ($wend, $wstart) if $wend < $wstart;
 
-    my @GEI_annots = grep( $_->get_type() =~ m#^[GEI]$# , @$annotlist);
-    my %RanksGEI   = ( G => 0, E => 1, I => 2 );
+    my @GEI_annots = grep( $_->get_type() =~ m#^[GEIO]$# , @$annotlist);
+    my %RanksGEI   = ( G => 0, E => 1, I => 2, O => 3 );
     @GEI_annots    = sort { $a->get_genename() cmp $b->get_genename()
                                                 or
                      $RanksGEI{$a->get_type()} <=> $RanksGEI{$b->get_type()}
@@ -5805,7 +5935,7 @@ sub WhatOverlapsThis {
         my ($ostart,$oend) = ($start,$end); # Strandless interval
            ($ostart,$oend) = ($end,$start) if $end < $start;
 
-        if ($type eq "G") {
+        if ($type eq "G" || $type eq "O") {
             next unless # No overlap? next
                 &OverlappingRegions($contiglen,$start,$end,$dir,$wstart,$wend,">"); # Real dir of orf not important
             push(@$groups, [ [ $ostart, $oend, $annotation ] ] );
@@ -6166,22 +6296,23 @@ sub LogInfo {
 sub sendMail {
     my $filename = shift;
     
-	my $subject   = "mfannot result on $filename";
+    my $subject   = "mfannot result on $filename";
     my $mail_file = "/services/WWW/cgi-bin/mfannot/mail_core";
     die "File for mail core doesn't exist" if !(-f "$mail_file");
     my $new_file  = "$TMPDIR/$filename";
-	my $mailErr   = "$TMPDIR/mailErr";
-	my $mailOut   = "$TMPDIR/mailOut";
-	
+    my $mailErr   = "$TMPDIR/mailErr";
+    my $mailOut   = "$TMPDIR/mailOut";
+        
     my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file\'";
-	print STDERR $cmd if $DEBUG;
-	my $ret = system("$cmd 2> $mailErr");
-	
-	if (($ret >> 8) > 1) {
-		print STDERR "There was an error sending mail.\n";
-		print STDERR "Content of STDERR output:\n";
-		system("cat",$mailErr);
-	}
+    print STDERR $cmd if $DEBUG;
+    my $ret = system("$cmd 2> $mailErr");
+        
+    if (($ret >> 8) > 1) {
+            print STDERR "There was an error sending mail.\n";
+            print STDERR "Content of STDERR output:\n";
+            system("cat",$mailErr);
+    }
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
+
