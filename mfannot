@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.41 2010/02/05 14:57:26 nbeck Exp $
+#    $Id: mfannot,v 2.42 2010/02/22 20:21:07 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.42  2010/02/22 20:21:07  nbeck
+#    Fixed bug with Introns annotations.
+#
 #    Revision 2.41  2010/02/05 14:57:26  nbeck
 #    Fixed some little things : mf end with number, more strict for short exons,
 #    changed mf header, changed conservation of comments, integrated new sub for
@@ -47,6 +50,9 @@
 #    Added sqn output for MFannot online and changed comment for rnpB.
 #
 #    $Log: mfannot,v $
+#    Revision 2.42  2010/02/22 20:21:07  nbeck
+#    Fixed bug with Introns annotations.
+#
 #    Revision 2.41  2010/02/05 14:57:26  nbeck
 #    Fixed some little things : mf end with number, more strict for short exons,
 #    changed mf header, changed conservation of comments, integrated new sub for
@@ -296,7 +302,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.41 2010/02/05 14:57:26 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.42 2010/02/22 20:21:07 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3287,7 +3293,7 @@ sub AddGroupUseAP {
     my $AP_startline = $AP->get_startline();
     my $AP_endline   = $AP->get_endline();
             
-    my $type        = $1    if $AP_startline =~ m#;;\s+group=(.+)#;
+    my $type        = $1    if $AP_startline =~ m#group=(.+)#;
        die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
     
     my $intron_type  = $intron->get_type() || "";
@@ -3530,7 +3536,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_first_intron"}) { 
         my $first_intron            = $best_hyp_exon->{"ap_first_intron"};
         my $first_intron_startline  = $first_intron->get_startline();
-           $type_first_intron       = $1    if $first_intron_startline =~ m#;;\s+group=(.+)#;
+           $type_first_intron       = $1    if $first_intron_startline =~ m#group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_first_intron;
         }
         
@@ -3541,7 +3547,7 @@ sub AddSpliceScore {
         if ($best_hyp_exon->{"ap_second_intron"}) { 
         my $second_intron           = $best_hyp_exon->{"ap_second_intron"} if $best_hyp_exon->{"ap_second_intron"};
         my $second_intron_startline = $second_intron->get_startline();
-           $type_second_intron      = $1    if $second_intron_startline =~ m#;;\s+group=(.+)#;
+           $type_second_intron      = $1    if $second_intron_startline =~ m#group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type_second_intron;
         }
         
@@ -3627,7 +3633,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_first_intron];
         $apc1->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_first_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;\s+group=(.+)#;
+        my $type       = $1    if $startline =~ m#group=(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $first_intron->set_type($type);
     }
@@ -3650,7 +3656,7 @@ sub AddMiniExon {
         my $annotpairlistarray = [$ap_second_intron];
         $apc2->set_annotpairlist($annotpairlistarray);
         my $startline  = $ap_second_intron->get_startline();           
-        my $type       = $1    if $startline =~ m#;;\s+group=(.+)#;
+        my $type       = $1    if $startline =~ m#group=(.+)#;
         die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
         $second_intron->set_type($type);
     }
@@ -4408,7 +4414,7 @@ sub AdjustIntronicAnnot_ForInitialAnnot {
                     $features_min >  $a_end   || $a_end   > $features_max;
 
             my $a_startline = $annot->startline();
-            my $type        = $1    if $a_startline =~ m#;;\s+group=(.+)#;
+            my $type        = $1    if $a_startline =~ m#group=(.+)#;
             die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
 
             my $intron_type  = $feature->introntype() || "";
