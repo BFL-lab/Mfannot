@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.42 2010/02/22 20:21:07 nbeck Exp $
+#    $Id: mfannot,v 2.43 2010/02/25 21:10:21 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.43  2010/02/25 21:10:21  nbeck
+#    Added support for motifs research.
+#
 #    Revision 2.42  2010/02/22 20:21:07  nbeck
 #    Fixed bug with Introns annotations.
 #
@@ -48,15 +51,6 @@
 #
 #    Revision 2.40  2009/12/16 17:34:54  nbeck
 #    Added sqn output for MFannot online and changed comment for rnpB.
-#
-#    $Log: mfannot,v $
-#    Revision 2.42  2010/02/22 20:21:07  nbeck
-#    Fixed bug with Introns annotations.
-#
-#    Revision 2.41  2010/02/05 14:57:26  nbeck
-#    Fixed some little things : mf end with number, more strict for short exons,
-#    changed mf header, changed conservation of comments, integrated new sub for
-#    intergenic ORFs.
 #
 #    Revision 2.39  2009/12/12 00:50:01  nbeck
 #    Changed sub for annotation of ORF.
@@ -302,7 +296,7 @@ PirObject->LoadDataModel("BlastOutput");              # Model of blast results i
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.42 2010/02/22 20:21:07 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.43 2010/02/25 21:10:21 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -336,6 +330,8 @@ my $ORFPROCESS;                                 # Allows ORF appearing in the ma
 my $PEPLIBRARIES;                               # The libraries, in input, by default datagenescollection and dataorfcollection
 my $INPUTPEPFILES;                              # The input files
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
+my $MOTFILE;                                    # The path of pattren file.
+my $LVL_MOT;                                    # Indicate level of motif identification.
 my $EXTSELECTPROG;                              # List of name for external programs.
 my $LVL_INTRON;                                 # Indicate level of intron identification (0,1 or 2).
 my $BLASTOUTPUT       = "";                     # The path for blast file results
@@ -391,6 +387,15 @@ foreach my $path (@MOD_PATH) {
 $MODEL_PATH =~ s/\/$//;
 die "No path for ErpinModels and HMMweaselModels were found\n"
     if !$MODEL_PATH;
+    
+# Check file existance
+die "File $EXTCONFIGFILE give with option 'ext_select' doesn't exist.\n"
+if (! -e "$EXTCONFIGFILE");
+
+die "File $MOTFILE give with option 'motfile' doesn't exist.\n"
+    if ( ! -e "$MOTFILE");
+        
+my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 
 #---------------------------#
 my @LIB_PATH      = (
@@ -465,6 +470,7 @@ $options .= "Genetic code : $GENCODE\n";
 $options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
 $options .= "Usage of RNAweasel\n";
 $options .= "The Path of configfile is : $EXTCONFIGFILE\n";
+$options .= "The Path of pattern file is : $MOTFILE\n";
 $options .= "Look in the peptide library $PEPLIBRARIES\n";
 
 print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
@@ -498,6 +504,8 @@ print "----------------------------------\n",
 print $LOG_F  "----------------------------------\n",
               "         Gene Annotation          \n",
               "----------------------------------\n" if $ISLOGFILE;
+              
+print "File used in order to find motif is '$MOTFILE'\n" if $LVL_MOT != 0;
 
 $options  = "Options : \n";                  # Options & parameters used for the blast
 $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
@@ -516,7 +524,7 @@ print $LOG_F $options if $ISLOGFILE;
 # - Load the annotations
 # - Load the sequence of each contig 
 
-print "Parsing masterfile $MASTERFILE...\n";
+print "Parsing masterfile $MASTERFILE...\n\n";
 my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = scalar (@$contigs);        # Number of contigs in the masterfile
@@ -524,7 +532,7 @@ die "No contig header can be found in the masterfile '$MASTERFILE'\n" if $number
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
 my $CONTIG = {};
-&CleanPirmaster();
+&CleanPirmaster() if ($LVL_MOT != 1);
 my $NB_PROC   = &DefineNumberOfProcessor();
 
 print "Number of contigs in Masterfile : $numbercontigs\n",
@@ -537,11 +545,12 @@ print $LOG_F "Number of contigs in Masterfile : $numbercontigs\n",
 my $step        = 1;
 
 # Print the name of each pepfile if it's a library, name begin with libarary....
-my $displayfile = $PENAMEDISPLAY{"$LIB_FILE"} || "$LIB_FILE";    # Get the associate name, so if it's a library, get the name of the library         
-my @tabname     = split ("/", $displayfile);
-print "\n****** Annotation from " . $tabname [$#tabname] . " ******\n";
+#my $displayfile = $PENAMEDISPLAY{"$LIB_FILE"} || "$LIB_FILE";    # Get the associate name, so if it's a library, get the name of the library         
+#my @tabname     = split ("/", $displayfile);
+# print "\n****** Annotation from " . $tabname [$#tabname] . " ******\n" if scalar(@tabname) != 1;
 
 # Core #
+if ($LVL_MOT != 1) {
 # Run the programm step by, to know the right step  
 # Flip running, generate ORFS
 print "$step) Run Flip...\n";
@@ -624,10 +633,19 @@ $step += 1;
 &AnnotateIntronicOrfs;
 
 &MulticommentConfidence;
-&LcIntronsAndReplaceCgName ;
+&LcIntrons;
+}
+
+if ($LVL_MOT != 0) {
+    print "$step) Process motifs...\n";
+    $step += 1;
+    &SearchMotAndMakeAP;
+}
+
+&ReplaceCgName if $LVL_MOT != 1;
 # PROGRAMME ENDING #
 
-print "----------------------------------\n",
+print "\n----------------------------------\n",
       "       End of the Programme       \n",
       "----------------------------------\n";  
 
@@ -757,6 +775,9 @@ sub GetOptions {
     $ORFPROCESS              = $option->orf;               # For Orf process, allowing presence or not in the masterfile
     $PEPLIBRARIES            = $option->pepdirectory;      # List of path for peplibrary directory
     $EXTCONFIGFILE           = $option->ext_config;        # Path for configfile
+    $MOTFILE                 = $option->motfile;           # Path for pattern file.
+    $LVL_MOT                  = $option->lvlmot;           # Indicate level of motif identification.
+    die "Option --lvlmot must be 0,1 or 2\n" if $LVL_MOT < 0 || $LVL_MOT > 2;
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
     $LVL_INTRON              = $option->lvlintron;         # Indicate level of intron identification (0,1 or 2).
     die "Option --lvlintron must be 0,1 or 2\n" if $LVL_INTRON < 0 || $LVL_INTRON > 2;
@@ -864,6 +885,7 @@ sub CleanPirmaster {
              my $endline   = $AP->get_endline()   || "";
              my ($new_startline,$new_endline) = ("","");
              my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
+             push (@$AP_to_rm, $id_AP) if $startline =~ m/;;\s+mfannot:/;
              next if ($type eq "C");
              $AP->set_type("C");
              
@@ -875,6 +897,7 @@ sub CleanPirmaster {
                  $new_endline   = $2 if $endline =~ m/(.+)\s*(;;.+)$/   && $2 !~ m/mfannot:/;
                  $AP->set_endline($new_endline) ;
                  $AP->set_endpos() if $new_endline eq "";
+                 push (@$AP_to_rm, $id_AP) if $new_endline eq "" && $new_startline eq "";
                  next;
              }
              elsif ($endline eq "") {
@@ -887,7 +910,6 @@ sub CleanPirmaster {
                  $AP->set_endline($new_endline);
                  next;
              }
-             push (@$AP_to_rm, $id_AP);
          }
          &Remove_AP($AP_to_rm,$contig);
      }
@@ -5818,13 +5840,13 @@ sub MulticommentConfidence {
     }
 }
 
-sub LcIntronsAndReplaceCgName {
+sub LcIntrons {
     my $contigs   = $pirmaster->get_contigs();
     
     foreach my $contig (@$contigs) {
-        my $name   = $contig->get_name();
-        my $header = $CONTIG->{"$name"};
-        $contig->set_name($header);
+        # my $name   = $contig->get_name();
+        # my $header = $CONTIG->{"$name"};
+        # $contig->set_name($header);
         my $seq = $contig->get_sequence();
            $seq =~ s/!//g;
         my $annotations = $contig->get_annotations();
@@ -5855,6 +5877,143 @@ sub LCIntronInSeqContig {
     $contig->set_sequence($seq);
 }
 
+sub ReplaceCgName {
+    my $contigs   = $pirmaster->get_contigs();
+    
+    foreach my $contig (@$contigs) {
+        my $name   = $contig->get_name();
+        my $header = $CONTIG->{"$name"};
+        $contig->set_name($header);
+    }
+}
+
+#---------------------------------#
+# Subs for processing motifs      #
+#---------------------------------#
+
+sub read_pat_file{
+    my $pfile = shift;
+
+    my($name, $regexp);
+    
+    my $infh  = new IO::File "<$pfile"
+        or die "Can't read from file '$pfile': $!\n";
+    my $list_of_mot = ();
+    
+	while( <$infh> ){
+	    chomp;
+        my $line = $_;
+	    next if $line =~ m/^\s*$/ || $line =~ m/^#/ ; # skip blank lines
+	    # A pattern line
+        if ( $line =~ m/^\s*\S+\s+(\S+)\s+(\S+)\s*$/ ){
+            ($name, $regexp) = ($1,$2);
+            die "Multiple pattern have same name $name,please fixed that in $pfile"
+                if $list_of_mot->{$name};
+            $name =~ s/^\s*//, $name =~ s/\s*$//;
+            # Validate name.
+            &PrintError("name",$name,$pfile) if ( $name =~ /\s/ or !$name ); 
+            # Validate regexp.
+            my $invalid_pat = 0;
+            $regexp =~ s/\s//g;
+            &PrintError("regexp",$regexp,$pfile) if $regexp eq '';
+            &PrintError("regexp",$regexp,$pfile) if $regexp =~ /[^ a c g t n { } \d \[ \] ( ) , \* \? \+ .]/i;
+            eval "'' =~ /$regexp/";
+            &PrintError("regexp",$regexp,$pfile) if $@;
+            &PrintError("regexp",$regexp,$pfile) if '' =~ /$regexp/;
+            &PrintError("regexp",$regexp,$pfile) if $regexp =~ / \*\? | \}\? | \+\? | \?\? /x;
+            $list_of_mot->{$name} = $regexp;
+	    }
+	    # Line is invalid
+	    else{
+            print "File $pfile contains syntax errors on line $..\n";
+		    print "Please correct them and rerun $BASENAME.\n";
+		    return 1;
+	    }
+	}
+    $infh->close();
+    return $list_of_mot;
+}
+
+sub PrintError {
+    my ($isInvalid,$name,$pfile) = @_;
+    
+    print "Invalid $isInvalid '$name' found in file $pfile\n";
+    print "Please correct $pfile and rerun $BASENAME.\n";
+}
+
+sub SearchMotAndMakeAP {
+    
+    foreach my $name (keys %$LISTPAT) {
+        my $pat = $LISTPAT->{$name};
+    
+        my $rev_pat = $pat;
+           $rev_pat =~ tr/ACGT/TGCA/;
+           $rev_pat = reverse $rev_pat;
+        my $isPal   = $pat eq $rev_pat && $pat =~ /^[a_zA-Z]+$/ ? 1 : 0;
+        
+        foreach my $contig ( @$contigs) {
+            my $contigname = $contig->get_name();
+            
+            my $seq     = uc($contig->sequence());
+               $seq     =~ s/!//g;
+            my $rev_seq = $seq;
+               $rev_seq =~ tr/ACGT/TGCA/;
+               $rev_seq = reverse $rev_seq;
+            my $len_seq = length ($seq);
+            
+            for(;;){
+                # Forward
+                my ($start,$end,$prev_start) = (0,0,0);
+                my $sub_seq      = $seq;
+                for (;;) {
+                    last if ($sub_seq !~ /(?i)$pat/ );
+                    $start       = length($`) + $prev_start ;
+                    $end         = $start + length($&);
+                    
+                    my $mot = new PirObject::AnnotPair(
+                                                     type      => "S",
+                                                     genename  => $name,
+                                                     startpos  => $start + 1,
+                                                     endpos    => $end,
+                                                     direction => "==>",
+                                                     startline => "; G-Sig-$name ==> start",
+                                                     endline   => "; G-Sig-$name ==> end",
+                                                     );
+                    &AddAnnotToPirMaster($contigname,$mot);
+                    
+                    $prev_start      = $start + 1;
+                    $sub_seq = substr($seq, $prev_start);
+                }
+                
+                # Backward
+                ($start,$end,$prev_start) = (0,0,0);
+                $sub_seq      = $rev_seq;
+                for (;;) {
+                    last if $isPal;
+                    last if ($sub_seq !~ /(?i)$pat/ );
+                    $start       = length($`) + $prev_start ;
+                    $end         = $start + length($&);
+                    
+                    my $mot = new PirObject::AnnotPair(
+                                                     type      => "S",
+                                                     genename  => $name,
+                                                     startpos  => $len_seq - $start,
+                                                     endpos    => $len_seq - $end + 1,
+                                                     direction => "<==",
+                                                     startline => "; G-Sig-$name <== start",
+                                                     endline   => "; G-Sig-$name <== end",
+                                                     );
+                    &AddAnnotToPirMaster($contigname,$mot);
+                    $prev_start      = $start + 1;
+                    $sub_seq = substr($rev_seq, $prev_start);
+                }
+                last;
+            }
+        }
+    }
+}
+
+
 #------------------------------------------#
 # Subs used at different times in Mfannot  #
 #------------------------------------------#
@@ -5867,17 +6026,42 @@ sub AddAnnotToPirMaster {
     my $annot       = shift;
     my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AddAnnotToPirMaster\n";
     my $annotations = $contig->get_annotations;
+    
+    # Here we compare all the annotations, with the one we try to add
+    if (scalar(@$annotations) != 0 && $annot->type ne "S") {
+        my $return_val = &CompareAllAnnot($annotations,$annot);
+        return $return_val if $return_val != -1;
+    }
+    
+    push (@$annotations, $annot) if ($annot->type eq "C");
+    return 1                     if ($annot->type eq "C");
+     
+    # It mean, this annotation has already been seen
+    return 0 if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename,$annot->type,$annot->direction));
+    
+    push (@$annotations, $annot) if ($annot->type eq "S");
+    return 1                     if ($annot->type eq "S");
+    
+    #  It means, force annot but this annotations doesn't seems to have an other copy
+    $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+    push (@$annotations, $annot);
+    return 1;
+}
 
-    # Here we compare all the annotations, with the one we try to add 
+sub CompareAllAnnot {
+    my ($annotations,$annot) = @_;
+    
     foreach my $annotation (@$annotations) {
-        my $annotname  = $annotation->genename; 
-        my $annottype  = $annotation->type || "C";
-        my $annotstart = $annotation->startpos;
-        my $annotend   = $annotation->endpos;
+        my $annotname  = $annotation->get_genename(); 
+        my $annottype  = $annotation->get_type() || "C";
+        my $annotstart = $annotation->get_startpos();
+        my $annotend   = $annotation->get_endpos();
+        my $annotdir   = $annotation->get_direction();
         $annotname     = "comment" if (!defined  ($annotname));
         $annotstart    = -1        if (!defined  ($annotstart));
         $annotend      = -1        if (!defined  ($annotend));
 
+        
         # First case : if both are same comment on the same line 
         if (($annottype eq "C") and ($annot->type eq "C") and
             ($annot->startpos == $annotstart) and ($annot->startline eq $annotation->startline)) {
@@ -5887,7 +6071,8 @@ sub AddAnnotToPirMaster {
 
         # Second case : No comment, both have same start end, and genename;
         return 0 if (($annottype ne "C") and ($annotname eq $annot->genename) and
-                     ($annotstart == $annot->startpos) and ($annotend == $annot->endpos));
+                     ($annotstart == $annot->startpos) and ($annotend == $annot->endpos)
+                     and $annotdir eq $annot->get_direction());
 
         # Third case : Exons
         if ($annot->type eq "E") { 
@@ -5903,31 +6088,16 @@ sub AddAnnotToPirMaster {
             $ANNOT_STATS->{'Added'}->{$annot->genename}->{'I'} ++ if (defined ($annot->genename));
             push (@$annotations, $annot);
             return 1;
-        } 
+        }
     }
-
-    if ($annot->type eq "C") {
-        push (@$annotations, $annot);
-        return 1;
-     }
-     
-     # It mean,, this annotation has already been seen
-     return 0 if (&AnnotAlreadyAtSamePlace($annotations, $annot->startpos, $annot->endpos, $annot->genename));
-     
-     #  It means, force annot but this annotations doesn't seems to have an other copy
-     $ANNOT_STATS->{'Added'}->{$annot->genename} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
-     push (@$annotations, $annot);
-     return 1;
+    return -1;
 }
 
 sub AnnotAlreadyAtSamePlace {
-    my $annotations = shift;
-    my $start       = shift;
-    my $end         = shift;
-    my $name        = shift;
+    my ($annotations,$start,$end,$name,$type,$dir) = @_;
     
     return if $name =~ /^!/;
-    ($start,$end) = ($end,$start) if $start > $end; 
+    ($start,$end) = ($end,$start) if $start > $end;
     $name =~ s/_\d+$//;
 
     foreach my $annotation (@$annotations) {
@@ -5936,9 +6106,16 @@ sub AnnotAlreadyAtSamePlace {
         my $annot_name  = $annotation->genename;
         my $annot_start = $annotation->startpos;
         my $annot_end   = $annotation->endpos;
-        $annot_name     =~ s/_\d+$//;  
-        ($annot_start,$annot_end) = ($annot_end,$annot_start) if $annot_start > $annot_end; 
-        return 1 if ( (!($end < $annot_start || $annot_end < $start)) && $name eq $annot_name);
+        my $annot_dir   = $annotation->direction();
+        if ($type ne "S") {
+            $annot_name     =~ s/_\d+$//;  
+            ($annot_start,$annot_end) = ($annot_end,$annot_start) if $annot_start > $annot_end; 
+            return 1 if ( (!($end < $annot_start || $annot_end < $start)) && $name eq $annot_name);
+        }
+        else {
+            ($annot_start,$annot_end) = ($annot_end,$annot_start) if $annot_start > $annot_end; 
+            return 1 if $start == $annot_start && $end == $annot_end && $name eq $annot_name && $dir eq $annot_dir;
+        }
     } # End foreach $annot
     return 0;
 } # End sub
@@ -6153,8 +6330,8 @@ sub RenumberFeatures {
         my $contiglen = $contig->get_sequencelength();
 
         my $annotations = $contig->get_annotations();
-        my @GEI_annots = grep( $_->get_type() =~ m#^[GEIO]$# , @$annotations);
-        my %RanksGEI = ( G => 0, E => 1, I => 2, O => 3);
+        my @GEI_annots = grep( $_->get_type() =~ m#^[GEIOS]$# , @$annotations);
+        my %RanksGEI = ( G => 0, E => 1, I => 2, O => 3, S => 4);
         @GEI_annots = sort { $RanksGEI{$a->get_type()} <=> $RanksGEI{$b->get_type()}
                                                         or
                                     &IsIntronicOrf($a) <=> &IsIntronicOrf($b)
@@ -6170,17 +6347,18 @@ sub RenumberFeatures {
             my $start     = $annotation->get_startpos();
             my $end       = $annotation->get_endpos();
             my $dir       = $annotation->get_direction() || "==>";
+            next if $type ne "S" && $LVL_MOT == 1;
 
             # We need to override for G-cox1_3-I4-orf34 for instance We want cox1 not orf34
-            $genename = $1 if ($startline =~ m#G-([^\-\s]+)#); 
-            my $orfname  = $1 if  ($startline =~ m#G-.+-I\d+-(orf\d+)#); # cas des orf intronic
-            
+            $genename = $2 if ($startline =~ m#G-(Sig)?-?([^\-\s]+)#);
+            my ($IntronicORF,$orfname)  = (1,$1) if  ($startline =~ m#G-.+-I\d+-(orf\d+)#);
             $genename =~ s/_\d+$//; # Make sure
-
+            
             my %genenames = ();
             my $suffix = "";
-               $suffix = $1 if $startline =~ m#(_\d+)#;
+               $suffix = $1 if $startline =~ m#(_\d+)# && !$IntronicORF;
             $genenames{$genename} = $suffix;
+            
                $suffix = "";
                $suffix = $1 if $startline =~ m#orf\d+(_\d+)#;
             $genenames{$orfname} = $suffix if defined $orfname;
