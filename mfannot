@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.44 2010/04/02 00:40:34 nbeck Exp $
+#    $Id: mfannot,v 2.45 2010/04/02 01:04:21 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.45  2010/04/02 01:04:21  nbeck
+#    Changed sub RunHMM.
+#
 #    Revision 2.44  2010/04/02 00:40:34  nbeck
 #    Used HMM for defined start. Keep lc in ori seq. Changed info in stdout.
 #
@@ -302,7 +305,7 @@ PirObject->LoadDataModel("MultAlign");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.44 2010/04/02 00:40:34 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.45 2010/04/02 01:04:21 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1697,7 +1700,7 @@ sub AdjustStartByHMM {
     # Create Seq for HMM and run HMM
     my $SeqFasta = &ExtractLibSeqs($hypprot,$this_prot);
     my $flag     = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
-    my $protaln  = &RunHMM($prot,$flag,$SeqFasta);
+    my $protaln  = &RunHMM("${prot}_$flag",$SeqFasta);
     
     # Read ali and def each startin homologous
     my $ali        = &ReadStockholmMultAligns($protaln);
@@ -1811,40 +1814,75 @@ sub ExtractLibSeqs {
 }
 
 sub RunHMM {
-    my ($prot,$flag,$SeqFasta) = @_;
+    my ($ShortName,$SeqFasta,$Sup) = @_;
+    $Sup = $Sup || "";
     
-    unless(-d "$TMPDIR/HMM"){ mkdir "$TMPDIR/HMM" or die "Cannot create '$TMPDIR/HMM'";}
-    unless(-d "$TMPDIR/Outputs"){ mkdir "$TMPDIR/Outputs" or die "Cannot create '$TMPDIR/HMM'";}
-    my $protin  = "$TMPDIR/HMM/${prot}_$flag.seq";
-    my $protout = "$TMPDIR/HMM/${prot}_$flag.pir";
-    my $aliout  = "$TMPDIR/HMM/${prot}_$flag.ali";
+    my $Dir = "$TMPDIR/HMM$Sup";
+    unless(-d "$Dir"){ mkdir "$Dir" or die "Cannot create '$Dir'";}
+    # unless(-d "$TMPDIR/Outputs$sup"){ mkdir "$TMPDIR/Outputs$sup" or die "Cannot create '$TMPDIR/Outputs$sup'";}
+    my $ProtIn  = "$Dir/$ShortName.seq";
+    my $ProtOut = "$Dir/$ShortName.pir";
+    my $AliOut  = "$Dir/$ShortName.sto";
+    my $ProtHMM = "$Dir/$ShortName.hmm";
+    my $ProtAln = "$Dir/$ShortName.aln";
     
-    # Create input file (.seq)
-    my $infh = new IO::File ">$protin"
-        or die "Can't write to file '$protin': $!\n";
-    print $infh $SeqFasta;
-    $infh->close();
+    # Create input file
+    my $InFh = new IO::File ">$ProtIn"
+        or die "Can't write to file '$ProtIn': $!\n";
+    print $InFh $SeqFasta;
+    $InFh->close();
     
-    system("/bin/sh","-c","$MUSCLEPATH -stable -in '$protin' -out '$protout' 1>'Outputs/muscle.E.${prot}_$flag.out' 2>&1");
-    die "Error in processing protein '$prot' with program 'MUSCLE'; check diagnostic file 'Outputs/muscle.E.${prot}_$flag.out'.\n"
-        if (! -e $protout);
-    
-    # Run umac
-    system("/bin/sh","-c","$UMAC_EXE -i '$protout' -o '$aliout' -f stockholm 1>'Outputs/umac.E.${prot}_${flag}_s.out' 2>&1");
-    die "Error in processing protein '$prot' with program 'UMAC'; check diagnostic file 'Outputs/umac.E.${prot}_${$flag}_s.out'.\n"
-        if (! -e $aliout);
-        
-    my $prothmm = "$TMPDIR/HMM/${prot}_$flag.hmm";
-    system("/bin/sh","-c","$HMMBUILD_EXE $prothmm $aliout 1>'Outputs/hmmbuild.E.${prot}_$flag.out' 2>&1");
-    die "Error in processing protein '$prot' with program 'HMMBUILD'; check diagnostic file 'Outputs/hmmbuild.E.${prot}_$flag.out'.\n"
-        if (! -e $prothmm);
+    # 1. Run Muscle... 
+    my $cmd = "$MUSCLEPATH -stable -in '$ProtIn' -out '$ProtOut' >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
 
-    my $protaln = "$TMPDIR/HMM/${prot}_${flag}.aln";
-    system("/bin/sh","-c","$HMMALIGN_EXE --outformat stockholm -o $protaln $prothmm $protin 1>'Outputs/hmmalign.E.${prot}_$flag.out' 2>&1");
-    die "Error in processing protein '$prot' with program 'HMMALIGN'; check diagnostic file 'Outputs/hmmalign.E.${prot}_$flag.out'.\n"
-        if (! -e $protaln);
-    return $protaln;
+    my $resultat = system("$cmd");
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of Muscle in sub RunHMM...\n";
+    }
+    
+    # 2. Run Umac...
+    $cmd = "$UMAC_EXE -i '$ProtOut' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    $resultat = system("$cmd");
+    $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of Umac in sub RunHMM...\n";
+    }
+    
+    # 3. Run HMMBuild...
+    $cmd = "$HMMBUILD_EXE $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    $resultat = system("$cmd");
+    $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMBuild in sub RunHMM...\n";
+    }
+    
+    # 4. Run HMMAlign...
+    $cmd = "$HMMALIGN_EXE --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    $resultat = system("$cmd");
+    $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMAlign in sub RunHMM...\n";
+    }
+    
+    return $ProtAln;
 }
+
 
 sub ReadStockholmMultAligns {
     my $infile  = shift;
