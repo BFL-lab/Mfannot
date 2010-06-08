@@ -35,9 +35,13 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.45 2010/04/02 01:04:21 nbeck Exp $
+#    $Id: mfannot,v 2.46 2010/06/08 20:28:54 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.46  2010/06/08 20:28:54  nbeck
+#    Changed sub for annotation of MiniExon, now use HMM and
+#    fixed some bug for splice boundaries adjustment.
+#
 #    Revision 2.45  2010/04/02 01:04:21  nbeck
 #    Changed sub RunHMM.
 #
@@ -298,6 +302,9 @@ PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs h
 PirObject->LoadDataModel("BlastOutput");              # Model of blast results in XML (blastall -m 7)
 PirObject->LoadDataModel("AlignedSeq");
 PirObject->LoadDataModel("MultAlign");
+PirObject->LoadDataModel("AlignedSeq");
+PirObject->LoadDataModel("MultAlign");
+PirObject->LoadDataModel("HMMsearchOutput");
 
 } # End Begin
 
@@ -305,7 +312,7 @@ PirObject->LoadDataModel("MultAlign");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.45 2010/04/02 01:04:21 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.46 2010/06/08 20:28:54 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -343,7 +350,7 @@ my $EXTCONFIGFILE;                              # The path for configuration fil
 my $MOTFILE;                                    # The path of pattren file.
 my $LVL_MOT;                                    # Indicate level of motif identification.
 my $EXTSELECTPROG;                              # List of name for external programs.
-my $LVL_INTRON;                                 # Indicate level of intron identification (0,1 or 2).
+my $LVL_INTRON;                                 # Indicate level of intron identification (1 or 2).
 my $BLASTOUTPUT       = "";                     # The path for blast file results
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
@@ -360,9 +367,6 @@ my $PARTIAL;                                    # This will cause mfannot to onl
 my $INSERTION;                                  # Minimum length for report insertion.
 my $MAIL;                                       # Mail in order to send results
 
-# Two booleans used in order to know if annotation of introns has been made
-my ($annotate_intron_typeI,$annotate_intron_typeII)  = (0,0);
-
 # Command line Program's paths
 my $PATH = $ENV{"PATH"} || "";
 my @PATH = split(/:/, $PATH);
@@ -373,9 +377,10 @@ my $FORMATDBPATH            = &GetPath("formatdb");
 my $FLIPPATH                = &GetPath("flip");
 my $EXONERATEPATH           = &GetPath("exonerate");
 my $MUSCLEPATH              = &GetPath("muscle");
-my $UMAC_EXE     = "/share/supported/bin/umac";
-my $HMMBUILD_EXE = "/share/supported/bin/hmmbuild3";
-my $HMMALIGN_EXE = "/share/supported/bin/hmmalign3";
+my $UMAC_EXE                = "/share/supported/bin/umac";
+my $HMMBUILD_EXE            = "/share/supported/bin/hmmbuild3";
+my $HMMALIGN_EXE            = "/share/supported/bin/hmmalign3";
+my $HMMSEARCH_EXE           = "/share/supported/bin/hmmsearch3";
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
@@ -622,7 +627,7 @@ $step += 1;
 if (!$PARTIAL) {
     print "$step) Annotate mini exons...\n";
     $step += 1; 
-    &AnnotateMiniExons;
+    &AnnotateMiniExonsByHMM;
 }
 
 &AnnotateMfFromHYPPROTSArray;
@@ -801,7 +806,7 @@ sub GetOptions {
     die "Option --lvlmot must be 0,1 or 2\n" if $LVL_MOT < 0 || $LVL_MOT > 2;
     $EXTSELECTPROG           = $option->ext_select;        # List of names for external prog
     $LVL_INTRON              = $option->lvlintron;         # Indicate level of intron identification (0,1 or 2).
-    die "Option --lvlintron must be 0,1 or 2\n" if $LVL_INTRON < 0 || $LVL_INTRON > 2;
+    die "Option --lvlintron must be 1 or 2\n" if $LVL_INTRON < 1 || $LVL_INTRON > 2;
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
     $MINLENGTHORF            = $option->flip2;             # This is the minimum length for creating an ORF with flip
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
@@ -1484,7 +1489,6 @@ sub Select_protein {
 sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
     # This function fill the HYPPROTS array (array of hypothetical proteins with
     # FLIPBLASTPROTS array (array of ORF and hsp)
-     mkdir("$TMPDIR/Muscle_for_start",0700) or die "Error: can't create work directory '$TMPDIR/Muscle_for_start': $!\n";
     
     # This is mainly the algorithm given by Franz
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {        # For each flip blast protein
@@ -1671,6 +1675,9 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
 sub AdjustStartByHMM {
     my ($hypprot,$seq,$contigname) = @_;
     
+    my $dir = "$TMPDIR/HMM_For_Start";
+    unless(-d $dir){ mkdir $dir or die "Cannot create '$dir'";}
+    
     $seq = uc($seq);
     my $isMinus     = $hypprot->get_strand() == 1 ? 0 : 1;
     my $arrow       = $isMinus ? "<==" : "==>";
@@ -1700,7 +1707,7 @@ sub AdjustStartByHMM {
     # Create Seq for HMM and run HMM
     my $SeqFasta = &ExtractLibSeqs($hypprot,$this_prot);
     my $flag     = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
-    my $protaln  = &RunHMM("${prot}_$flag",$SeqFasta);
+    my $protaln  = &RunHMM($prot,$prot.$flag,$SeqFasta,"_For_Start");
     
     # Read ali and def each startin homologous
     my $ali        = &ReadStockholmMultAligns($protaln);
@@ -1786,8 +1793,8 @@ sub ExtractLibSeqs {
     my $fulltext = "";
     my $fasta = ">myProt\n";
     while ($this_prot ne "") {
-            $this_prot    =~ s/[^a-zA-Z]//g;
-            $this_prot    = uc($this_prot);
+            $this_prot =~ s/[^a-zA-Z]//g;
+            $this_prot = uc($this_prot);
             my $slice  = length($this_prot) > 60 ? 60 : length($this_prot);
             $fasta    .= substr($this_prot,0,$slice)."\n";
             $this_prot = substr($this_prot,$slice);
@@ -1814,17 +1821,18 @@ sub ExtractLibSeqs {
 }
 
 sub RunHMM {
-    my ($ShortName,$SeqFasta,$Sup) = @_;
+    my ($Prot,$ShortName,$SeqFasta,$Sup) = @_;
     $Sup = $Sup || "";
     
     my $Dir = "$TMPDIR/HMM$Sup";
     unless(-d "$Dir"){ mkdir "$Dir" or die "Cannot create '$Dir'";}
-    # unless(-d "$TMPDIR/Outputs$sup"){ mkdir "$TMPDIR/Outputs$sup" or die "Cannot create '$TMPDIR/Outputs$sup'";}
-    my $ProtIn  = "$Dir/$ShortName.seq";
-    my $ProtOut = "$Dir/$ShortName.pir";
-    my $AliOut  = "$Dir/$ShortName.sto";
-    my $ProtHMM = "$Dir/$ShortName.hmm";
-    my $ProtAln = "$Dir/$ShortName.aln";
+    my $SubDir = "$TMPDIR/HMM$Sup/$ShortName";
+    unless(-d "$SubDir"){ mkdir "$SubDir" or die "Cannot create '$SubDir'";}
+    my $ProtIn  = "$SubDir/$Prot.seq";
+    my $ProtOut = "$SubDir/$Prot.pir";
+    my $AliOut  = "$SubDir/$Prot.sto";
+    my $ProtHMM = "$SubDir/$Prot.hmm";
+    my $ProtAln = "$SubDir/$Prot.aln";
     
     # Create input file
     my $InFh = new IO::File ">$ProtIn"
@@ -1882,7 +1890,6 @@ sub RunHMM {
     
     return $ProtAln;
 }
-
 
 sub ReadStockholmMultAligns {
     my $infile  = shift;
@@ -2111,20 +2118,6 @@ sub GetFull5 {
     my $tail  = join("",@$tail_5);
     $full_5   = $tail.$full_5;
     return $full_5;
-}
-
-sub DefEachStartInAli {
-    my $align = shift;
-    
-    my $each_start = {};
-    foreach my $seq ($align->each_seq) {
-        my $id             = $seq->display_id();
-        my $sequence       = $seq->seq();
-        my $dash_chain     = $1 if $sequence =~ m/^(-*)/;
-        my $len_dash       = length($dash_chain);
-        $each_start->{$id} = $len_dash;
-    }
-    return $each_start;
 }
 
 sub DefMaxAndMinStartInAli {
@@ -2648,8 +2641,6 @@ sub FindExonsInHypProtArray {
             }
             &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
             &AdjustStartByHMM($hypprot, $dna_seq, $contigname);
-
-            next if $LVL_INTRON == 0;
             
             my $introns = $hypprot->get_introns();
             for (my $i = 0; $i < @$introns; $i++) {
@@ -3053,135 +3044,329 @@ sub TreatmentOfFusion {
 # Subs for making annotations of mini exons       #
 #-------------------------------------------------#
 
-sub AnnotateMiniExons {
-    # This fonction is used in order to identify mini exons
-    mkdir("$TMPDIR/Muscle_for_exons",0700) or die "Error: can't create work directory '$TMPDIR/Muscle_for_exons': $!\n";
+sub AnnotateMiniExonsByHMM {
     foreach my $hypprot (@$HYPPROTS) {
-        my $name       = $hypprot->get_name();
-        my $contigname = $hypprot->get_contigname();
-        next if (not (defined ($name)) or ($name eq ""));
+        my $Name       = $hypprot->get_name();
+        next if (not (defined ($Name)) or ($Name eq ""));
         
-        my $contig      = $pirmaster->GetContigByName($contigname);  
-        my $seq         = uc($contig->get_sequence());                                   
-        my $reverse_seq = $seq;
-           $reverse_seq =~ tr/ACGT/TGCA/;
-           $reverse_seq = reverse $reverse_seq;
+        # Def var for file name.
+        my $Flag       = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
+        
+        # Extract Seq and ReverseSeq
+        my $Contigname = $hypprot->get_contigname();
+        my $Contig     = $pirmaster->GetContigByName($Contigname);
+        my $Seq        = $Contig->get_sequence();
+        my $ReverseSeq = $Seq;
+           $ReverseSeq =~ tr/ACGT/TGCA/;
+           $ReverseSeq = reverse $ReverseSeq;
+        
+        my ($Introns,$Exons)  = ($hypprot->get_introns(),$hypprot->get_exons());
+        next if scalar(@$Exons) < 2; # For protein without exon/intron
+        # Def control var.
+        my ($GroupI,$GroupII) = ({},{});
+        my ($NbChange,$MakeAli,$DefIntron) = (0,1,1);
+        my ($ThisProt,$Align,$PP,$PercentId,$AliSeq) = ("","","","","");
+        INTRON: for (my $i = 0; $i < @$Introns; $i++) {
+            my $ShortName  = "${Name}_$Flag";
+            if ($MakeAli == 1) {
+                # Make Ali with HMMalign, remake ali if exon was add
+                ($Align,$PP,$PercentId,$AliSeq) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
+                next if $Align eq "Frame-Shift-Detected";
+                $MakeAli = 0;
+            }
            
-        my $exons   = $hypprot->get_exons();
-        my $introns = $hypprot->get_introns();
-        next if scalar(@$exons) < 2;    # For protein with exon/intron
-        
-        my $prot_sequence   = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot);
-        next if $prot_sequence eq "Frame-Shift-Detected";
-        $prot_sequence      = substr($prot_sequence, 0, -1);
-        #next if (index($prot_sequence,"*") >= 0 );
-        
-        my $file_for_alignment = &MakeFileForAlignment($hypprot,"Muscle_for_exons",10);
-        
-        my $result_file = $file_for_alignment;
-           $result_file =~ s/.fasta$/.aln/;
-
-        my $cmd = "$MUSCLEPATH -in $file_for_alignment -stable -clwstrict -out $result_file >/dev/null 2>/dev/null";
-        print "\n$cmd\n" if $DEBUG;
-        system ("$cmd");
-        
-        my $alignio = new Bio::AlignIO(-format => 'clustalw',
-                                       -file   => $result_file);
-                                       
-        my $align = $alignio->next_aln();
-        my $percent_id =  $align->percentage_identity();
-        
-        my $nt_frame    = 15;
-INTRON: for (my $i = 0; $i < @$introns; $i++) {
-            my $intron             = $introns->[$i];
-            my $intron_pos_hypprot = $intron->get_intronpos();
-            my $isMinus            = ($intron->get_strand() eq "+" ? 0 : 1);
-            my $use_seq            = ($isMinus ? "$reverse_seq" : "$seq");
-            my $len_seq            = length($seq);
-            my ($hypprot_seq, $intron_pos_align) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($align,$intron_pos_hypprot);
+            my $Intron    = $Introns->[$i];
+            my $IntronPos = $Intron->get_intronpos();
+            my $isMinus   = $Intron->get_strand() eq "+" ? 0 : 1;
+            my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
+            my $LenSeq    = length($Seq);
+            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos);
             
+            my $Exon_p = @$Exons[$i]   || next;
+            my $Exon_n = @$Exons[$i+1] || next;
             # Make sub-alignement
-            my ($sub_ali_homo,$intron_pos_sub) = &MakeSubAlignment($align,$hypprot_seq,$intron_pos_align,$nt_frame); 
-            # Alignment of hypprot
-            my $sub_ali_prot = &RemoveHypprotInAlignment($sub_ali_homo);
-            # Percent of each aa on each pos in homologous prot
-            my $percent      = &AaPercentInHomologous($sub_ali_homo);
+            my ($SubAliHomo,$IntronPosSub,$Sub_PP,$Sub_Ali)  = &MakeSubAlignment($Align,$HypprotSeq,$IntronPosAli,$Exon_p,$Exon_n,$PP,$AliSeq);
+            # Use HMM in order to def missing exons.
+            my ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n,$id_HMM) = &DefAdjIntronByHMM($Sub_PP,$Sub_Ali,$IntronPosSub);
             
-            # Indicate if the position is conserved on hypprot 
-            # compare hypprot aa with the other aa in alignment
-            my $conserved_seq = &CompareEachPosOfHypprotWithHomologous($sub_ali_prot,$percent);
-            # position of missing exon in sub-align
-            my ($len_adjust_prev,$len_adjust_next) = &DefineAdjustIntron($conserved_seq,$intron_pos_sub,$percent_id);
-            next if $len_adjust_prev eq "-" && $len_adjust_next eq "-"; # special convention
-            next if $len_adjust_prev == 0 && $len_adjust_next == 0;
-            
-            my ($sub_percent,$exon_ali)  = &DefineSeqAndAliOfResearchExon($percent,$sub_ali_homo,$intron_pos_sub,$len_adjust_prev,$len_adjust_next);
-            
-            my $max_percent = 0;
-            foreach my $hash (@$sub_percent) {
-                 while ( my ($nt_in_ref, $percent) = each(%$hash)) {
-                     next INTRON if $nt_in_ref eq "-";
-                     $max_percent = $percent if $percent > $max_percent;
-                     # Escape if we have a gap in homologous sequence around intron must be conserved. 
-                 }
-            }
-            my $HaveBadConservation = 1 if $max_percent < 0.7;
-            
-            &LocateIntrons($seq,$intron,undef,$name,$contig->get_name(),$isMinus) if $LVL_INTRON == 0;
-            my $apc = $intron->get_idbyRNAw() || die "idbyRNAw() is Empty\n";
+            # Locate Intron by RNAweasel.
+            my $apc = $Intron->get_idbyRNAw() || die "idbyRNAw() is Empty\n";
             my $apl = $apc->get_annotpairlist();
-            my $nb_intron = scalar(@$apl);
-            next if $HaveBadConservation && $nb_intron <= 1;
+            my $NbIntron = scalar(@$apl);
+
+            # Make Sub Ali
+            my $SubAliProt = &RemoveHypprotInAlignment($SubAliHomo);
+            # Percent of each aa on each pos in homologous prot
+            my $Percent    = &AaPercentInHomologous($SubAliHomo);
             
-            my $tot_len                       = $len_adjust_prev + $len_adjust_next;
-            my ($sc_each_pos,$ave_sc,$max_sc) = &DefineEachPosAndAveScore($sub_percent,$exon_ali);
-            my $initial_solution              = substr($sub_ali_prot->seq(),$intron_pos_sub+1-$len_adjust_prev,$tot_len);
-            my $HaveBadPos                    = &HaveABadPos($exon_ali,$sc_each_pos,$initial_solution);
-            my $ini_pam_sc                    = $HaveBadPos ? -999 : &CalculatePamScore($initial_solution,$sub_percent);
+            if ($NbIntron >= 2 && $LenAdj_p == 0 && $LenAdj_n == 0) {
+                # Indicate if the position is conserved on hypprot 
+                # compare hypprot aa with the other aa in alignment
+                my $ConservedSeq = &CompareEachPosOfHypprotWithHomologous($SubAliProt,$Percent);
+                # Use old method in order to def missing exons.
+                ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n) = &DefineAdjustIntron($ConservedSeq,$IntronPosSub,$PercentId);
+            }
             
-            next if $ini_pam_sc >= $ave_sc && $HaveBadPos == 0;
-            my $previous_exon = @$exons[$i]   || next;
-            my $next_exon     = @$exons[$i+1] || next;
-            &AdjustExonsIntron ($intron,$previous_exon,$next_exon,$len_adjust_prev,$len_adjust_next,"deconstruct",$isMinus);
-            my ($intron_start,$intron_end) = ($intron->get_start(),$intron->get_end());
-            if ($nb_intron > 2) {
-                my $comment = "three introns found";
-                $intron->set_comment($comment);
-                next;
+            my $LenAdj_f = $LenAdj_p + $LenAdj_n;
+            next if $LenAdj_f == 0;
+            if ( $LenAdj_f >= 20) {
+               $Intron->set_comment("Potential missing exon (~$LenAdj_f)");
+               next;
             }
-            &SortAPL($apl,$isMinus) if $nb_intron > 1;
-            if ($nb_intron < 2 && $len_adjust_prev + $len_adjust_next == 1) {
-                # Initial annotation is considered to be true, let's return to it.
-                &AdjustExonsIntron($intron,$previous_exon,$next_exon,$len_adjust_prev,$len_adjust_next,"reconstruct",$isMinus);
-                next;
-            }
-            my $list_of_hyp_exons = &FindHypMiniExon($use_seq,$intron,$sub_percent,$isMinus,$nb_intron,$apl,$max_sc,$ini_pam_sc);
-            #@$list_of_hyp_exons  = a tab with [seq,score,$length_prefix,$length_core,$length_suffix,$pos] foreach hyp exons
-            if (@$list_of_hyp_exons == 0) {
-                # No solution found, reconstruction of initial annnotation
-                &AdjustExonsIntron($intron,$previous_exon,$next_exon,$len_adjust_prev,$len_adjust_next,"reconstruct",$isMinus);
-                next; #next intron
-            }
-            &DefineEachIntronType($list_of_hyp_exons,$nb_intron,$apl,$isMinus,$len_seq);
-            &AddSpliceScore($use_seq,$intron,$list_of_hyp_exons,$isMinus);
-            @$list_of_hyp_exons   = sort {   $b->{"pam_score"} <=> $a->{"pam_score"}
-                                          || $b->{"splice_score"} <=> $a->{"splice_score"}} @$list_of_hyp_exons;
-            $list_of_hyp_exons    = &SelectBestHypExons($list_of_hyp_exons);
-            if (@$list_of_hyp_exons == 0) {
-                # No solution found
-                &AdjustExonsIntron($intron,$previous_exon,$next_exon,$len_adjust_prev,$len_adjust_next,"reconstruct",$isMinus);
-                next; #next intron
-            }
-            # At this point, all pam_scores are the same
-            @$list_of_hyp_exons   = sort {   $b->{"splice_score"} <=> $a->{"splice_score"}
-                                          || $a->{"core"}         <=> $b->{"core"}
-                                          || $a->{"position"}     <=> $b->{"position"}} @$list_of_hyp_exons;
-            my $best_solution     = shift(@$list_of_hyp_exons);
-            &AddCommentsForOtherSolutions($hypprot,$i,$list_of_hyp_exons,$isMinus,$contigname) if scalar(@$list_of_hyp_exons) > 0 ;
-            &AddMiniExon($introns,$exons,$i,$best_solution,$isMinus);
-            $i++; # Because we add an entry in @$introns
+            
+            my ($SubPercent,$ExonAli)  = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
+
+            next if $NbIntron < 2 && $LenAdj_f == 1; # Initial annotation is considered to be true
+            my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
+            &SortAPL($apl,$isMinus) if $NbIntron > 1;
+            
+            # Create HMM model
+            my ($More_p,$More_n)  = (2,2);
+            my ($ProtHMM,$lenHMM) = &CreateFileForHMMBuild($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n);
+            
+            my ($ListHypExons) = &FindHypMiniExon($UseSeq,$Intron,$SubPercent,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$NbIntron);
+            # If no Hyp exons was return
+            &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n)
+                 if scalar(@$ListHypExons) == 0;
+            next if scalar(@$ListHypExons) == 0;
+            
+            # Add score for splice site
+            &DefineEachIntronType($ListHypExons,$apl,$isMinus,$LenSeq);
+            ($GroupI,$GroupII) = &AddSpliceScore($UseSeq,$ListHypExons,$isMinus,$Exon_p,$Exon_n,"intron${i}_it$NbChange",$ShortName,$GroupI,$GroupII);
+            @$ListHypExons   = sort { $a->{"gEvalue"} <=>  $b->{"gEvalue"} } @$ListHypExons;
+            # Select BestSol and add mini exon
+            my $BestSol      = shift(@$ListHypExons);
+            &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
+            ($DefIntron,$MakeAli) = (0,1);
+            $NbChange++;
+            $i--;
         }
     }
+}
+
+sub CreateAlignForMiniEx {
+    my ($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange) = @_;
+        
+    my $ProtSeq = &GetProteinSequenceAndIntronsPos($Exons,$Introns,$Seq,$hypprot);
+    return "Frame-Shift-Detected"  if $ProtSeq eq "Frame-Shift-Detected";
+    $ProtSeq    = substr($ProtSeq, 0, -1);
+    
+    # Create Seq for HMM and run HMM
+    my $SeqFasta = &ExtractLibSeqs($hypprot,$ProtSeq);
+    my $ProtAln  = &RunHMM("${Name}_$NbChange",$ShortName,$SeqFasta,"_For_Exo");
+    
+    my $StocAln  = &ReadStockholmMultAligns($ProtAln);
+    my ($PP_Info,$AliSeq)  = ("","");
+    foreach my $MultAln ( @$StocAln ) {
+        my $AliSeqs = $MultAln->get_alignedSeqs();
+        foreach my $Ali (@$AliSeqs) {
+            my $id = $Ali->get_seqId();
+            next if $id !~ m/myProt/;
+            $PP_Info = $Ali->get_PP();
+            $AliSeq  = $Ali->get_sequence();
+        }
+    }
+    
+    # Run Umac...
+    my $ProtAli  = $ProtAln;
+       $ProtAli  =~ s/.aln/.ali/;
+    my $cmd = "$UMAC_EXE -i '$ProtAln' -o '$ProtAli' -f clustal >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    my $resultat = system("$cmd");
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of Umac in sub CreateAlignForMiniEx...\n";
+    }
+
+    my $Alignio = new Bio::AlignIO(-format => 'clustalw',
+                                   -file   => $ProtAli);
+                                   
+    my $Align     = $Alignio->next_aln();
+    my $PercentId = $Align->percentage_identity();
+    return ($Align,$PP_Info,$PercentId,$AliSeq);
+}
+
+sub CreateFileForHMMBuild {
+    my ($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n) = @_;
+    
+    my $isFirst = $i == 0                    ? 1 : 0;
+    my $isLast  = $i == scalar(@$Introns) -1 ? 1 : 0;
+    
+    my $Intron    = $Introns->[$i];
+    my $IntronPos = $Intron->get_intronpos();
+    my $Pos_p     = $IntronPos - $LenAdj_p ;
+    my $Pos_n     = $IntronPos + $LenAdj_n ;
+    
+    foreach my $Seq ($Align->each_seq) {
+        my $id = $Seq->display_id();
+        next if $id ne "myProt";
+        $Pos_p = $Align->column_from_residue_number( $id, $Pos_p) + $Dash_p - $More_p;
+        $Pos_n = $Align->column_from_residue_number( $id, $Pos_n) - $Dash_n + $More_n;
+    }    
+    my $SubAlign = $Align->slice($Pos_p,$Pos_n);
+    
+    my $FileName   = "$TMPDIR/HMM_For_Exo/$ShortName/i${i}_$NbChange.fas";
+    my $SubAliFile = new IO::File ">$FileName" or die "Impossible to open $FileName\n";
+    my $len_HMM    = $Pos_n - $Pos_p + 1;
+    foreach my $Seq ($SubAlign->each_seq) {
+        my $id       = $Seq->display_id();
+        my $Sequence = $Seq->seq();
+        next if $id eq "myProt";
+        print $SubAliFile ">$id\n";
+        print $SubAliFile "$Sequence\n";
+    }
+    $SubAliFile->close;
+    
+    # 1. Run Umac and HMMBuild...
+    my $AliOut  = "$TMPDIR/HMM_For_Exo/$ShortName/i${i}_$NbChange.ali";
+    my $ProtHMM = "$TMPDIR/HMM_For_Exo/$ShortName/i${i}_$NbChange.hmm";
+    &RunUmacAndHMMBuild($FileName,$AliOut,$ProtHMM,"CreateFileForHMMBuild");
+
+    return ($ProtHMM,$len_HMM);
+}
+
+sub RunUmacAndHMMBuild {
+    my ($FileName,$AliOut,$ProtHMM,$SubName) = @_;
+    
+    # 1. Run Umac...
+    my $cmd = "$UMAC_EXE -i '$FileName' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    my $resultat = system("$cmd");
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of Umac in sub $SubName...\n";
+    }
+    
+    # 2. Run HMMBuild...
+    $cmd = "$HMMBUILD_EXE --amino $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    print "\n$cmd\n" if $DEBUG;
+    
+    $resultat = system("$cmd");
+    $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMBuild in sub $SubName...\n";
+    }
+}
+
+sub RunHMMSearchForMiniEx {
+    my ($prothmm,$ListHypExons,$prev_seq,$next_seq,$More_p,$More_n,$hmmLen,$z) = @_;
+
+    my $ShortName = $prothmm;
+       $ShortName =~ s/.hmm$//;
+       
+    my $FastaName = "${ShortName}_z$z.fas";
+    my $fasta_fh = new IO::File ">$FastaName" or die "Impossible to open $FastaName\n";
+    $More_p = $More_p;
+    $prev_seq = substr($prev_seq,length($prev_seq)-($More_p+1),$More_p+1);
+    $next_seq = substr($next_seq,0,$More_n);
+    
+    my $i = 0;
+    foreach my $exon (@$ListHypExons) {
+        my $exon_seq = $exon->{seq} || "";
+        my $seq = "${prev_seq}${exon_seq}${next_seq}";
+        print $fasta_fh ">Sol_$i\n$seq\n";
+        $i++;
+    }
+    $fasta_fh->close();
+    
+    my $FileRes = "${ShortName}_z$z.res";
+    
+    my $cmd = "$HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
+    print "\n$cmd\n" if $DEBUG;
+
+    my $resultat = system("$cmd");
+    
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMsearch \n";
+    }
+    
+    my $Searchfh  = new IO::File "<$FileRes"
+            or die "Can't read from file '$FileRes': $!\n";
+    my @tab   = <$Searchfh>;
+    $Searchfh->close();
+    
+    my $HMMRes = new PirObject::HMMsearchOutput();
+       $HMMRes->FillFeaturesFromTextOutput(\@tab);
+    my $AllHMMRes = $HMMRes->get_resume();
+
+    foreach my $Res (@$AllHMMRes) {
+        my $id = $Res->get_SequenceId();
+           $id =~ s/Sol_//;
+           $ListHypExons->[$id]->{'HmmRes'} = $Res;
+    }
+    for (my $i = @$ListHypExons - 1; $i >= 0 ; $i--) {
+        splice(@$ListHypExons, $i, 1) if !$ListHypExons->[$i]->{'HmmRes'};
+    }
+    
+    for (my $i = @$ListHypExons - 1; $i >= 0 ; $i--) {
+        my $Res  = $ListHypExons->[$i]->{'HmmRes'};
+        my $Zone = $ListHypExons->[$i]->{'zone'};
+        my $alignments = $Res->get_alignments();
+        splice(@$ListHypExons, $i, 1) if !(defined($alignments));
+        next if !(defined($alignments));
+        for (my $j = @$alignments - 1; $j >= 0 ; $j--) {
+            my $ali = $alignments->[$j];
+            my ($hmmFrom,$hmmTo) = ($ali->get_hmmFrom(),$ali->get_hmmTo());
+            my $pos = 2;   #Intern match
+            if ($hmmFrom == 1 && $hmmTo != $hmmLen) {
+                $pos = 5;  #5' match
+            } 
+            elsif ($hmmFrom != 1 && $hmmTo == $hmmLen) {
+                $pos = 3;  #3' match
+            }
+            elsif ($hmmFrom == 1 && $hmmTo == $hmmLen) {
+                $pos = WhichPartWellId($ali,$More_p,$More_n);
+            }
+            $ali->set_pos($pos);
+            if ($pos == 2 || ($hmmFrom > $hmmLen - $More_n) || ($hmmTo   < $More_p+1 )) {
+                splice(@$alignments, $j, 1);
+                next;
+            }
+        }
+        splice(@$ListHypExons, $i, 1) if scalar(@$alignments) == 0;
+    }
+    return $ListHypExons;
+}
+
+sub WhichPartWellId {
+    my ($HMMAli,$More_p,$More_n) = @_;
+    
+    my $ali = $HMMAli->get_ali();
+    my $PP  = $ali->[-1];
+       $PP  =~ s/\s+PP$//;
+       $PP  = substr($PP,$More_p);
+       $PP  = substr($PP,0,-$More_n);
+    my $lenPP = length($PP);
+    my $LenHalf = (length($PP) % 2 == 1) ?  ($lenPP-1)/2 : $lenPP/2;
+    my $FiveSt    = substr($PP,0,$LenHalf);
+    my @Five      = split(//,$FiveSt);
+    my $FiveSc    = 0;
+    foreach my $pos (@Five) {
+        $pos = 10 if $pos eq "*";
+        $pos = 0  if $pos eq ".";
+        $FiveSc += $pos eq "*" ? 10 : $pos;
+    }
+    my $ThreeSt   = substr($PP,-$LenHalf);
+    my @Three     = split(//,$ThreeSt);
+    my $ThreeSc    = 0;
+    foreach my $pos (@Three) {
+        $pos = 10 if $pos eq "*";
+        $pos = 0  if $pos eq ".";
+        $ThreeSc += $pos eq "*" ? 10 : $pos;
+    }
+    return 4 if ($ThreeSc == $FiveSc) || (scalar(@Five) == 0 && scalar(@Three));
+    return $ThreeSc > $FiveSc ? 3 : 5;
 }
 
 sub GetProteinSequenceAndIntronsPos {
@@ -3225,66 +3410,6 @@ sub GetProteinSequenceAndIntronsPos {
     return $prot_sequence;
 }
 
-sub MakeFileForAlignment {
-    my $hypprot = shift;
-    my $dir     = shift;
-    my $length  = shift;
-    
-    my $name       = $hypprot->get_name();
-    my $contigname = $hypprot->get_contigname();
-    my $homologous = $hypprot->get_homologous();
-    my $prot       = $hypprot->get_thisprot();
-    my $flag       = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
-    
-    my $full_5 = "";
-    my $name_of_file = "$TMPDIR/$dir/$contigname"."_$name"."_$flag.fasta";
-    
-    die "The file $name_of_file already exist"
-        if (-e $name_of_file);
-    
-    # Open the file
-    my $file_for_alignment = new IO::File ">$name_of_file" or die "Impossible to open $name_of_file\n";
-    
-    # Write into the file
-    
-    my $format_prot = &Format($prot); 
-    print $file_for_alignment $format_prot;
-    
-    my $id = "a"; # Use in order to be sure that's two seq use by muscle have differnt name
-    
-    for (my $i = 0; $i < $length; $i++) {
-        my $homologous = @$homologous[$i];
-        last if !$homologous;
-        my $similar_prot = $homologous->get_similarprot();
-           $similar_prot =~ s/\n+$//;
-           $similar_prot =~ s/^>(.+)/>$id $1/;
-        print $file_for_alignment "$similar_prot\n\n";
-        $id++;
-    }
-    
-    # Close the file
-    $file_for_alignment->close() or die "Impossible to close $name_of_file\n";
-    return ($name_of_file);
-}
-
-sub Format {
-    my $seq  = shift;
-    
-    my $format_seq = ">mfaprot\n";
-    for (my $i = 0 ; $i <= length($seq); $i += 60 ) {
-        my $rest_length = length($seq) - $i;
-        if ( $rest_length <= 60 ) {
-            $format_seq .= substr($seq, $i , $rest_length);
-            $format_seq .= "\n";
-        }
-        else {
-            $format_seq .= substr($seq, $i , 60);
-            $format_seq .= "\n";
-        }
-    }
-    return $format_seq;
-}
-
 sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
     # In order to define the sequence of the hyppothetical protein
     # and to define the position of intron on the alignment.
@@ -3293,32 +3418,77 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
     
     my $hypprot_seq        = undef;
     my $pos_in_alignment   = undef;
+    my $length_ali         = undef;
     foreach my $seq ($align->each_seq) {
         my $id = $seq->display_id();
-        next if $id ne "mfaprot";
+        next if $id ne "myProt";
         $hypprot_seq      = $seq;
         $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot);
+        $length_ali = length($seq->seq());
         last;
     }
-    return ($hypprot_seq, $pos_in_alignment);
+    return ($hypprot_seq,$pos_in_alignment,$length_ali);
+}
+
+sub DefAdjIntronByHMM {
+    my ($Sub_PP,$Sub_Ali,$IntronPosSub) = @_; 
+
+    # Treat prev Exon
+    my $HMM_p    = substr($Sub_PP,0,$IntronPosSub);
+    my @HMM_prev = split(//,$HMM_p);
+       @HMM_prev = reverse(@HMM_prev);
+    my $AA_p     = substr($Sub_Ali,0,$IntronPosSub);
+    my @AA_prev  = split(//,$AA_p);
+       @AA_prev  = reverse(@AA_prev);
+    
+    my ($Adj_prev,$Dash_p) = (0,0);
+    my $id_HMM = 0;
+    for (my $i = 0 ; $i < scalar(@HMM_prev) ; $i++) {
+        my $PP = $HMM_prev[$i];
+        last if $PP eq "*";
+        $PP = 0 if $PP eq ".";
+        $id_HMM += $PP;
+        $Adj_prev++;
+        my $AA = $AA_prev[$i];
+        $Dash_p++ if $AA eq "-" || $AA eq ".";
+    }
+    
+    # Treat next Exon
+    my $HMM_n    = substr($Sub_PP,$IntronPosSub);
+    my @HMM_next = split(//,$HMM_n);
+    my $AA_n    = substr($Sub_Ali,$IntronPosSub);
+    my @AA_next = split(//,$AA_n);
+    
+    my ($Adj_next,$Dash_n) = (0,0);
+    for (my $i = 0 ; $i < scalar(@HMM_next) ; $i++) {
+        my $PP = $HMM_next[$i];
+        last if $PP eq "*";
+        $PP = 0 if $PP eq ".";
+        $id_HMM += $PP;
+        $Adj_next++;
+        my $AA = $AA_next[$i];
+        $Dash_n++ if $AA eq "-" || $AA eq ".";
+    }
+    
+    $id_HMM = $id_HMM / ($Adj_next+$Adj_prev) if ($Adj_next+$Adj_prev) != 0;
+    $id_HMM = $id_HMM || 10;
+    return ($Adj_prev,$Dash_p,$Adj_next,$Dash_n,$id_HMM);
 }
 
 sub MakeSubAlignment {
     # In order to make sub-alignment
-    my $align       = shift;
-    my $hypprot_seq = shift;
-    my $pos         = shift;
-    my $nt_frame    = shift;
+    my ($align,$hypprot_seq,$pos,$Ep,$En,$PP,$AliSeq) = @_;
+    my ($Ep_start,$Ep_End) = ($Ep->get_protstart(),$Ep->get_protend());
+    my ($En_start,$En_End) = ($En->get_protstart(),$En->get_protend());
     
-    my $left_substring  = substr($hypprot_seq->seq(),0,$pos);
-    my $right_substring = substr($hypprot_seq->seq(),$pos,length($hypprot_seq->seq())-$pos);
-    my $left_length     = length($left_substring) - 1;
-    my $right_length    = length($right_substring);
-    my $num1            = ( $left_length >= ($nt_frame - 1) ? ($nt_frame - 1) : $left_length);
-    my $num2            = ( $right_length >= $nt_frame ? $nt_frame : $right_length);
-    my $sub_align       = $align->slice($pos - $num1 , $pos + $num2);
+    my $num1      = $Ep_End-$Ep_start;
+    my $num2      = $En_End-$En_start+1;
+    my $sub_align = $align->slice($pos - $num1 , $pos + $num2);
+    my $Len       = ($pos + $num2) - ($pos - $num1) + 1;
+    my $Sub_PP    = substr($PP,$pos-$num1-1,$Len);
+    my $Sub_Ali   = substr($AliSeq,$pos-$num1-1,$Len);
 
-    return ($sub_align,$num1) ;
+    return ($sub_align,$num1,$Sub_PP,$Sub_Ali) ;
 }
 
 sub RemoveHypprotInAlignment {
@@ -3328,7 +3498,7 @@ sub RemoveHypprotInAlignment {
     
     my $sub_ali_prot = undef;
     foreach my $seq ($align->each_seq) {
-        next if $seq->display_id() ne "mfaprot";
+        next if $seq->display_id() ne "myProt";
         $sub_ali_prot = $seq;
         $align->remove_seq($seq);
         last;
@@ -3359,15 +3529,15 @@ sub AaPercentInHomologous {
 }
 
 sub CompareEachPosOfHypprotWithHomologous {
-    my $sub_ali_prot    = shift;
-    my $percent_in_homo = shift;
+    my ($SubAliProt,$PercentInHomo) = @_;
     
     my $similarity = [];
-    my $length     = $sub_ali_prot->length();
+    my $length     = $SubAliProt->length();
     for (my $pos = 1; $pos <= $length; $pos++) {
-        my $aa_in_homo_same_pos = $percent_in_homo->[$pos - 1];
-        my $sub = $sub_ali_prot->subseq($pos, $pos);
-        my $aa  = ( $aa_in_homo_same_pos->{$sub} ? "-" : $sub );
+        my $aa_in_homo_same_pos = $PercentInHomo->[$pos - 1];
+        my $sub = $SubAliProt->subseq($pos, $pos);
+        my $aa  = ($aa_in_homo_same_pos->{$sub} ? "-" : $sub );
+        $aa = "X" if $sub eq "-" && !$aa_in_homo_same_pos->{$sub};
         $similarity->[$pos - 1] = $aa;
         # Put 1 in $pos when we have a similar aa in hypprot and in homologous protein.
         # Put a letter in $pos when we have a difference between hypprot and homologous.
@@ -3394,16 +3564,13 @@ sub DefineAdjustIntron {
     my $right        = substr($string,$intron_pos+1);
     my $one_aa_right = substr($string,$intron_pos+1,1);
     
-    return ("-","-") if $one_aa_left eq "-" && $one_aa_right eq "-" && $percent_id < 50; 
-    
-    my $missing_left  = &DefineMissingLeft($left);
-    my $missing_right = &DefineMissingRight($right);
+    my ($missing_left,$dash_p)  = &DefineMissingLeft($left);
+    my ($missing_right,$dash_n) = &DefineMissingRight($right);
         
     my $length_left   = length($missing_left);
     my $length_right  = length($missing_right);
     my $length_tot    = $length_left + $length_right;
-    return ("-","-") if $one_aa_left eq "-" && $one_aa_right eq "-" && $length_tot < 2 && $percent_id < 50;
-    return($length_left,$length_right);
+    return($length_left,$dash_p,$length_right,$dash_n);
 }
 
 sub DefineMissingLeft {
@@ -3423,7 +3590,10 @@ sub DefineMissingLeft {
         $missing_left = $aa . $missing_left;
     }
     $missing_left =~ s/^-//;
-    return $missing_left;
+    my $X = $missing_left; 
+       $X =~ s/[^X]//g;
+    my $nb_X = length($X);
+    return ($missing_left,$nb_X);
 }
 
 sub DefineMissingRight {
@@ -3443,47 +3613,77 @@ sub DefineMissingRight {
         $missing_right .= $aa;
     }
     $missing_right =~ s/-$//;
-    return $missing_right;
+    my $X = $missing_right; 
+       $X =~ s/[^X]//g;
+    my $nb_X = length($X);
+    return ($missing_right,$nb_X);
 }
 
 sub AdjustExonsIntron {
-    my $intron          = shift;
-    my $previous_exon   = shift;
-    my $next_exon       = shift;
-    my $len_adjust_prev = shift;
-    my $len_adjust_next = shift;
-    my $DeOrReConstruct = shift;
-    my $isMinus         = shift;
+    my ($intron,$exon_p,$exon_n,$len_adj_p,$len_adj_n,$DeOrReConstruct,$isMinus,$UseSeq,$dash_p,$dash_n) = @_;
     
-    my $first_adjust   = ($DeOrReConstruct eq "deconstruct" ? 1 : 0);
-    my $phase          = $intron->get_phase();
-    my $previous_m     = ($isMinus ?  3 : -3);
-    my $next_m         = ($isMinus ? -3 :  3);
-    my $adjust_i_start = ($isMinus ? -1 :  1);
-    my $adjust_i_end   = ($isMinus ?  1 : -1);
-    my $adjust_phase_previous = ($isMinus ? $phase : -$phase);
-    my $adjust_phase_next     = ($isMinus ? (-(3 - $phase)) : (3 - $phase));
+    my $first_adjust    = ($DeOrReConstruct eq "deconstruct" ? 1 : 0);
+    my $phase           = $intron->get_phase();
+    my $adjust_phase_p  = -$phase;
+    my $adjust_phase_n  = (3 - $phase);
+    $dash_p = -$dash_p if !$first_adjust;
+    $dash_n = -$dash_n if !$first_adjust;
     
-    my $adjust_end        = ($previous_m * $len_adjust_prev) + $adjust_phase_previous;
-       $adjust_end        = -$adjust_end if !$first_adjust;
-    my $previous_exon_end = $previous_exon->get_dnaend() + $adjust_end;
-    my $intron_start      = $previous_exon_end + $adjust_i_start;
-    $previous_exon->set_dnaend($previous_exon_end);
+    my $LenSeq = length($UseSeq);
+    my ($exon_p_start,$exon_p_end) = $isMinus ? &ExPosStrandFW($exon_p,$LenSeq) 
+                                              : ($exon_p->get_dnastart,$exon_p->get_dnaend);
+    my ($exon_n_start,$exon_n_end) = $isMinus ? &ExPosStrandFW($exon_n,$LenSeq)
+                                              : ($exon_n->get_dnastart,$exon_n->get_dnaend);
+    
+    my $adjust_end     = (-3 * $len_adj_p) + $adjust_phase_p;
+       $adjust_end     = -$adjust_end if !$first_adjust;
+       $exon_p_end     = $exon_p_end + $adjust_end + ($dash_p*3);
+    my $intron_start   = $exon_p_end + 1;
+       $exon_p_end     = $LenSeq + 1 - $exon_p_end   if $isMinus;
+       $intron_start   = $LenSeq + 1 - $intron_start if $isMinus;
+    $exon_p->set_dnaend($exon_p_end);
     $intron->set_start($intron_start);
     
-    my $adjust_start      =  ($next_m * ($len_adjust_next-1)) + $adjust_phase_next;
-       $adjust_start      = -$adjust_start if !$first_adjust;
-    my $next_exon_start   = $next_exon->get_dnastart() + $adjust_start;
-    my $intron_end        =  $next_exon_start + $adjust_i_end;
-    $next_exon->set_dnastart($next_exon_start);
+    my $adjust_start   =  (3*($len_adj_n-1)) + $adjust_phase_n;
+       $adjust_start   = -$adjust_start if !$first_adjust;
+       $exon_n_start   = $exon_n_start + $adjust_start - ($dash_n*3);
+    my $intron_end     = $exon_n_start - 1;
+       $exon_n_start   = $LenSeq + 1 - $exon_n_start if $isMinus;
+       $intron_end     = $LenSeq + 1 - $intron_end   if $isMinus;
+    $exon_n->set_dnastart($exon_n_start);
     $intron->set_end($intron_end);
+    
+    return if !$UseSeq;
+   
+    # Prev exon
+    my $seq_len = length($UseSeq);
+    my $prev_start = $exon_p->get_dnastart();
+       $prev_start = $seq_len + 1 - $prev_start if $isMinus;
+    my $prev_end   = $exon_p->get_dnaend();
+       $prev_end   = $seq_len + 1 -  $prev_end if $isMinus;
+    my $prev_len   = $prev_end - $prev_start + 1;
+    my $prev_mod   = $prev_len % 3;
+    my $prev_seq   = substr($UseSeq,$prev_start - 1 + $prev_mod ,$prev_len);
+       $prev_seq    = &TranslateInProt($prev_seq);
+
+    # Next exon
+    my $next_start = $exon_n->get_dnastart();
+       $next_start = $seq_len + 1 - $next_start if $isMinus;
+    my $next_end   = $exon_n->get_dnaend();
+       $next_end   = $seq_len + 1 -  $next_end if $isMinus;
+    my $next_len   = $next_end - $next_start + 1;
+    my $next_mod   = $next_len % 3;
+    my $next_seq   = substr($UseSeq,$next_start - 1 ,$next_len - $next_mod);
+       $next_seq    = &TranslateInProt($next_seq);
+    
+    return($prev_seq,$next_seq);
 }
 
 sub DefineSeqAndAliOfResearchExon {
-    my ($percent,$sub_ali_homo,$intron_pos_sub,$len_adjust_prev,$len_adjust_next) = @_;
+    my ($percent,$sub_ali_homo,$intron_pos_sub,$len_adj_p,$len_adj_n) = @_;
     
-    my $start = $intron_pos_sub - $len_adjust_prev + 1;
-    my $end   = $intron_pos_sub + $len_adjust_next;
+    my $start = $intron_pos_sub - $len_adj_p + 1;
+    my $end   = $intron_pos_sub + $len_adj_n;
     my $sub_percent  = [];
       @$sub_percent  = @$percent[$start..$end];
     my $sub_align    = $sub_ali_homo->slice($start + 1, $end + 1);
@@ -3491,77 +3691,9 @@ sub DefineSeqAndAliOfResearchExon {
     return ($sub_percent,$sub_align);
 }
 
-sub DefineEachPosAndAveScore {
-    my ($sub_percent,$exon_ali) = @_;
-    
-    my $length    =  scalar(@$sub_percent);
-    my ($seq_score,$score_each_pos) = ({},{});
-    foreach my $seq ($exon_ali->each_seq) {
-        my ($score,$pos) = (0,0);
-        $seq_score->{$seq->seq}->{"count"}++;
-        next if $seq_score->{$seq->seq}->{"score"};
-        for (;;) {
-            my $hash_of_nt = $sub_percent->[$pos];
-            my $nt_sub     = $seq->subseq($pos + 1, $pos + 1);
-            my $min_score  = 999;
-            while ( my ($nt_in_ref, $percent) = each(%$hash_of_nt)) {
-                next if !($nt_in_ref ne "-" || $nt_sub ne "-");
-                $score    += $percent * $matrix->get_entry($nt_in_ref,$nt_sub);
-                $min_score = $matrix->get_entry($nt_in_ref,$nt_sub) if $matrix->get_entry($nt_in_ref,$nt_sub) < $min_score;
-            }
-            $score_each_pos->{$pos} = $min_score if !$score_each_pos->{$pos} || $min_score < $score_each_pos->{$pos};
-            $pos++;
-            last if $pos >= $length;
-        }
-        my $ScoreIsNeg = $score < 0 ? 1 : 0;
-        $score =  &Arrondi(abs($score),1);
-        $score = $ScoreIsNeg ? -$score : $score;
-        $seq_score->{$seq->seq}->{"score"} = $score;
-    }
-    
-    my ($ave_score,$tot_seq) = (0,0);
-    while ( my ($seq, $hash) = each(%$seq_score)) {
-        next if $seq =~ m/-/;
-        my ($count,$score)   = ($hash->{"count"},$hash->{"score"});
-        $ave_score += $score * $count;
-        $tot_seq   += $count;
-    }
-    $ave_score = $ave_score / $tot_seq;
-    my @sort_score = sort{ $seq_score->{$a}->{"score"} <=> $seq_score->{$b}->{"score"} } keys %$seq_score;
-    my ($min_score,$max_score) = ($seq_score->{$sort_score[0]}->{"score"},$seq_score->{$sort_score[-1]}->{"score"});
-    return($score_each_pos,$ave_score,$max_score);
-}
-
 sub Arrondi {
     my ($n,$precision) = @_;
     return int((10**$precision)*$n + 0.5) / (10**$precision);
-}
-
-sub HaveABadPos { 
-    my ($exon_ali,$score_each_pos,$initial_solution) = @_;
-
-    my $length     =  length($initial_solution);    
-    my $max_sc_pos = {};
-    foreach my $seq ($exon_ali->each_seq) {
-        die "Hypothetic exon have not the same length that research seq" 
-            if $length != length($seq->seq);
-        my ($pos,$max_score) = (0,-999);
-        for (;;) {
-            my $nt_ini     = substr($initial_solution,$pos,1);
-            my $nt_homo    = substr($seq->seq,$pos,1);
-            return 1 if $nt_ini eq "-";
-            next if !($nt_homo ne "-");
-            my $score  = $matrix->get_entry($nt_homo,$nt_ini);
-            $max_sc_pos->{$pos} = $score if !$max_sc_pos->{$pos} || $score > $max_sc_pos->{$pos};
-            $pos++;
-            last if $pos >= $length;
-        }
-    }
-    
-    for (my $i = 0; $i < $length; $i++) {
-        return 1 if $max_sc_pos->{$i} < $score_each_pos->{$i};
-    }
-    return 0;
 }
 
 sub LocateIntrons {
@@ -3600,7 +3732,7 @@ sub LocateIntrons {
     my $annotpaircollectionsI  = &ExecuteExternalProgram($commandobjectI,"IntronI",  undef,$name_of_file,"$outputfile_prefix-I.xml");
     my $annotpaircollection    = &MakeOneApCollection($annotpaircollectionsII,$annotpaircollectionsI,$contigname);
     if ($isExoIntron == 1) {
-        &AddGroupUseAPC($intron,$annotpaircollection);
+        &AddGroupUseAPC($intron,$annotpaircollection,$isMinus);
         &AddInfoAboutIdIntrons($intron,$annotpaircollection,$contigname,$isMinus);
     }
     else {
@@ -3633,9 +3765,11 @@ sub MakeOneApCollection {
 }
 
 sub AddGroupUseAPC {
-    my ($intron,$APC) = @_;
+    my ($intron,$APC,$isMinus) = @_;
     
     my $APL = $APC->get_annotpairlist();
+    @$APL = $isMinus ? sort { $b->get_startpos() <=> $a->get_startpos() } @$APL 
+                     : sort { $a->get_startpos() <=> $b->get_startpos() } @$APL;
     foreach my $AP (@$APL) {
         &AddGroupUseAP($intron,$AP);
     }
@@ -3687,389 +3821,499 @@ sub SortAPL {
 }
 
 sub FindHypMiniExon {
-    my ($seq,$intron,$research_seq,$isMinus,$nb_intron,$apl,$best_pam_sc,$ini_pam_sc) = @_;
+    my ($Seq,$Intron,$ResearchSeq,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$nbIntron) = @_;
     
-    my $len_seq      = length($seq);
-    my $intron_start = $intron->get_start();                           # Bio coord
-    my $intron_end   = $intron->get_end();                             # Bio coord
-       $intron_start = $len_seq + 1 - $intron_start if $isMinus;
-       $intron_end   = $len_seq + 1 - $intron_end   if $isMinus;
+    my $LenSeq      = length($Seq);
+    # Intron coord
+    my $IntronStart = $Intron->get_start();                           # Bio coord
+    my $IntronEnd   = $Intron->get_end();                             # Bio coord
+       $IntronStart = $LenSeq + 1 - $IntronStart if $isMinus;
+       $IntronEnd   = $LenSeq + 1 - $IntronEnd   if $isMinus;
     
-    my $list_of_hyp_exons      = [];
-    my $zones                  = &DefineZone($intron,$isMinus,$intron_start,$intron_end,$len_seq);
-    my $aa_length_missing_exon = scalar(@$research_seq);
-    my $region_nt_length       = $aa_length_missing_exon * 3;
-    my $max_score_in_matrix    = $matrix->get_entry("W","W");                 # Max score on the diagonal of PAM matrix
-    my $min_pam_score          = $best_pam_sc - ($aa_length_missing_exon * 1/4 * $max_score_in_matrix);
+    my $GroupsZones     = &DefineZone($Intron,$isMinus,$IntronStart,$IntronEnd,$LenSeq);
+    my $LenMissingExon = scalar(@$ResearchSeq);
+    my $RegionNtLength = $LenMissingExon * 3;
     
-    for (my $i = 0; $i < scalar(@$zones); $i++) {
-        my $z_start = @$zones[$i]->[0];  # Computer coord
-        my $z_end   = @$zones[$i]->[1];  # Computer coord
-        my $length  = $z_end - $z_start + 1;
-        next if $length < $MINEXONSIZE;
-        foreach my $length_prefix (0 .. ($region_nt_length - $MINEXONSIZE)) {
-#print STDERR "ZONE = $i    PREFIX = $length_prefix    TIME = ",(time - $^T),"\n";
-            foreach my $length_suffix (0 .. ($region_nt_length - $MINEXONSIZE-$length_prefix)) {
-                my $nt_length_missing_exon = $region_nt_length - ($length_prefix + $length_suffix);
-                next if $nt_length_missing_exon > $region_nt_length;
-                
-                my $prefix = substr($seq,$intron_start - 1,$length_prefix);
-                my $suffix = substr($seq,$intron_end - $length_suffix,$length_suffix);
-                foreach my $pos ($z_start..($z_end-$nt_length_missing_exon)) {
-                    my $core        = substr($seq,$pos,$nt_length_missing_exon);
-                    my $length_core = length($core);
-                    next if $length_core <= 6 && $ini_pam_sc >= 0;
-                    my $exon_seq    = $prefix.$core.$suffix;
-                    my $prot_seq    = &TranslateInProt($exon_seq);
-                    next if index($prot_seq, "*") >= 0 ;
-                    my $pam_score        = &CalculatePamScore($prot_seq,$research_seq);
-                    my $len_fisrt_intron = $pos - $intron_start + 1;
-                    my $info_about_hyp_exon = { seq       => $prot_seq,
-                                                nt_seq    => $exon_seq,
-                                                pam_score => $pam_score,
-                                                prefix    => $length_prefix,
-                                                core      => $length_core,
-                                                suffix    => $length_suffix,
-                                                position  => $pos,
-                                                len_first_intron => $len_fisrt_intron
-                                              };
-                    push(@$list_of_hyp_exons,$info_about_hyp_exon);
+    my $ListHypExonsWoCore = [];
+    if ($nbIntron < 2) {
+        foreach my $LenPrefix (0 .. $RegionNtLength) {
+           foreach my $LenSuffix (0 .. ($RegionNtLength-$LenPrefix)) {
+               next if ($LenPrefix+$LenSuffix != $RegionNtLength);
+               my $Prefix   = substr($Seq,$IntronStart - 1,$LenPrefix);
+               my $Suffix   = substr($Seq,$IntronEnd - $LenSuffix,$LenSuffix);
+               my $InfoHypExon = &CreateInfoHypExon($Prefix,"",$Suffix,$LenPrefix,0,$LenSuffix,0,-1,$IntronStart);
+               push(@$ListHypExonsWoCore,$InfoHypExon);
+           }
+        }
+    }
+    
+    my $ListHypExons = [];
+    for (my $i = 0; $i < scalar(@$GroupsZones); $i++) {
+        $ListHypExons   = [];
+        my $Group = $GroupsZones->[$i];
+        foreach my $Zone (@$Group) {
+            my $ZoneStart = $Zone->[0];  # Computer coord
+            my $ZoneEnd   = $Zone->[1];  # Computer coord
+            my $subZone   = $Zone->[2];
+            my $ZoneLen   = $ZoneEnd - $ZoneStart + 1;
+            next if $ZoneLen < $MINEXONSIZE;
+            foreach my $LenPrefix (0 .. ($RegionNtLength - $MINEXONSIZE)) {
+                foreach my $LenSuffix (0 .. ($RegionNtLength - $MINEXONSIZE-$LenPrefix)) {
+#print STDERR "ZONE = $i    PREFIX = $LenPrefix    SUFF = $LenSuffix TIME = ",(time - $^T),"\n";
+                    my $NtLenMissingExon = $RegionNtLength - ($LenPrefix + $LenSuffix);
+                    next if $NtLenMissingExon > $RegionNtLength;
+                    
+                    my $Prefix   = substr($Seq,$IntronStart - 1,$LenPrefix);
+                    my $Suffix   = substr($Seq,$IntronEnd - $LenSuffix,$LenSuffix);
+                    
+                    foreach my $pos ($ZoneStart..($ZoneEnd-$NtLenMissingExon)) {
+                        my $Core    = substr($Seq,$pos,$NtLenMissingExon);
+                        my $LenCore = length($Core);
+                        
+                        next if $LenCore < 3;
+                        my $scalar = scalar(@$ListHypExons);
+                        my $InfoHypExon = &CreateInfoHypExon($Prefix,$Core,$Suffix,$LenPrefix,$LenCore,$LenSuffix,$pos,$subZone,$IntronStart);
+                        push(@$ListHypExons,$InfoHypExon);
+                    }
                 }
             }
         }
-        @$list_of_hyp_exons   = sort { $b->{"pam_score"} <=> $a->{"pam_score"} } @$list_of_hyp_exons;
+        push(@$ListHypExons,@$ListHypExonsWoCore);
+        # Run hmmsearch
+        ($ListHypExons) = &RunHMMSearchForMiniEx($ProtHMM,$ListHypExons,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$i);
+        last if scalar(@$ListHypExons) != 0;
     }
-    return $list_of_hyp_exons;
+    return ($ListHypExons);
 }
 
 sub DefineZone {
-    my $intron       = shift;
-    my $isMinus      = shift;
-    my $intron_start = shift;
-    my $intron_end   = shift;
-    my $len_seq      = shift; 
+    my ($Intron,$isMinus,$IntronStart,$IntronEnd,$LenSeq) = @_;
     
-    my $apc        = $intron->get_idbyRNAw();
-    my $apl        = $apc->get_annotpairlist();
-    my $nb_intron  = scalar(@$apl);
-    my $zone_coord = [];
+    my $APC      = $Intron->get_idbyRNAw();
+    my $APL      = $APC->get_annotpairlist();
+    my $NbIntron = scalar(@$APL);
+    my $Zones    = [];
     
-    if ($nb_intron == 0) {
-        my $start = $intron_start + $MININTRONSIZE - 1;
-        my $end   = $intron_end   - $MININTRONSIZE - 1;
-        push(@$zone_coord, [$start,$end]);
+    if ($NbIntron == 0) {
+      my $Start = $IntronStart + $MININTRONSIZE - 1;
+        my $End   = $IntronEnd   - $MININTRONSIZE - 1;
+        push(@$Zones, [[$Start,$End,0]]);
+        return $Zones;
     }
-    elsif ($nb_intron == 1) {
-        my $ap = $apl->[0];
-        my ($ap_start,$ap_end) = &ApPosStrandFW($ap,$len_seq);
-        my $start1   = $intron_start + $MININTRONSIZE - 1;
-        my $end1     = $ap_start - 2;
-        my $start2   = $ap_end;
-        my $end2     = $intron_end - $MININTRONSIZE - 1;
-        push(@$zone_coord, [$start1,$end1]) if $end1   > $start1;
-        push(@$zone_coord, [$start2,$end2]) if $end2   > $start2;
-    }
-    elsif ($nb_intron == 2) {
-        my $ap1 = $apl->[0];
-        my $ap2 = $apl->[1];
-        my ($ap1_start,$ap1_end) = &ApPosStrandFW($ap1,$len_seq);
-        my ($ap2_start,$ap2_end) = &ApPosStrandFW($ap2,$len_seq);
+    for (my $i = 0; $i < scalar(@$APL); $i++) {
+        my $AP    = $APL->[$i];
+        my $AP_p  = $i != 0 ? $APL->[$i-1] : 0;
+        my ($AP_Start,$AP_End)     = &ApPosStrandFW($AP,$LenSeq);
+        my ($AP_p_Start,$AP_p_End) = $AP_p ? &ApPosStrandFW($AP_p,$LenSeq) : ("","");
         
-        my $start1   = $intron_start + $MININTRONSIZE - 1;
-        my $end1     = $ap1_start - 2;
-        my $start2   = $ap1_end;
-        my $end2     = $ap2_start - 2;
-        my $start3   = $ap2_end;
-        my $end3     = $intron_end - $MININTRONSIZE - 1;
-        push(@$zone_coord, [$start2,$end2]) if $end2   > $start2;  # Central zone in first
-        push(@$zone_coord, [$start1,$end1]) if $end1   > $start1;
-        push(@$zone_coord, [$start3,$end3]) if $end3   > $start3;
-    }
-    return $zone_coord;
-}
-
-sub CalculatePamScore {
-    my $seq_of_hyp_exon = shift;
-    my $research_seq    = shift;
-    
-    die "Hypothetic exon have not the same length that research seq" 
-        if scalar(@$research_seq) != length($seq_of_hyp_exon);
-    my $length =  length($seq_of_hyp_exon);
-    
-    my $score = 0;
-    foreach my $pos (0 .. $length - 1){
-        my $nt_in_hyp_exon = substr($seq_of_hyp_exon,$pos,1);
-        my $hash_of_nt     = $research_seq->[$pos];
-        while ( my ($nt_in_ref, $percent) = each(%$hash_of_nt)) {
-            $score += $percent * $matrix->get_entry($nt_in_hyp_exon,$nt_in_ref);
+        my $start = $i == 0 ? $IntronStart+$MININTRONSIZE-1 : $AP_p_End;
+        my $end   = $AP_Start-2;
+        push(@$Zones, [$start,$end,$i]);
+        
+        # Special case if last AP in APL
+        if ($i == scalar(@$APL)-1) {
+            $start = $AP_End;
+            $end   = $IntronEnd-$MININTRONSIZE-1;
+            push(@$Zones, [$start,$end,$i+1]);
         }
     }
-    return $score;
+    
+    $Zones = &SortZones($Zones);
+    return $Zones;
 }
 
-sub SelectBestHypExons {
-    my $list_of_hyp_exons = shift;
+sub SortZones {
+    my $Zones = shift;
     
-    my $best_hyp_exons    = [];
-    my $best_pam_score    = @$list_of_hyp_exons[0]->{"pam_score"};
-    my $best_splice_score = @$list_of_hyp_exons[0]->{"splice_score"};
-    my $best_position     = @$list_of_hyp_exons[0]->{"position"};
-    my $best_core         = @$list_of_hyp_exons[0]->{"core"};
+    my $SortZones = [];
+    my $LenZones = scalar(@$Zones); 
+    my $mod      = $LenZones % 2;
+    my $Middle   = $mod == 1 ? ($LenZones-1)/2 : $LenZones/2;
     
-    foreach my $hyp_exon (@$list_of_hyp_exons) {
-        my $pam_score    = $hyp_exon->{"pam_score"};
-        my $splice_score = $hyp_exon->{"splice_score"};
-        my $position     = $hyp_exon->{"position"};
-        my $core         = $hyp_exon->{"core"};
-        next if $pam_score < $best_pam_score;
-        next if $splice_score < $best_splice_score - 0.05;
-        next if abs($best_position - $position) < 6 && abs($best_position - $position) != 0;
-        next if abs(($best_position + $best_core) - ($position + $core)) < 6 && abs(($best_position + $best_core) - ($position + $core)) != 0;
-        push(@$best_hyp_exons,$hyp_exon);
+    push(@$SortZones,$Zones) if $LenZones <=2;
+    return $SortZones if $LenZones <=2;
+    
+    my ($SecondTab,$LastTab) = ([],[]);
+    $LastTab       = splice(@$Zones,$Middle,1) if $mod == 1;
+    my @FirstPart  = @$Zones[0..$Middle-1];
+    my @SecondPart = $mod == 1 ? @$Zones[$Middle..$LenZones-2] : @$Zones[$Middle..$LenZones-1];
+       @SecondPart = reverse(@SecondPart);
+    for (my $i = 0; $i < scalar(@FirstPart); $i++) {
+        my $First  = $FirstPart[$i];
+        my $Second = $SecondPart[$i];
+        my $tab =[$First,$Second];
+        $SecondTab = $tab            if $i ==0;
+        push(@$SortZones,$tab)       if $i !=0;
+        push(@$SortZones,$SecondTab) if $i ==1;
     }
-    return $best_hyp_exons;
+    push(@$SortZones,[$LastTab]) if scalar(@$LastTab) != 0;
+    push(@$SortZones,$SecondTab) if $LenZones == 3;
+    return $SortZones;
+}
+
+sub CreateInfoHypExon {
+    my ($Prefix,$Core,$Suffix,$LenPrefix,$LenCore,$LenSuffix,$pos,$subZone,$IntronStart) = @_;
+    
+    my $ExonSeq        = $Prefix.$Core.$Suffix;
+    my $ProtSeq        = &TranslateInProt($ExonSeq);
+    my $LenFirstIntron = $pos - $IntronStart + 1;
+    my $InfoHypExon    = { seq              => $ProtSeq,
+                           nt_seq           => $ExonSeq,
+                           prefix           => $LenPrefix,
+                           core             => $LenCore,
+                           suffix           => $LenSuffix,
+                           position         => $pos,
+                           len_first_intron => $LenFirstIntron,
+                           zone             => $subZone
+                          };
+    return $InfoHypExon;
 }
 
 sub DefineEachIntronType {
-    my $best_hyp_exons = shift;
-    my $nb_intron      = shift;
-    my $apl            = shift;
-    my $isMinus        = shift;
-    my $len_seq        = shift;
+    my ($BestHypExons,$apl,$isMinus,$LenSeq) = @_;
     
-    foreach my $best_hyp_exon (@$best_hyp_exons) {
-        my $hyp_exon_pos = $best_hyp_exon->{"position"};
-        if ($nb_intron == 0) {
-             $best_hyp_exon->{"ap_first_intron"}  = undef;
-             $best_hyp_exon->{"ap_second_intron"} = undef;
+    my $i = 0;
+    foreach my $BestHypExon (@$BestHypExons) {
+        my $HypExonPos = $BestHypExon->{"position"};
+        my $res = $BestHypExon->{"HmmRes"};
+        my $SequenceId = $res->get_SequenceId();
+        $BestHypExon->{"ap_first_intron"}  = undef;
+        $BestHypExon->{"ap_second_intron"} = undef;
+
+        my ($close_r,$close_l)  = (0,$LenSeq);
+        my ($closeAp_r,$closeAp_l) = (undef,undef);
+        for (my $i = 0; $i < scalar(@$apl); $i++) {
+            my $ap = $apl->[$i];
+            my ($ap_start,$ap_end) = &ApPosStrandFW($ap,$LenSeq);
+            ($closeAp_r,$close_r) = ($i,$ap_start) if $HypExonPos > $ap_start && $ap_start > $close_r;
+            ($closeAp_l,$close_l) = ($i,$ap_start) if $HypExonPos < $ap_start && $ap_start < $close_l;
         }
-        elsif ($nb_intron == 1) {
-            my $ap = $apl->[0];
-                        
-            my ($ap_start,$ap_end) = &ApPosStrandFW($ap,$len_seq);
-            $best_hyp_exon->{"ap_first_intron"}  = undef if $hyp_exon_pos <  $ap_start;
-            $best_hyp_exon->{"ap_second_intron"} = $ap   if $hyp_exon_pos <  $ap_start;
-            $best_hyp_exon->{"ap_first_intron"}  = $ap   if $hyp_exon_pos >= $ap_start;
-            $best_hyp_exon->{"ap_second_intron"} = undef if $hyp_exon_pos >= $ap_start;
+        $BestHypExon->{"ap_first_intron"}  = $apl->[$closeAp_r] if defined($closeAp_r);
+        $BestHypExon->{"ap_second_intron"} = $apl->[$closeAp_l] if defined($closeAp_l);
+        $i++;
+    }
+}
+sub AddSpliceScore {
+    my ($Seq,$BestHypExons,$isMinus,$Exon_p,$Exon_n,$Name,$DirName,$GroupI,$GroupII) = @_;
+    
+    my ($Exon_pEnd,$Exon_nStart) = ($Exon_p->get_dnaend(),$Exon_n->get_dnastart());
+       $Exon_pEnd   = length($Seq) +1 - $Exon_pEnd   if $isMinus;
+       $Exon_nStart = length($Seq) +1 - $Exon_nStart if $isMinus;
+    
+    my ($Flanking_5,$Flanking_3) = ({},{});
+    my $ListOfFile = {};
+    
+    foreach my $BestHypExon (@$BestHypExons) {
+        my $HmmRes     = $BestHypExon->{HmmRes};
+        my $alignments = $HmmRes->get_alignments();
+        my $SeqId      = $HmmRes->get_SequenceId();
+        
+        my ($prefix,$suffix) = ($BestHypExon->{prefix},$BestHypExon->{suffix});
+        my ($position,$core) = ($BestHypExon->{position},$BestHypExon->{core});          
+        
+        my ($start_I1,$end_I1) = ($Exon_pEnd+$prefix  , $position);
+        my ($start_I2,$end_I2) = ($position + $core, $Exon_nStart-$suffix);
+        
+        my ($Group_I1,$Group_I2) = &DefIntronType($BestHypExon);
+        
+        foreach my $ali (@$alignments) {
+            my $pos = $ali->get_pos();
+            my ($SpliceSeq,$Flanking_5,$Flanking_3) 
+                = &CreateNtAliForIntron($Seq,$Group_I1,$Group_I2,$start_I1,$end_I1,$start_I2,$end_I2,$pos,$Flanking_5,$Flanking_3,$prefix,$suffix);
+            my $add = $prefix             if $pos == 5;
+               $add = $suffix             if $pos == 3;
+               $add = "${prefix}_$suffix" if $pos == 4 || $pos == -1;
+            my $FileName = "$TMPDIR/HMM_For_Exo/$DirName/${Name}_${pos}_$add";
+            $BestHypExon->{"SpliceRes"} = "$FileName.res";
+            $ListOfFile->{$FileName}++;
+            
+            # Read olnly one times Splice*.mod 
+            if (($pos == 4 && ($Group_I1 ne "II"  || $Group_I2 ne "II")) 
+             || ($pos == 5 &&  $Group_I1 ne "II") || ($pos == 3 && $Group_I2 ne "II")
+             || ($pos == -1 && $Group_I2 ne "II")) {
+                $GroupI = &ReadSpliceModel("$MODEL_PATH/Splice/SpliceI.mod",$GroupI) if scalar(keys %$GroupI) == 0;
+            }
+            
+            if ( ($pos == 4 && ($Group_I1 eq "II"  || $Group_I2 eq "II")) 
+              || ($pos == 5 &&  $Group_I1 eq "II") || ($pos == 3 && $Group_I2 eq "II")
+              || ($pos == -1 && $Group_I2 eq "II")) {
+                $GroupII = &ReadSpliceModel("$MODEL_PATH/Splice/SpliceII.mod",$GroupII)  if scalar(keys %$GroupII) == 0;
+            }
+            my $ThisFlanking_5 = $Flanking_5->{$prefix} if ($pos != 3);
+            my $ThisFlanking_3 = $Flanking_3->{$suffix} if ($pos != 5);
+            &CreateSpliceModel($FileName,$ThisFlanking_5,$ThisFlanking_3,$Group_I1,$Group_I2,$GroupI,$GroupII,$position) if (!(-e $FileName));
+            my ($AliOut,$ProtHMM) = ("$FileName.ali","$FileName.hmm");
+            &RunUmacAndHMMBuild($FileName,$AliOut,$ProtHMM,"AddSpliceScore") if (!(-e $ProtHMM));
+            &CreateQueryFile($FileName,$SpliceSeq,$SeqId);
         }
-        elsif ($nb_intron == 2) {
-            my $ap1 = $apl->[0];
-            my ($ap1_start,$ap1_end) = &ApPosStrandFW($ap1,$len_seq);
-            
-            my $ap2 = $apl->[1];
-            my ($ap2_start,$ap2_end) = &ApPosStrandFW($ap2,$len_seq);
-            
-            $best_hyp_exon->{"ap_first_intron"}  = undef  if $hyp_exon_pos <  $ap1_start;
-            $best_hyp_exon->{"ap_second_intron"} = $ap1   if $hyp_exon_pos <  $ap1_start;
-            $best_hyp_exon->{"ap_first_intron"}  = $ap2   if $hyp_exon_pos >= $ap2_start;
-            $best_hyp_exon->{"ap_second_intron"} = undef  if $hyp_exon_pos >= $ap2_start;
-            $best_hyp_exon->{"ap_first_intron"}  = $ap1   if ($ap1_start < $hyp_exon_pos && $hyp_exon_pos < $ap2_start);
-            $best_hyp_exon->{"ap_second_intron"} = $ap2   if ($ap1_start < $hyp_exon_pos && $hyp_exon_pos < $ap2_start);
-         }
+    }
+    &RunHMMForeachSplice($ListOfFile,$BestHypExons);
+    return($GroupI,$GroupII);
+}
+
+sub ReadSpliceModel {
+    my ($File,$Group) = @_;
+    
+    my $Modelfh  = new IO::File "< $File"
+            or die "Can't read from file '$File': $!\n";
+    my @tab   = <$Modelfh>;
+    $Modelfh->close();
+    
+    my $count = 0;
+    my $Header = "";
+    foreach my $line (@tab) {
+        $line =~ s/\n$//;
+        if ($count % 2 == 0 && $line =~ m/^>.+/) {
+            $line   =~ s/^>//;
+            $Header = $line;
+        }
+        elsif ($count % 2 != 0 && $line !~ m/^>.+/) {
+            $Group->{$Header} = $line;
+        }
+        $count++;
+    }
+    return $Group;
+}
+
+sub CreateSpliceModel {
+    my ($File,$Flanking_5,$Flanking_3,$Group_I1,$Group_I2,$GroupI,$GroupII,$position) = @_;
+    
+    $Flanking_5              = "" if !$Flanking_5;
+    $Flanking_3              = "" if !$Flanking_3;
+    
+    my $Group5 = $Group_I1 ne "II" ? $GroupI : $GroupII;
+       $Group5 = {} if $Flanking_5 eq "";
+    my $Group3 = $Group_I2 ne "II" ? $GroupI : $GroupII;
+       $Group3 = {} if $Flanking_3 eq "";
+    
+    my $Fasta  = &CreateFastaForSpliceModel($Group5,$Group3,$Flanking_5,$Flanking_3,$position);
+    
+    my $Modelfh = new IO::File ">$File" 
+        or die "Impossible to open $File\n";
+    print $Modelfh $Fasta;
+    $Modelfh->close();
+}
+
+sub CreateFastaForSpliceModel {
+    my ($Group5,$Group3,$Flanking_5,$Flanking_3,$position) = @_;
+    my $Fasta = "";
+    
+    if (scalar (keys %$Group5) != 0 && scalar (keys %$Group3) != 0 && $position != 0) {
+        foreach my $Header1 ( keys %$Group5){
+            my $Seq1 = $Group5->{$Header1};
+            foreach my $Header2 ( keys %$Group3){
+                my $Seq2   = $Group3->{$Header2};
+                $Fasta .= ">${Header1}_$Header2\n";
+                $Fasta .= "${Flanking_5}${Seq1}${Seq2}${Flanking_3}\n";
+            }
+        }
+    }
+    else {
+        my $Group = scalar (keys %$Group5) != 0 ? $Group5 : $Group3;
+        foreach my $Header ( keys %$Group){
+            my $Seq = $Group->{$Header};
+            $Fasta .= ">$Header\n${Flanking_5}${Seq}${Flanking_3}\n";
+        }
+    }
+    return $Fasta;
+}
+
+sub CreateQueryFile {
+    my ($File,$SpliceSeq,$SeqId)= @_;
+    
+    $File = "$File.fas";
+    
+    my $Fastafh = new IO::File ">>$File" 
+        or die "Impossible to open $File\n";
+    my $Fasta = ">$SeqId\n$SpliceSeq\n";
+    print $Fastafh $Fasta;
+    $Fastafh->close();
+}
+
+sub DefIntronType {
+    my $BestHypExon = shift;
+
+    my ($Group_I1,$Group_I2)  = ("I","I");
+    if ($BestHypExon->{"ap_first_intron"}) {
+        my $FirstIntron            = $BestHypExon->{"ap_first_intron"};
+        my $FirstIntron_startline  = $FirstIntron->get_startline();
+           $Group_I1               = $1    if $FirstIntron_startline =~ m#group=(.+)#;
+    }
+    
+    if ($BestHypExon->{"ap_second_intron"}) { 
+        my $SecondIntron           = $BestHypExon->{"ap_second_intron"} if $BestHypExon->{"ap_second_intron"};
+        my $SecondIntron_startline = $SecondIntron->get_startline();
+           $Group_I2               = $1    if $SecondIntron_startline =~ m#group=(.+)#;
+    }
+    return ($Group_I1,$Group_I2);
+}
+
+sub CreateNtAliForIntron {
+    my ($seq,$Group_I1,$Group_I2,$start_I1,$end_I1,$start_I2,$end_I2,$pos,$Flanking_5,$Flanking_3,$prefix,$suffix) = @_;
+    
+    my ($Ali5,$Ali3,$Ali) = ("","","");
+    my ($Add5,$Add3)      = ("","");
+    if ($pos == 5 || $pos == 4) {
+        my ($Right,$Left) = ("","");
+        if ($Group_I1 ne "II") {
+            my $pos = $start_I1 < 38 ? $start_I1 : 38;
+            $Add5  = $Flanking_5->{$prefix} || substr($seq,$start_I1-$pos,$pos-8);
+            $Flanking_5->{$prefix} =  $Add5 if !$Flanking_5->{$prefix};
+            $Left  = substr($seq,$start_I1-8,8);
+            $Right = $end_I1 != 0 ? substr($seq,$end_I1-9,9) : "";
+        }
+        else {
+            my $pos = $start_I1 < 30 ? $start_I1 : 30;
+            $Add5  = $Flanking_5->{$prefix} || substr($seq,$start_I1-$pos,$pos);
+            $Flanking_5->{$prefix} =  $Add5 if !$Flanking_5->{$prefix};
+            $Left  = substr($seq,$start_I1,9);
+            $Right = substr($seq,$end_I1-10,10);
+        }
+        $Ali5 = $Add5.$Left.$Right;
+    }
+    
+    if ($pos == 3 || $pos == 4) {
+        my ($Right,$Left) = ("","");
+        my $pos = $end_I2-2+30 < length($seq) ? 30 : length($seq)-$$end_I2-2;
+        $Add3  = $Flanking_3->{$suffix} || substr($seq,$end_I2-1,$pos);
+        $Flanking_3->{$suffix} =  $Add3 if !$Flanking_3->{$suffix};
+        if ($Group_I2 ne "II") {
+            $Left  = $start_I2 != 0 ? substr($seq,$start_I2-8,8) : "";
+            $Right = substr($seq,$end_I2-10,9);
+        }
+        else {
+            $Left  = substr($seq,$start_I2,9);
+            $Right = substr($seq,$end_I2-11,10);
+        }
+        $Ali3 = $Left.$Right.$Add3;
+    }
+    $Ali = uc($Ali5.$Ali3);
+    return ($Ali,$Flanking_5,$Flanking_3);
+}
+
+sub RunHMMForeachSplice {
+    my ($List,$BestHypExons) = @_;
+    
+    my $evalue = {};
+    foreach my $File (keys %$List) {
+        &RunHMMSearchForSplice("$File.res","$File.hmm","$File.fas");
+        my $Searchfh  = new IO::File "<$File.res"
+            or die "Can't read from file '$File.res': $!\n";
+        my @tab   = <$Searchfh>;
+        $Searchfh->close();
+        
+        my $HMMRes = new PirObject::HMMsearchOutput();
+           $HMMRes->FillFeaturesFromTextOutput(\@tab);
+        my $AllHMMRes = $HMMRes->get_resume();
+        foreach my $Res (@$AllHMMRes) {
+            my $id = $Res->get_SequenceId();
+            $evalue->{$id} = $Res->get_fEvalue();
+        }
+    }
+    foreach my $BestHypExon (@$BestHypExons) {
+        my $HMMRes = $BestHypExon->{"HmmRes"};
+        my $id = $HMMRes->{"SequenceId"};
+        my $ntEvalue = $evalue->{$id} || 1;
+        my $aaEvalue = $HMMRes->{"fEvalue"};
+        $BestHypExon->{"ntEvalue"} = $ntEvalue;
+        my $gEvalue = $ntEvalue * $aaEvalue;
+        $BestHypExon->{"gEvalue"} = $gEvalue;
     }
 }
 
-sub AddSpliceScore {
-    my $seq            = shift;
-    my $old_intron     = shift;
-    my $best_hyp_exons = shift;
-    my $isMinus        = shift;
+sub RunHMMSearchForSplice {
+    my ($FileRes,$hmm,$FastaName) = @_; 
+    
+    my $cmd = "$HMMSEARCH_EXE --noali -o $FileRes $hmm  $FastaName";
+    print "\n$cmd\n" if $DEBUG;
 
-    foreach my $best_hyp_exon (@$best_hyp_exons) {
-        my $score_nt_first_intron   = 0;
-        my $score_nt_second_intron  = 0;
-        my $start_old_intron        = $old_intron->get_start();
-        my $end_old_intron          = $old_intron->get_end();
-           $start_old_intron        = length($seq) + 1 - $start_old_intron if $isMinus;
-           $end_old_intron          = length($seq) + 1 - $end_old_intron   if $isMinus;
-        
-        my $start_first_intron      = $start_old_intron + $best_hyp_exon->{"prefix"};
-        my $end_first_intron        = $best_hyp_exon->{"position"};
-        
-        my $type_first_intron = "";
-        if ($best_hyp_exon->{"ap_first_intron"}) { 
-        my $first_intron            = $best_hyp_exon->{"ap_first_intron"};
-        my $first_intron_startline  = $first_intron->get_startline();
-           $type_first_intron       = $1    if $first_intron_startline =~ m#group=(.+)#;
-            die "Internal error : external AP does not contain type on startline?!?\n" unless $type_first_intron;
-        }
-        
-        my $start_second_intron     = $end_first_intron + $best_hyp_exon->{"core"} + 1;
-        my $end_second_intron       = $end_old_intron - $best_hyp_exon->{"suffix"};
-        
-        my $type_second_intron = "";
-        if ($best_hyp_exon->{"ap_second_intron"}) { 
-        my $second_intron           = $best_hyp_exon->{"ap_second_intron"} if $best_hyp_exon->{"ap_second_intron"};
-        my $second_intron_startline = $second_intron->get_startline();
-           $type_second_intron      = $1    if $second_intron_startline =~ m#group=(.+)#;
-            die "Internal error : external AP does not contain type on startline?!?\n" unless $type_second_intron;
-        }
-        
-        my $best_splice_core    = 0;
-           $best_splice_core   += ($type_first_intron  ne "II" ? 25 : 64.5);
-           $best_splice_core   += ($type_second_intron ne "II" ? 25 : 64.5);
-
-        if ($type_first_intron eq "II") {
-            $score_nt_first_intron = &ScoreNtLTypeII($seq,$start_first_intron,0) 
-                                   + &ScoreNtRTypeII($seq,$end_first_intron,0);
-        } else {
-            $score_nt_first_intron = &ScoreNtLTypeI($seq,$start_first_intron,0) 
-                                   + &ScoreNtRTypeI($seq,$end_first_intron,0);
-        }
-        if ($type_second_intron eq "II") {
-            $score_nt_second_intron = &ScoreNtLTypeII($seq,$start_second_intron,0) 
-                                    + &ScoreNtRTypeII($seq,$end_second_intron,0);
-        } else {
-            $score_nt_second_intron = &ScoreNtLTypeI($seq,$start_second_intron,0) 
-                                    + &ScoreNtRTypeI($seq,$end_second_intron,0);
-        }
-        my $sc = ($score_nt_first_intron + $score_nt_second_intron) / $best_splice_core;
-        $best_hyp_exon->{"splice_score"} = ($score_nt_first_intron + $score_nt_second_intron) / $best_splice_core;
+    my $resultat = system("$cmd");
+    
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMsearch \n";
     }
 }
 
 sub AddMiniExon {
-    my $introns        = shift;
-    my $exons          = shift;
-    my $i              = shift;
-    my $best_solution  = shift;
-    my $isMinus        = shift;
+    my ($Introns,$Exons,$i,$BestSol,$isMinus) = @_;
     
-    my $prefix_len            = ( $isMinus ? -$best_solution->{"prefix"} :  $best_solution->{"prefix"});
-    my $core_len              = ( $isMinus ? -$best_solution->{"core"}   :  $best_solution->{"core"});  
-    my $suffix_len            = ( $isMinus ?  $best_solution->{"suffix"} : -$best_solution->{"suffix"}); 
-    my $first_intron_len      = ( $isMinus ? -$best_solution->{"len_first_intron"} : $best_solution->{"len_first_intron"});
-    my $strand                = ( $isMinus ? "-" : "+");
-    my $adjust_start_new_exon = ( $isMinus ?  -1 :  1);
-    my $adjust_end_new_exon   = ( $isMinus ?   1 : -1);
-    my $adjust_start_intron   = ( $isMinus ?  -1 :  1);
-    my $adjust_end_intron     = ( $isMinus ?   1 : -1);
+    my $LenPref         = ( $isMinus ? -$BestSol->{"prefix"} :  $BestSol->{"prefix"});
+    my $LenCore         = ( $isMinus ? -$BestSol->{"core"}   :  $BestSol->{"core"});  
+    my $LenSuf          = ( $isMinus ?  $BestSol->{"suffix"} : -$BestSol->{"suffix"}); 
+    my $LenFirstIntron  = ( $isMinus ? -$BestSol->{"len_first_intron"} : $BestSol->{"len_first_intron"});
+    my $strand          = ( $isMinus ? "-" : "+");
+    my $AdjStart        = ( $isMinus ?  -1 :  1);
+    my $AdjEnd          = ( $isMinus ?   1 : -1);
     
-    my $exon_prev    = $exons->[$i];
-    my $large_intron = $introns->[$i];
+    my $PrevExon    = $Exons->[$i];
+    my $LargeIntron = $Introns->[$i];
+    my $zone        = $BestSol->{"zone"};
     
     # Exons #
     # Adjust end of previous exon
-    my $end_of_previous_exon = $exon_prev->get_dnaend() + $prefix_len;
-    $exon_prev->set_dnaend($end_of_previous_exon);
+    my $EndPrevExon = $PrevExon->get_dnaend() + $LenPref;
+    $PrevExon->set_dnaend($EndPrevExon);
     
     # Add the mini exon
-    my $start_of_new_exon = $end_of_previous_exon - $prefix_len + $first_intron_len + $adjust_start_new_exon;
-    my $end_of_new_exon   = $start_of_new_exon + $core_len + $adjust_end_new_exon;
-    my $new_exon = new PirObject::Exon (
-                                             dnastart  => $start_of_new_exon,
-                                             dnaend    => $end_of_new_exon,
-                                             strand    => $strand
-                                           );
-    splice(@$exons, $i + 1, 0, $new_exon);
+    my $StartNewExon = $EndPrevExon  - $LenPref + $LenFirstIntron + $AdjStart;
+    my $EndNewExon   = $StartNewExon + $LenCore + $AdjEnd;
+    my $NewExon = new PirObject::Exon ( dnastart  => $StartNewExon,
+                                        dnaend    => $EndNewExon,
+                                        strand    => $strand);
+    splice(@$Exons, $i + 1, 0, $NewExon);
     
     # Adjust start of next exon
-    my $exon_next = $exons->[$i+2];
-    my $start_of_next_exon  = $exon_next->get_dnastart() + $suffix_len;
-    $exon_next->set_dnastart($start_of_next_exon);
+    my $NextExon = $Exons->[$i+2];
+    my $StartNextExon  = $NextExon->get_dnastart() + $LenSuf;
+    $NextExon->set_dnastart($StartNextExon);
     
     # Introns #
-    my $apc                   = $large_intron->get_idbyRNAw();
-    # The first intron
-    my $start_of_first_intron = $end_of_previous_exon + $adjust_start_intron;
-    my $end_of_first_intron   = $start_of_new_exon    + $adjust_end_intron;
-    my $first_intron_apc      = $apc->DeepClone();
-    
-    my $first_intron = new PirObject::Intron (
-                                             start    => $start_of_first_intron,
-                                             end      => $end_of_first_intron,
-                                             strand   => $strand,
-                                             idbyRNAw => $first_intron_apc
-                                           );
-    my $ap_first_intron = $best_solution->{"ap_first_intron"};
-    if ($ap_first_intron) {
-        my $apc1               = $first_intron->get_idbyRNAw();
-        my $annotpairlistarray = [$ap_first_intron];
-        $apc1->set_annotpairlist($annotpairlistarray);
-        my $startline  = $ap_first_intron->get_startline();           
+    my $APC               = $LargeIntron->get_idbyRNAw();
+    my $APL               = $APC->get_annotpairlist();
+    # First Intron
+    my @APL_FirstIntron   = @$APL[0..$zone-1];
+    my $APC_FirstIntron   = $APC->DeepClone();
+       $APC_FirstIntron->set_annotpairlist(\@APL_FirstIntron);
+    my $FirstIntron_type  = ""; 
+    foreach my $AP (@APL_FirstIntron) {
+        my $startline  = $AP->get_startline();           
         my $type       = $1    if $startline =~ m#group=(.+)#;
-        die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
-        $first_intron->set_type($type);
+        $FirstIntron_type .= "$type,";
     }
-
-    # The second intron
-    my $start_of_second_intron = $end_of_new_exon     + $adjust_start_intron;
-    my $end_of_second_intron   = $start_of_next_exon  + $adjust_end_intron;
-    my $second_intron_apc      = $apc->DeepClone();
+    $FirstIntron_type =~ s/,$//;
+    my $StartFirstIntron = $EndPrevExon  + $AdjStart;
+    my $EndFirstIntron   = $StartNewExon + $AdjEnd;
+    my $FirstIntron = new PirObject::Intron ( start    => $StartFirstIntron,
+                                              end      => $EndFirstIntron,
+                                              strand   => $strand,
+                                              idbyRNAw => $APC_FirstIntron,
+                                              type     => $FirstIntron_type);
     
-    my $second_intron = new PirObject::Intron (
-                                             start    => $start_of_second_intron,
-                                             end      => $end_of_second_intron,
-                                             strand   => $strand,
-                                             idbyRNAw => $second_intron_apc
-                                           );
-    
-    my $ap_second_intron = $best_solution->{"ap_second_intron"};
-    if ($ap_second_intron) {
-        my $apc2               = $second_intron->get_idbyRNAw();
-        my $annotpairlistarray = [$ap_second_intron];
-        $apc2->set_annotpairlist($annotpairlistarray);
-        my $startline  = $ap_second_intron->get_startline();           
+    # Second Intron
+    my $EndTab            = scalar(@$APL)-1;
+    my @APL_SecondIntron  = @$APL[$zone..$EndTab];
+    my $APC_SecondIntron  = $APC->DeepClone();
+       $APC_SecondIntron->set_annotpairlist(\@APL_SecondIntron);
+    my $SecondIntron_type  = ""; 
+    foreach my $AP (@APL_SecondIntron) {
+        my $startline  = $AP->get_startline();           
         my $type       = $1    if $startline =~ m#group=(.+)#;
-        die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
-        $second_intron->set_type($type);
+        $SecondIntron_type .= "$type,";
     }
+    $SecondIntron_type =~ s/,$//;
+    my $StartSecondIntron = $EndNewExon    + $AdjStart;
+    my $EndSecondIntron   = $StartNextExon + $AdjEnd;
+    my $SecondIntron = new PirObject::Intron ( start   => $StartSecondIntron,
+                                              end      => $EndSecondIntron,
+                                              strand   => $strand,
+                                              idbyRNAw => $APC_SecondIntron,
+                                              type     => $SecondIntron_type);
     
-    splice(@$introns, $i, 1);
-    splice(@$introns, $i, 0, $first_intron,$second_intron);
-}
-
-sub AddCommentsForOtherSolutions {
-    my $hyprot         = shift;
-    my $i              = shift;
-    my $best_hyp_exons = shift;
-    my $isMinus        = shift;
-    my $contigname     = shift;
-    
-    my ($introns,$exons) = ( $hyprot->get_introns(), $hyprot->get_exons());
-    
-    my $strand       = ( $isMinus ? "-" : "+");
-    my $arrow        = ( $isMinus ? "<==" : "==>");
-    my $exon_prev    = $exons->[$i];
-    my $exon_next    = $exons->[$i+1];
-    
-    my $list_alt_exons = $hyprot->get_altexons();
-    foreach my $solution (@$best_hyp_exons) {
-        
-        my $prefix_len            = ( $isMinus ? -$solution->{"prefix"} :  $solution->{"prefix"});
-        my $core_len              = ( $isMinus ? -$solution->{"core"}   :  $solution->{"core"});
-        my $suffix_len            = ( $isMinus ?  $solution->{"suffix"} : -$solution->{"suffix"});
-        my $first_intron_len      = ( $isMinus ? -$solution->{"len_first_intron"} : $solution->{"len_first_intron"});
-        my $adjust_start_new_exon = ( $isMinus ?  -1 :  1);
-        my $adjust_end_new_exon   = ( $isMinus ?   1 : -1);
-        my $number_exon           = $i+2;
-        
-        # Define end of previous exon.
-        my $end_of_previous_exon = $exon_prev->get_dnaend() + $prefix_len;
-        
-        # Define pos of hypothetic exon.
-        my $start_of_hyp_exon = $end_of_previous_exon - $prefix_len + $first_intron_len + $adjust_start_new_exon;
-        my $end_of_hyp_exon   = $start_of_hyp_exon + $core_len + $adjust_end_new_exon;
-        
-        # Define start of next exon.
-        my $start_of_next_exon  = $exon_next->get_dnastart() + $suffix_len;
-        
-        my $start_line = ";; Alternative solution for exon $number_exon, end previous exon = $end_of_previous_exon";
-        my $end_line   = ";; Alternative solution for exon $number_exon, start next exon = $start_of_next_exon";
-        
-        my $AP = new PirObject::AnnotPair(
-                                      type      => "G",
-                                      genename  => "comment",
-                                      startpos  => $start_of_hyp_exon,
-                                      endpos    => $end_of_hyp_exon,
-                                      direction => $arrow,
-                                      startline => $start_line,
-                                      endline   => $end_line,
-                                      ); 
-        push(@$list_alt_exons, $AP);
-        &AddAnnotToPirMaster($contigname,$AP);
-    }
-    $hyprot->set_altexons($list_alt_exons);
+    splice(@$Introns, $i, 1);
+    splice(@$Introns, $i, 0, $FirstIntron,$SecondIntron);
 }
 
 #-------------------------------------------------#
@@ -4214,7 +4458,7 @@ sub AnnotateMfFromHYPPROTSArray {
                $start_line .= ";     G-$linename-E$number $arrow start";
                $start_line .= " ;; mfannot: frameshift of $frameshift_size nt" if $frameshift_size;
                if (defined($insertion)) {
-               $start_line .= $start_line =~ m/ ;; \.+/ ?
+               $start_line .= $start_line =~ m/ ;; mfannot:/ ?
                               " / insertion of $insertion a.a" 
                             : " ;; mfannot: insertion of $insertion a.a";
                }
@@ -4251,8 +4495,7 @@ sub AnnotateMfFromHYPPROTSArray {
                $end_line   .= ";     G-$linename-I$number $arrow end";
            my $I_startwarning = "$comment" if $comment;
 
-            my $annot = new PirObject::AnnotPair (
-                                                         type         => $A_type || "I",
+            my $annot = new PirObject::AnnotPair (       type         => $A_type || "I",
                                                          genename     => "$name",
                                                          startpos     => $start,
                                                          endpos       => $end,
@@ -4262,7 +4505,13 @@ sub AnnotateMfFromHYPPROTSArray {
                                                          introntype   => $type
                                                         );
             my $I_startline = $annot->get_startline();
+            
             $I_startline   .= " ;; mfannot: $I_startwarning" if $I_startwarning;
+            if ($I_startwarning) {
+                            $I_startwarning .= $I_startwarning =~ m/ ;; mfannot:/ ?
+                           " / $I_startwarning" 
+                         : " ;; mfannot: $I_startwarning";
+            }
             $annot->set_startline($I_startline);                                          
             $number++;
             &AddAnnotToPirMaster($contigname,$annot);
@@ -4651,8 +4900,6 @@ sub Annotate_Using_external_programs {
                 my $out           = "$mf-$genename.xml";
                 my $APC           = &ExecuteExternalProgram($commandobject,$genename,undef,$mf,$out);
                 &AnnotateFromExternalAPC($genename,$APC);
-                $annotate_intron_typeI  = 1 if lc($genename) eq lc("IntronI");
-                $annotate_intron_typeII = 1 if lc($genename) eq lc("IntronII"); 
             } # End foreach genename1, genename2, ...
         } # End foreach "genename1,genename2"
     } # End foreach keys
@@ -4772,7 +5019,7 @@ sub AnnotateFromExternalAPC {
             my $a_startline    = $annot->get_startline() || next;
             
             if ($annot->get_idbyHMM() && $annot->get_idbyHMM() == 1 || lc($a_genename) eq "rnpb" ) {
-                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                            " / Approximative annotation" 
                          : " ;; mfannot: Approximative annotation";
                 $annot->set_startline($a_startline);
@@ -4780,14 +5027,14 @@ sub AnnotateFromExternalAPC {
 
             if ( $endpos < 0 || $startpos < 0 ) {
                 if ($startpos < 0) {
-                    $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                    $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                            " / Partial annotation, start found at pos : $startpos" 
                          : " ;; mfannot: Partial annotation, start found at pos : $startpos";
                     $annot->set_startline($a_startline);
                     $annot->set_startpos(1);
                 }
                 else {
-                    $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                    $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                            " / Partial annotation, stop found at pos : $endpos" 
                          : " ;; mfannot: Partial annotation, stop found at pos : $endpos";
                     $annot->set_startline($a_startline);
@@ -4796,14 +5043,14 @@ sub AnnotateFromExternalAPC {
             }
             if ( $endpos > $seq_length || $startpos > $seq_length ) {
                 if ($startpos > $seq_length) {
-                    $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                    $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                            " / Partial annotation, start found at pos : $startpos" 
                          : " ;; mfannot: Partial annotation, start found at pos : $startpos";
                     $annot->set_startline($a_startline);
                     $annot->set_startpos($seq_length);
                }
                 else {
-                    $a_startline .= $a_startline =~ m/ ;; \.+/ ?
+                    $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                            " / Partial annotation, stop found at pos : $endpos" 
                          : " ;; mfannot: Partial annotation, stop found at pos : $endpos";
                     $annot->set_startline($a_startline);
@@ -4813,7 +5060,7 @@ sub AnnotateFromExternalAPC {
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
                 &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
-                $add_external_annot = (scalar(@$annotpairs) > 1 || $LVL_INTRON == 2 )? 1 : 0;
+                $add_external_annot = (scalar(@$annotpairs) > 1 || $LVL_INTRON == 2 ) ? 1 : 0;
             }
             &AddAnnotToPirMaster($contigname,$annot) if $add_external_annot == 1;
         } # End foreach annotpair
@@ -4872,7 +5119,7 @@ sub Adjust_all_intronic_junctions {
     );
     
     my @introns_info = ();
-    foreach my $contig ( @$contigs) {
+    foreach my $contig (@$contigs) {
         my $annotations = $contig->get_annotations();
         my $contig_name = $contig->get_name();
         
@@ -4894,66 +5141,49 @@ sub Adjust_all_intronic_junctions {
     return if !@introns_info;
     
     # Add comment if 0 or 2 introns are id.
-     if ($LVL_INTRON == 1 || $LVL_INTRON == 2) {
-        foreach my $intron (@introns_info) {
-            my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
-    
-            my $a_introntype   = $annot->get_introntype()   || "";
-            my $a_startline    = $annot->get_startline()    || next;
-            my @intron_type    = split(/,/, $a_introntype);
-            my $nb_type        = @intron_type;
-    
-            if ($nb_type == 0) {
-                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
-                              " / no intron type identified" 
-                            : " ;; mfannot: no intron type identified";
-                $annot->set_startline($a_startline);
-            }
-            elsif ($nb_type == 2 ) {
-                $a_startline .= $a_startline =~ m/ ;; \.+/ ?
-                              " / two introns identified" 
-                            : " ;; mfannot: two introns identified";
-                $annot->set_startline($a_startline);
-            }
-        } # End foreach $intron
-    }
+    foreach my $intron (@introns_info) {
+        my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
 
-    # Research intron type II
-    my $count       = 1;
-    if ($annotate_intron_typeII  == 0) {
-        my %new_contig_for_intronII = ();
-        my $add_to_mf_for_intronII  = "";
-        foreach my $intron (@introns_info) {
-            my ($contig,$annot,$seq,$use_seq) = @$intron;
-            
-            next if defined($annot->introntype());
-            
-            my $contig_name   = $contig-> get_name();
-            my $a_start       = $annot->startpos()   || next;
-            my $a_end         = $annot->endpos()     || next;
-            my $a_strand      = $annot->direction()  || next;
-            my $isMinus       = ($a_strand eq "==>" ? 0 : 1 );
-            ($a_start,$a_end) = ($a_end,$a_start) if $isMinus;
-            my $a_startline   = $annot->startline()  || next;
-            my $name_of_gene  = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
-            
-            my $intron_seq    = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
-            my $signature     = [$contig_name,$name_of_gene,$a_start,$a_end,$a_strand];
-            $new_contig_for_intronII{$count} = $signature;
-            $add_to_mf_for_intronII .= ">A$count\n$intron_seq\n\n";
-            $count++;
-        } # End foreach $intron
-        &Research_for_intron($add_to_mf_for_intronII,\%new_contig_for_intronII,"IntronII") if $add_to_mf_for_intronII ne "";
-    } # End if
+        my $a_introntype   = $annot->get_introntype()   || "";
+        my $a_startline    = $annot->get_startline()    || next;
+        my @intron_type    = split(/,/, $a_introntype);
+        my $nb_type        = @intron_type;
+
+        if ($nb_type == 0) {
+            $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
+                          " / no intron type identified" 
+                        : " ;; mfannot: no intron type identified";
+            $annot->set_startline($a_startline);
+            $annot->set_globaltype("I");
+        }
+        elsif ($nb_type == 1) {
+            my $global_type = $intron_type[0] =~ m/II/ ? "II" : "I";
+            $annot->set_globaltype($global_type);
+        }
+        elsif ($nb_type >= 2 ) {
+            my $add = $nb_type > 2 ? "more than" : "";
+            my $global_type = &DefGlobalIntronType(\@intron_type);
+            $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
+                          " / $add two introns identified" 
+                        : " ;; mfannot: ${add}two introns identified";
+            $annot->set_startline($a_startline);
+            $annot->set_globaltype($global_type);
+        }
+    }
     
     #Adjust intron type II
     foreach my $intron (@introns_info) {
         my ($contig,$annot,$seq,$use_seq) = @$intron;
         
-        my $a_introntype = $annot->introntype() || "";
-        next if ($a_introntype ne "II");
-        &Adjust_TypeII($contig,$annot,$use_seq,\%adjustement);
-        $intron->[1] = undef; # This intron is done
+        my $a_introntype = $annot->globaltype() || "";
+        next if $a_introntype eq "I";
+        if ($a_introntype eq "-1" ) {
+            $intron->[1] = undef;
+        }
+        elsif ($a_introntype eq "II") {
+            &Adjust_TypeII($contig,$annot,$use_seq,\%adjustement);
+            $intron->[1] = undef; # This intron is done
+        }
     } # End foreach intron
     
     @introns_info = grep( defined($_->[1]) , @introns_info);
@@ -4963,15 +5193,15 @@ sub Adjust_all_intronic_junctions {
     foreach my $intron (@introns_info) {
         my ($contig,$annot,$seq,$use_seq) = @$intron;
         
-        my $a_introntype = $annot->introntype() || "";
         my $adjust_info = &Add_splicescore($contig,$annot,$use_seq,\%adjustement);
-        return if !$adjust_info;
+        next if !$adjust_info;
         push(@$intron, $adjust_info);
     } # End foreach $intron
     
     # Adjust intron if splicescore is good
     foreach my $intron (@introns_info) {
         my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
+        next if !$adjust_info;
         my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus) = @$adjust_info;
         
         my $a_splicescore = $annot->splicescore();
@@ -4983,80 +5213,34 @@ sub Adjust_all_intronic_junctions {
     @introns_info = grep( defined($_->[1]) , @introns_info);
     return if !@introns_info;
     
-    # Research intron type I
-    if ($annotate_intron_typeI  == 0) {
-        my %new_contig_for_intronI = ();
-        my $add_to_mf_for_intronI  = "";
-        foreach my $intron (@introns_info) {
-            my ($contig,$annot,$seq,$use_seq) = @$intron;
-            
-            next if defined($annot->introntype());
-            
-            my $contig_name   = $contig->get_name();
-            my $a_start       = $annot->startpos()   || next;
-            my $a_end         = $annot->endpos()     || next;
-            my $a_strand      = $annot->direction()  || next;
-            my $isMinus       = ($a_strand eq "==>" ? 0 : 1 );
-            ($a_start,$a_end) = ($a_end,$a_start) if $isMinus;
-            my $a_startline   = $annot->startline()  || next;
-            my $name_of_gene  = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
-            
-            my $intron_seq   = substr($seq,$a_start - 1,abs($a_end-$a_start)+1);
-            my $signature    = [$contig_name,$name_of_gene,$a_start,$a_end,$a_strand];
-            $new_contig_for_intronI{$count} = $signature;
-            $add_to_mf_for_intronI .= ">A$count\n$intron_seq\n\n";
-            $count++;
-        } # End foreach intron
-        &Research_for_intron($add_to_mf_for_intronI,\%new_contig_for_intronI,"IntronI") if $add_to_mf_for_intronI ne "";
-    } # End if 
-    
     # Add comment if adjustement failed.
     foreach my $intron (@introns_info) {
         my ($contig,$annot,$seq,$use_seq,$adjust_info) = @$intron;
         my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus) = @$adjust_info;
 
         my $a_splicescore  = $annot->get_splicescore();
-        my $a_introntype   = $annot->get_introntype()   || "";
+        my $a_introntype   = $annot->get_globaltype()   || "";
         my $a_startline    = $annot->get_startline()    || next;
         my @intron_type    = split(/,/, $a_introntype);
         my $nb_type        = @intron_type;
-
-        if ($nb_type == 0 && $LVL_INTRON == 0) {
-            $a_startline .= $a_startline =~ m/ ;; \.+/ ?
-                          " / no intron type identified" 
-                        : " ;; mfannot: no intron type identified";
-            $annot->set_startline($a_startline);
-        }
-        elsif ($nb_type == 2 && $LVL_INTRON == 0) {
-            $a_startline .= $a_startline =~ m/ ;; \.+/ ?
-                          " / two introns identified" 
-                        : " ;; mfannot: two introns identified";
-            $annot->set_startline($a_startline);
-        }
-        elsif ($nb_type ==  1) {
-            &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus,$contig);
-        }
+        
+        next if $nb_type != 1;
+        &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus,$contig);
     } # End foreach $intron
 } # End sub
 
-sub Research_for_intron {
-    my $introns_fasta            = shift;
-    my $r_hash_of_new_contigname = shift;
-    my $intron_group             = shift;
+sub DefGlobalIntronType {
+    my $IntronTypes = shift;
     
-    my $conf_file     = PirObject::MfAnnotExternalProgs->ImportFromTextFile($EXTCONFIGFILE);
-    my $genecomsets   = $conf_file->get_geneprogs(); # This is a HASH genename => <MfAnnotGeneCommandSet>
-    my $commandobject = $genecomsets->{$intron_group};
-    
-    my $masterfile_for_introns = $TMPDIR . "/masterfile_for_". $intron_group ;
-    
-    my $MF = new IO::File ">$masterfile_for_introns" or die "Cannot open : $masterfile_for_introns\n";
-    print $MF $introns_fasta;
-    $MF->close();
-    my $annotpaircollections = &ExecuteExternalProgram($commandobject,$intron_group,undef,$masterfile_for_introns);
-    $annotpaircollections    = &Adjust_coord_for_postannot($annotpaircollections,$r_hash_of_new_contigname);
-    &AnnotateFromExternalAPC($intron_group,$annotpaircollections);
-} # End sub
+    my ($nb_typeI,$nb_typeII) = (0,0);
+    foreach my $type (@$IntronTypes) {
+        $type =~ m/II/ ? $nb_typeII++ : $nb_typeI++;
+    }
+    my $GlobalType = -1;
+       $GlobalType = "I"  if ($nb_typeI == scalar(@$IntronTypes));
+       $GlobalType = "II" if ($nb_typeII == scalar(@$IntronTypes));
+    return $GlobalType;
+}
 
 sub Adjust_TypeII {
     my $contig      = shift;
@@ -5116,47 +5300,15 @@ sub Adjust_TypeII {
                                   || $a->[3] <=> $b->[3]} @tab_scores;
 
     if (!$tab_scores[0]->[0] || $tab_scores[0]->[0] < 40) {
-        &AddCommentToAnnotField($annot,"startline",";;  Splice boundaries incertain");
+        my $start_line = $annot->get_startline();
+        $start_line .= $start_line =~ m/ ;; mfannot:/ ?
+                       " / splice boundaries incertain" 
+                     : " ;; mfannot: splice boundaries incertain";
+        $annot->set_startline($start_line);
         return;
     }
     &AdjustBoundaries(\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus,$contig);
 } # End sub
-
-sub Adjust_coord_for_postannot {
-    my $annotpaircollections     = shift;
-    my $r_hash_of_new_contigname = shift;
-    
-    foreach my $annotpaircollection (@$annotpaircollections) {
-        my $contig = $annotpaircollection->get_contigname();
-        $contig =~ s/^>*A//;
-        # $signature is a quintuplet contig_name, name_of_gene, lower_pos, higher_pos, direction
-        my $signature  = $r_hash_of_new_contigname->{$contig};
-        my $sig_contig = $signature->[0];
-        my $lower_pos  = $signature->[2];
-        my $higher_pos = $signature->[3];
-        my $strand     = $signature->[4];
-        $annotpaircollection->set_contigname(">$sig_contig");
-        my $annotpairs = $annotpaircollection->get_annotpairlist();
-    
-        my $new_ap = [];
-        foreach my $annot (@$annotpairs){
-            my $annot_strand   = $annot->direction();
-            next if $annot_strand ne $strand ;
-            my $annot_startpos = $annot->startpos();
-            my $annot_endpos   = $annot->endpos();
-        
-            my $isMinus     = ($annot_strand eq "==>" ? 0 : 1 );
-            $annot_startpos = $lower_pos + $annot_startpos  - 1;
-            $annot_endpos   = $lower_pos + $annot_endpos - 1;
-        
-            $annot->set_startpos($annot_startpos);
-            $annot->set_endpos($annot_endpos);
-            push(@$new_ap,$annot);
-        }
-    $annotpaircollection->set_annotpairlist($new_ap);
-    }
-    return $annotpaircollections;
-}
 
 sub Add_splicescore {
     my $contig      = shift;
@@ -5202,7 +5354,6 @@ sub Add_splicescore {
              my $score_nt = &ScoreNtLTypeI($use_seq,$start_pos,$adjust_start_pos) 
                           + &ScoreNtRTypeI($use_seq,$end_pos,$adjust_start_pos);
 
-            #$score_nt -= abs($adjust_start_pos);
             # $scores is a ref to quintuplet ($score_nt,$score_aa,abs($adjust_start),$adjust_start,$adjust_end) or undef if adjustment is invalid
             $scores = &CheckForCorrespondance($phase, $start_pos, $end_pos, $use_seq, $key,$score_nt,$annot);
             push (@tab_scores, $scores ) if defined $scores; 
@@ -5215,9 +5366,6 @@ sub Add_splicescore {
                                   || $a->[3] <=> $b->[3]} @tab_scores;
 
     my $splice_score = $tab_scores[0]->[0];
-    if ($splice_score >= 19 && $LVL_INTRON == 0){
-        $annot->set_introntype("sigI");
-    }
     $annot->set_splicescore($tab_scores[0]->[0]);
     return [\@tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annot,$isMinus];
 } # End sub
@@ -6696,16 +6844,6 @@ sub Length_annot {
     return $length;
 } # End sub
 
-
-sub AddCommentToAnnotField {
-    # Sub used to add comments at the end of annotation
-    my ($annot,$method,$comment) = @_;
-    
-    my $line_to_modify  = $annot->$method();
-    $line_to_modify .= " $comment" if ($line_to_modify !~ m#\Q$comment\E#);
-    $annot->$method($line_to_modify);
-} # End sub 
-
 sub TranslateInProt {
     my $nt_seq = shift;
     
@@ -6718,11 +6856,20 @@ sub TranslateInProt {
 }
 
 sub ApPosStrandFW {
-    my ($ap,$len_seq) = @_;
+    my ($ap,$LenSeq) = @_;
+    
+    my $apMinus   = $ap->get_direction() eq "==>" ? 0 : 1;
+    my $ap_start  = $apMinus ? $LenSeq + 1 - $ap->get_startpos() : $ap->get_startpos();
+    my $ap_end    = $apMinus ? $LenSeq + 1 - $ap->get_endpos()   : $ap->get_endpos() ;
+    return ($ap_start,$ap_end);
+}
 
-    my $apMinus  = ($ap->get_direction() eq "==>" ? 0 : 1);
-    my $ap_start = $apMinus ? $len_seq + 1 - $ap->get_startpos() : $ap->get_startpos();
-    my $ap_end   = $apMinus ? $len_seq + 1 - $ap->get_endpos()   : $ap->get_endpos() ;
+sub ExPosStrandFW {
+    my ($ap,$LenSeq) = @_;
+    
+    my $apMinus   = $ap->get_strand() eq "-"  ? 1 : 0;
+    my $ap_start  = $apMinus ? $LenSeq + 1 - $ap->get_dnastart() : $ap->get_dnastart();
+    my $ap_end    = $apMinus ? $LenSeq + 1 - $ap->get_dnaend()   : $ap->get_dnaend() ;
     return ($ap_start,$ap_end);
 }
 
