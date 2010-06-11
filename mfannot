@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.46 2010/06/08 20:28:54 nbeck Exp $
+#    $Id: mfannot,v 2.47 2010/06/11 15:26:44 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.47  2010/06/11 15:26:44  nbeck
+#    Fixed various bug: stop, fusion orf/gene.
+#
 #    Revision 2.46  2010/06/08 20:28:54  nbeck
 #    Changed sub for annotation of MiniExon, now use HMM and
 #    fixed some bug for splice boundaries adjustment.
@@ -312,7 +315,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.46 2010/06/08 20:28:54 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.47 2010/06/11 15:26:44 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1687,6 +1690,7 @@ sub AdjustStartByHMM {
     my $exons       = $hypprot->get_exons();
     my $introns     = $hypprot->get_introns();
     my $WithIntrons = (scalar(@$exons) > 1 ? 1 : 0);
+    my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
     
     # Def this_prot
     my $prot = $hypprot->get_name();
@@ -1696,6 +1700,7 @@ sub AdjustStartByHMM {
     
     if ($this_prot eq "Frame-Shift-Detected") {
         $hypprot->set_startwarning("Aproximative start");
+        &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
         return;
     }
 
@@ -1783,7 +1788,7 @@ sub AdjustStartByHMM {
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         }
     }
-    return if !$WithIntrons;
+    return if !$idByExo;
     &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
 }
 
@@ -4362,7 +4367,8 @@ sub AnnotateMfFromHYPPROTSArray {
         my $posiffusion     = $hyprot->get_posiffusion()   || undef;
         
         my $len_orf = 0;
-        if ( !(defined($isFusioned)) && $alt_start && (abs($start-$alt_start)/3 >= 100)  ) {
+        if ( !(defined($isFusioned)) && $alt_start && (abs($start-$alt_start)/3 >= 100) 
+           && ((!$isMinus && $alt_start < $start) || ($isMinus && $start < $alt_start))) {
             $len_orf     = abs($start-$alt_start)/3;
             $fusion_name = "orf$len_orf";
             $posiffusion = 2;
@@ -7042,6 +7048,7 @@ sub ModifCommentForFirstStart {
     foreach my $annot (@$annotations){
         next if $annot->get_type() ne "C";
         my $startline = $annot->get_startline();
+        next if !$startline;
         next if $startline !~ m/First start found (\d+)/;
         my $AnnotStart = $1;
         next if $AnnotStart != $AnnotationStart;
