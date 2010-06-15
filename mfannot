@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.47 2010/06/11 15:26:44 nbeck Exp $
+#    $Id: mfannot,v 2.48 2010/06/15 20:49:53 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.48  2010/06/15 20:49:53  nbeck
+#    Fixed bug for start definition.
+#
 #    Revision 2.47  2010/06/11 15:26:44  nbeck
 #    Fixed various bug: stop, fusion orf/gene.
 #
@@ -315,7 +318,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.47 2010/06/11 15:26:44 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.48 2010/06/15 20:49:53 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1739,12 +1742,11 @@ sub AdjustStartByHMM {
     my $all_possible_st      = &DefineAllPossibleStart($full5, $right_lim_for_st,$aa_accepted);
     my ($best_start,$median) = &ChooseBestStart($st_pos_cmp_st_orf,$all_possible_st,$right_lim_for_st);
 
-    # If no M or v was found A def par similarite !!!
+    # If no M or v or l was found, def by similarity !!!
     my ($firstMaj,$StartInMyProt) = &DefFirstMaj($ali,$prot);
     my $SimiStart  = ($firstMaj - $StartInMyProt);
        $SimiStart  = $hyp_st_full5 + $SimiStart < 0 ? -$hyp_st_full5 : $SimiStart;
     
-    # If no M or v was found
     if (!(defined $best_start)) {
         &ChangeHypProtVal($hypprot, $SimiStart, $isMinus, $seq);
         $hypprot->set_startwarning("Def by similarity no start found");
@@ -2165,36 +2167,16 @@ sub ChooseBestStart {
         #xxxxxxx attention + 2 doit etre ici d une variable.
         delete $all_possible_st->{$st_pos} if $st_pos > ($right_lim_for_st + 2);
     }
-    my $aa_accepted = ["M","v","l"];
-    my $alt_start   = undef;
-    my $min_diff    = 100000;
-    foreach my $aa (@$aa_accepted) {
-        &AddInfoForPosStart($each_st,$all_possible_st,$aa);
-        my $nb_homo  = scalar(keys %$each_st);
-        my $diff     = "";
-        
-        # Start is defined with close homologous.
-        $alt_start   = &ChooseStartWithCloseHomo($all_possible_st,$nb_homo);
-        if (defined $alt_start) {
-            $best_start = $alt_start if !(defined $best_start);
-            my $diff    = $all_possible_st->{$alt_start}->{"min"};
-            $min_diff   = $diff if $diff < $min_diff;
-            if ($best_start != $alt_start) {
-                $best_start = $alt_start if $diff <= $min_diff;
-            }
-        }
-        next if $alt_start;
-        
-        # Start is defined with median.
-        $alt_start   = &ChooseStartWithAllHomo($each_st,$all_possible_st,$median,$aa);
-        next if !(defined $alt_start); # Normally this situation can't be happened.
-        $best_start  = $alt_start if !$best_start;
-        $diff        = abs($median - $alt_start);
-        $min_diff    =  $diff if $diff < $min_diff;
-        if ($best_start != $alt_start) {
-                $best_start = $alt_start if $diff <= $min_diff && $alt_start < $best_start;
-        }
-    }
+    
+    &AddInfoForPosStart($each_st,$all_possible_st);
+    my $nb_homo  = scalar(keys %$each_st);
+
+    # Start is defined with close homologous.
+    $best_start   = &ChooseStartWithCloseHomo($all_possible_st,$nb_homo);
+    return ($best_start,$median) if $best_start;
+    
+    # Start is defined with median.
+    $best_start   = &ChooseStartWithAllHomo($each_st,$all_possible_st,$median);
     return ($best_start,$median);
 }
 
@@ -2211,25 +2193,30 @@ sub ChooseStartIfTooFar {
 sub AddInfoForPosStart {
     my $each_st         = shift;
     my $all_possible_st = shift;
-    my $aa_accepted     = shift;
     
+    # Foreach close homologous
     while (my ($id, $st_homo) = each(%$each_st)) {
         next if $id gt "d";
         my $close_hyp_st = undef;
-        my $min_diff  = 100000;  #very hight value
+        my $min_diff_Whomo  = 100000;  #very hight value
+        # Foreach hypothetic start
         foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-            my $aa   = $all_possible_st->{$st_pos}->{"aa"};
-            delete  $all_possible_st->{$st_pos}->{"count"} if $aa ne $aa_accepted 
-                                                           && $all_possible_st->{$st_pos}->{"count"};
-            next if $aa ne $aa_accepted;
+            my $aa                 = $all_possible_st->{$st_pos}->{"aa"};
+            my $min_diff_pos_start = defined($all_possible_st->{$st_pos}->{"min"}) ? $all_possible_st->{$st_pos}->{"min"} : 100000;
             my $diff = abs($st_homo-$st_pos);
-            ($close_hyp_st,$min_diff) = ($st_pos,$diff) if $diff < $min_diff;
+            print " id : $id st_pos : $st_pos diff : $diff\n";
+            # Choose se closest poss start
+            if ($diff < $min_diff_Whomo) {
+                ($close_hyp_st,$min_diff_Whomo) = ($st_pos,$diff);
+                
+            }
+            # Set min dist for this start
+            if ($diff < $min_diff_pos_start) {
+                $all_possible_st->{$st_pos}->{"min"} = $diff;
+            }
         }
         next if !(defined $close_hyp_st);
-        next if $all_possible_st->{$close_hyp_st}->{"aa"} ne $aa_accepted;
         $all_possible_st->{$close_hyp_st}->{"count"}++;
-        $all_possible_st->{$close_hyp_st}->{"min"}  = $min_diff if ( (not defined ($all_possible_st->{$close_hyp_st}->{"min"}))
-                                                                   || $min_diff <= $all_possible_st->{$close_hyp_st}->{"min"});
     }
 }
 
@@ -2257,19 +2244,15 @@ sub ChooseStartWithAllHomo {
     my $each_st         = shift;
     my $all_possible_st = shift;
     my $median          = shift;
-    my $aa_accepted     = shift;
     
     foreach my $st_pos (sort (keys(%$all_possible_st))) {
         delete $all_possible_st->{$st_pos}->{"count"};
+        delete $all_possible_st->{$st_pos}->{"min"};
     }
     
     my $close_hyp_st = undef;
     my $min_diff     = 100000;  # very hight value
     foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        my $aa   = $all_possible_st->{$st_pos}->{"aa"};
-        delete $all_possible_st->{$st_pos}->{"min"};
-        delete $all_possible_st->{$st_pos}->{"count"};
-        next if $aa ne $aa_accepted;
         my $diff = abs($median-$st_pos);
         ($close_hyp_st,$min_diff) = ($st_pos,$diff) if $diff < $min_diff;
     }
