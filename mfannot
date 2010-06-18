@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.48 2010/06/15 20:49:53 nbeck Exp $
+#    $Id: mfannot,v 2.49 2010/06/18 15:13:20 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.49  2010/06/18 15:13:20  nbeck
+#    Fixed comment bug.
+#
 #    Revision 2.48  2010/06/15 20:49:53  nbeck
 #    Fixed bug for start definition.
 #
@@ -318,7 +321,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.48 2010/06/15 20:49:53 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.49 2010/06/18 15:13:20 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -917,7 +920,7 @@ sub CleanPirmaster {
              my $endline   = $AP->get_endline()   || "";
              my ($new_startline,$new_endline) = ("","");
              my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
-             push (@$AP_to_rm, $id_AP) if $startline =~ m/;;\s+mfannot:/;
+             # push (@$AP_to_rm, $id_AP) if $startline =~ m/;;\s+mfannot:/;
              next if ($type eq "C");
              $AP->set_type("C");
              
@@ -2204,7 +2207,7 @@ sub AddInfoForPosStart {
             my $aa                 = $all_possible_st->{$st_pos}->{"aa"};
             my $min_diff_pos_start = defined($all_possible_st->{$st_pos}->{"min"}) ? $all_possible_st->{$st_pos}->{"min"} : 100000;
             my $diff = abs($st_homo-$st_pos);
-            print " id : $id st_pos : $st_pos diff : $diff\n";
+            #print " id : $id st_pos : $st_pos diff : $diff\n";
             # Choose se closest poss start
             if ($diff < $min_diff_Whomo) {
                 ($close_hyp_st,$min_diff_Whomo) = ($st_pos,$diff);
