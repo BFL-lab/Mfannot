@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.49 2010/06/18 15:13:20 nbeck Exp $
+#    $Id: mfannot,v 2.50 2010/07/02 15:12:12 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.50  2010/07/02 15:12:12  nbeck
+#    Fixed intron length and missing ORF.
+#
 #    Revision 2.49  2010/06/18 15:13:20  nbeck
 #    Fixed comment bug.
 #
@@ -321,7 +324,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.49 2010/06/18 15:13:20 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.50 2010/07/02 15:12:12 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1182,7 +1185,9 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     # Quit the function if evalue is too weak #
     # Note: CompareHighPrecisionFloats(a,b) returns: 1 if a > b, -1 if a < b, 0 if a == b
     my $hit   = $hits[0];
-    if (&CompareHighPrecisionFloats($hit->significance(),$BLASTEVALUECUTOFF) == 1) { 
+    my @hsps         = @{$hit->Hit_hsps()};
+    if (&CompareHighPrecisionFloats($hit->significance(),$BLASTEVALUECUTOFF) == 1 
+    || $hsps[0]->frac_identical() < 0.5 && &CompareHighPrecisionFloats($hit->significance(),$SHORT_HSPS_MIN_EVALUE) == 1) { 
         # If the e-value is not enough for these ORF you can create an Empty ORF 
         my $newemptyorf = new PirObject::EmptyOrf (
                                                    start      => $start,
@@ -2615,7 +2620,8 @@ sub FindExonsInHypProtArray {
                                                        dnaend         => $exon_start_end[$i]->[1],
                                                        strand         => $exon_start_end[$i]->[2],
                                                        exoscore       => $exon_start_end[$i]->[6],
-                                                       frameshiftsize => $frameshift_size
+                                                       frameshiftsize => $frameshift_size,
+                                                       FirstExoMatch  => $exon_start_end[$i]->[3],
                                                       );
                 push (@$hypprotexonarray, $hypprotexon); 
             }
@@ -2651,6 +2657,14 @@ sub FindExonsInHypProtArray {
                  }
                  next if $intron->get_type() || $LVL_INTRON == 2;
                  &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
+            }
+            
+            my $hypprot_list = &CheckLenIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
+            if (scalar(@$hypprot_list) > 1) {
+                splice(@$HYPPROTS,-1,1);
+                foreach my $hypprot (@$hypprot_list) {
+                    push (@$HYPPROTS,  $hypprot);
+                }
             }
         }
     }  # End of each prot
@@ -2707,7 +2721,7 @@ sub DefineBestSol {
     
     my ($best_sol,$min_dist) = (undef,undef);
     for (my $j = @$Group_ER_cp - 1; $j >= 0 ; $j--) {
-        # pour def la meilleur solution si plusieur meilleur regarder celle qui est le plus proche dans le genome
+        # Def best solution if several solution ws found choose the closest in genome
         next if $i == $j;
         my $GR_ini_cp    = $Group_ER_cp->[$j]->[0];
         my $GR_fin_cp    = $Group_ER_cp->[$j]->[-1];
@@ -2729,7 +2743,7 @@ sub DefineBestSol {
                ($min_dist,$best_sol) = ( $dist < $min_dist ? ($dist, $j) : ($min_dist, $best_sol));
         }
     }
-    return $best_sol
+    return $best_sol;
 }
 
 sub Create_alternative_prot {
@@ -2812,7 +2826,7 @@ sub Choose_best_solution {
 
 sub CheckRealIntrons {
     my ($hypprot,$seq,$name,$contigname) = @_;
-
+    
     my $exons   = $hypprot->get_exons();
     my $introns = $hypprot->get_introns();
     my $len_seq = length($seq);
@@ -2827,7 +2841,7 @@ sub CheckRealIntrons {
         my $intron_start = $intron->get_start();
         my $intron_end   = $intron->get_end();
            $intron_end   = $intron_end - 2 if $isMinus;
-        my $intron_len   =  !$isMinus ? ($intron_end - $intron_start + 1) : ($intron_start - $intron_end - 1);
+        my $intron_len   = !$isMinus ? ($intron_end - $intron_start + 1) : ($intron_start - $intron_end - 1);
         next if $intron_len % 3 != 0;
         my $intron_seq   = &GetProteinForGeneWithoutIntrons($seq, $intron_start, $intron_end, $isMinus);
         next if length($intron_seq) == 0;
@@ -2858,10 +2872,81 @@ sub CheckRealIntrons {
         splice(@$exons, $i, 1) if grep($_ == $i, @$exons_to_rm);
     }
     for (my $i = @$introns - 1; $i >= 0 ; $i--) {
-         splice(@$introns, $i, 1) if grep($_ == $i, @$introns_to_rm);
+        splice(@$introns, $i, 1) if grep($_ == $i, @$introns_to_rm);
     }
 }
 
+sub CheckLenIntrons {
+    my $hypprot = shift;
+    
+    my $introns      = $hypprot->get_introns();
+    my $BadList      = &BadIntron($introns);
+    return [$hypprot] if scalar(@$BadList) == 0;
+    my $hypprot_list = &SplitEachProt($BadList,$hypprot);
+    return $hypprot_list;
+}
+
+sub BadIntron {
+    my $introns = shift;
+    
+    my $BadList = [];
+    for (my $i = 0;  $i < scalar(@$introns) ; $i++) {
+        my $intron    = $introns->[$i];
+        next if !$intron;
+        
+        my $idbyRNAw = $intron->get_idbyRNAw();
+        my $APC = $idbyRNAw;
+        my $APL = $APC->get_annotpairlist();
+        my $nb_intron = scalar(@$APL);
+        $nb_intron = 1 if $nb_intron == 0;
+        my $isMinus   = ($intron->get_strand() eq "+" ? 0 : 1);
+        
+        my $intron_start = $intron->get_start();
+        my $intron_end   = $intron->get_end();
+           $intron_end   = $intron_end - 2 if $isMinus;
+        my $intron_len   = !$isMinus ? ($intron_end - $intron_start + 1) : ($intron_start - $intron_end - 1);
+        next if $intron_len >= ($MININTRONSIZE * $nb_intron) && $intron_len <= ($MAXLENINTRONS * $nb_intron);
+        push(@$BadList,$i);
+    }
+    return $BadList;
+}
+
+sub SplitEachProt {
+    my ($BadList,$hypprot)= @_;
+    
+    my $hypprot_list = [];
+    for (my $i = @$BadList - 1; $i >= 0 ; $i--) {
+        my $Bad = $BadList->[$i];
+        my $new_hypprot = $hypprot->DeepClone();
+        
+        # Treat exons.
+        my $introns     = $hypprot->get_introns();
+        my $nb_intron   = scalar(@$introns);
+        next if ($nb_intron == 0);
+        my $exons        = $hypprot->get_exons();
+        my @new_exons_p1 = @$exons[$Bad+1..$nb_intron];
+        my @new_exons_p2 = @$exons[0..$Bad];
+           $new_hypprot->set_exons([@new_exons_p1]);
+           $hypprot->set_exons([@new_exons_p2]);
+        
+        # Treat introns.
+        my @new_introns_p1 = $Bad == $nb_intron - 1 ? () : @$introns[$Bad+1..$nb_intron-1];
+        my @new_introns_p2 = $Bad == 0              ? () : @$introns[0..$Bad-1];
+        $new_hypprot->set_introns([@new_introns_p1]);
+        $hypprot->set_introns([@new_introns_p2]);
+        push(@$hypprot_list,$new_hypprot);
+        push(@$hypprot_list,$hypprot) if $i == 0;
+    }
+    # Re-Defined start, end and firstExonerateMatch.
+    foreach $hypprot (@$hypprot_list) {
+        my $exons = $hypprot->get_exons();
+        my ($start,$end,$ExoStart) = ($exons->[0]->get_dnastart(),$exons->[-1]->get_dnaend(),$exons->[0]->get_FirstExoMatch());
+        $hypprot->set_start($start);
+        $hypprot->set_end($end);
+        $hypprot->set_firstExonerateMatch($ExoStart);
+    }
+    return $hypprot_list;
+}
 sub Add_comment_for_transpliced {
     my ($contigname,$name,$exon_start_end) = @_;
 
@@ -3886,7 +3971,7 @@ sub DefineZone {
     my $Zones    = [];
     
     if ($NbIntron == 0) {
-      my $Start = $IntronStart + $MININTRONSIZE - 1;
+        my $Start = $IntronStart + $MININTRONSIZE - 1;
         my $End   = $IntronEnd   - $MININTRONSIZE - 1;
         push(@$Zones, [[$Start,$End,0]]);
         return $Zones;
@@ -5138,6 +5223,7 @@ sub Adjust_all_intronic_junctions {
 
         my $a_introntype   = $annot->get_introntype()   || "";
         my $a_startline    = $annot->get_startline()    || next;
+        print "startline : $a_startline\n";
         my @intron_type    = split(/,/, $a_introntype);
         my $nb_type        = @intron_type;
 
