@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.51 2010/07/27 20:34:51 nbeck Exp $
+#    $Id: mfannot,v 2.52 2010/08/27 19:19:37 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.52  2010/08/27 19:19:37  nbeck
+#    Fixed start bug for trans-spliced.
+#
 #    Revision 2.51  2010/07/27 20:34:51  nbeck
 #    Fixed HMM model (remove annotated prot) and start annotation.
 #
@@ -327,7 +330,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.51 2010/07/27 20:34:51 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.52 2010/08/27 19:19:37 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -2928,6 +2931,8 @@ sub SplitEachProt {
         my @new_exons_p1 = @$exons[$Bad+1..$nb_intron];
         my @new_exons_p2 = @$exons[0..$Bad];
            $new_hypprot->set_exons([@new_exons_p1]);
+           $new_hypprot->set_altstart("");
+           $new_hypprot->set_exostart("");
            $hypprot->set_exons([@new_exons_p2]);
         
         # Treat introns.
