@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.52 2010/08/27 19:19:37 nbeck Exp $
+#    $Id: mfannot,v 2.53 2010/09/03 20:51:04 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.53  2010/09/03 20:51:04  nbeck
+#    Changed pirObject HMMsearchOutput more flexible for all HMMer package.
+#
 #    Revision 2.52  2010/08/27 19:19:37  nbeck
 #    Fixed start bug for trans-spliced.
 #
@@ -330,7 +333,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.52 2010/08/27 19:19:37 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.53 2010/09/03 20:51:04 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3380,7 +3383,7 @@ sub RunHMMSearchForMiniEx {
     
     my $HMMRes = new PirObject::HMMsearchOutput();
        $HMMRes->FillFeaturesFromTextOutput(\@tab);
-    my $AllHMMRes = $HMMRes->get_resume();
+     my $AllHMMRes =  $HMMRes->get_Iterations()->[0]->get_resume();
 
     foreach my $Res (@$AllHMMRes) {
         my $id = $Res->get_SequenceId();
@@ -3397,8 +3400,9 @@ sub RunHMMSearchForMiniEx {
         my $alignments = $Res->get_alignments();
         splice(@$ListHypExons, $i, 1) if !(defined($alignments));
         next if !(defined($alignments));
-        for (my $j = @$alignments - 1; $j >= 0 ; $j--) {
-            my $ali = $alignments->[$j];
+        
+        foreach my $dom (sort keys %$alignments) {
+            my $ali = $alignments->{$dom};
             my ($hmmFrom,$hmmTo) = ($ali->get_hmmFrom(),$ali->get_hmmTo());
             my $pos = 2;   #Intern match
             if ($hmmFrom == 1 && $hmmTo != $hmmLen) {
@@ -3412,11 +3416,10 @@ sub RunHMMSearchForMiniEx {
             }
             $ali->set_pos($pos);
             if ($pos == 2 || ($hmmFrom > $hmmLen - $More_n) || ($hmmTo   < $More_p+1 )) {
-                splice(@$alignments, $j, 1);
+                delete $alignments->{$dom};
                 next;
             }
         }
-        splice(@$ListHypExons, $i, 1) if scalar(@$alignments) == 0;
     }
     return $ListHypExons;
 }
@@ -3429,11 +3432,11 @@ sub WhichPartWellId {
        $PP  =~ s/\s+PP$//;
        $PP  = substr($PP,$More_p);
        $PP  = substr($PP,0,-$More_n);
-    my $lenPP = length($PP);
+    my $lenPP   = length($PP);
     my $LenHalf = (length($PP) % 2 == 1) ?  ($lenPP-1)/2 : $lenPP/2;
-    my $FiveSt    = substr($PP,0,$LenHalf);
-    my @Five      = split(//,$FiveSt);
-    my $FiveSc    = 0;
+    my $FiveSt  = substr($PP,0,$LenHalf);
+    my @Five    = split(//,$FiveSt);
+    my $FiveSc  = 0;
     foreach my $pos (@Five) {
         $pos = 10 if $pos eq "*";
         $pos = 0  if $pos eq ".";
@@ -4098,7 +4101,8 @@ sub AddSpliceScore {
         
         my ($Group_I1,$Group_I2) = &DefIntronType($BestHypExon);
         
-        foreach my $ali (@$alignments) {
+        foreach my $dom (sort keys %$alignments) {
+            my $ali = $alignments->{$dom};
             my $pos = $ali->get_pos();
             my ($SpliceSeq,$Flanking_5,$Flanking_3) 
                 = &CreateNtAliForIntron($Seq,$Group_I1,$Group_I2,$start_I1,$end_I1,$start_I2,$end_I2,$pos,$Flanking_5,$Flanking_3,$prefix,$suffix);
@@ -4286,7 +4290,7 @@ sub RunHMMForeachSplice {
         
         my $HMMRes = new PirObject::HMMsearchOutput();
            $HMMRes->FillFeaturesFromTextOutput(\@tab);
-        my $AllHMMRes = $HMMRes->get_resume();
+        my $AllHMMRes = $HMMRes->get_Iterations()->[0]->get_resume();
         foreach my $Res (@$AllHMMRes) {
             my $id = $Res->get_SequenceId();
             $evalue->{$id} = $Res->get_fEvalue();
