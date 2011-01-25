@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.53 2010/09/03 20:51:04 nbeck Exp $
+#    $Id: mfannot,v 2.54 2011/01/25 21:16:32 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.54  2011/01/25 21:16:32  nbeck
+#    Added comment for RNA identified by RNAfinder.
+#
 #    Revision 2.53  2010/09/03 20:51:04  nbeck
 #    Changed pirObject HMMsearchOutput more flexible for all HMMer package.
 #
@@ -333,7 +336,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.53 2010/09/03 20:51:04 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.54 2011/01/25 21:16:32 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -429,7 +432,7 @@ die "No path for ErpinModels and HMMweaselModels were found\n"
     
 # Check file existance
 die "File $EXTCONFIGFILE give with option 'ext_select' doesn't exist.\n"
-if (! -e "$EXTCONFIGFILE");
+    if (! -e "$EXTCONFIGFILE");
 
 die "File $MOTFILE give with option 'motfile' doesn't exist.\n"
     if ( ! -e "$MOTFILE");
@@ -5143,6 +5146,16 @@ sub AnnotateFromExternalAPC {
                     $annot->set_endpos($seq_length);
                 }
             }
+            
+            # Add comment
+            my $RNAcomment = $annot->get_RNAcomment() || "";
+            if ($RNAcomment ne "") {
+                $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
+                           " / $RNAcomment" 
+                         : " ;; mfannot: $RNAcomment";
+                $annot->set_startline($a_startline);
+            }
+            
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
                 &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
