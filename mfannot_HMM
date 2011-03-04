@@ -35,9 +35,13 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.1 2011/02/04 21:20:45 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.2 2011/03/04 20:40:51 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.2  2011/03/04 20:40:51  nbeck
+#    Improvemed annotation of gene detected by HMM. Start and end defined for
+#    simple case.
+#
 #    Revision 1.1  2011/02/04 21:20:45  nbeck
 #    A version of mfannot (start at v2.53) able to search low
 #    conserved genes (this not find by Blast) with HMMER.
@@ -338,7 +342,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.1 2011/02/04 21:20:45 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.2 2011/03/04 20:40:51 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -446,7 +450,7 @@ my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 #---------------------------#
 my @LIB_PATH      = (($HOME || ".")); # You can add other search directories here
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
-
+$PEPLIBRARIES = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
 #Check for directory
 #Check for intronic lib
 my $intronic_lib    = "";
@@ -673,6 +677,10 @@ print "$step) Identify start codons; comment fusions...\n";
 $step += 1; 
 &CommentFusion;
 
+print "$step) Find low conserved gene by HMM\n";
+$step +=1;
+&FindLowConservedGenesByHMM();
+
 # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
 if ($ORFPROCESS) {
     print "$step) ORF annotation...\n"; 
@@ -684,10 +692,6 @@ if ($ORFPROCESS) {
 print "$step) Intronic ORF annotation...\n"; 
 $step += 1; 
 &AnnotateIntronicOrfs;
-
-print "$step) Find low conserved gene by HMM\n";
-$step +=1;
-&FindLowConservedGenesByHMM();
 
 &MulticommentConfidence;
 &LcIntrons;
@@ -6617,7 +6621,7 @@ sub FindLowConservedGenesByHMM {
         my $ResDir  = "$directories/hmmRes";
         mkdir($ResDir) if !(-d $ResDir);
         &RunHMMSearchForLowConservedGenes($missing_genes,$add_name,$OrfFile,$ResDir);
-        &MakeAnnotPairForLowConservedGenes($ResDir,$cg->name());
+        &MakeAnnotPairForLowConservedGenes($directories,$ResDir,$cg->name());
     }
 }
 
@@ -6730,10 +6734,16 @@ sub RunHMMSearchForLowConservedGenes {
 }
 
 sub MakeAnnotPairForLowConservedGenes {
-    my ($ResDir,$contigname) = @_;
+    my ($HighDir,$ResDir,$contigname) = @_;
     
     my %dir = ();
     tie %dir, 'IO::Dir', $ResDir;
+    my $contig  = $pirmaster->GetContigByName($contigname);
+    my $seq     = $contig->get_sequence();
+       $seq     = lc($seq);
+    my $contiglen  = $contig->get_sequencelength();
+       
+    my $OrfFile = "$HighDir/$contigname.orf";
     foreach my $Res (keys %dir) {
         next if $Res =~ m/^\./;
         my $FileRes = "$ResDir/$Res";
@@ -6752,29 +6762,403 @@ sub MakeAnnotPairForLowConservedGenes {
              next;
          }
          
-         foreach my $resume (@$resumes) {
-             next if $resume->get_BeforeThresh() == 0;
-             my $description        = $resume->get_Description();
-             my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
-             my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-             my $alignments        = $resume->get_alignments();
-             foreach my $key (keys %$alignments) {
-                 my $ali = $alignments->{$key};
-                 my ($aliFrom,$aliTo) = ($ali->get_aliFrom(),$ali->get_aliTo());
-                 my $start = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3); 
-                 $end   = $direction eq "==>" ? $EndOrf + 3 : $EndOrf - 3;
-                 my $annot = new PirObject::AnnotPair( type      => "C",
-                                              genename  => $Res,
-                                              startpos  => $start,
-                                              endpos    => $end,
-                                              direction => $direction,
-                                              startline => ";; G-$Res $direction start",
-                                              endline   => ";; G-$Res $direction end",);
-                 &AddAnnotToPirMaster($contigname,$annot);
+         my $NbResUpperTresh = $HMMRes->get_Iterations()->[0]->get_NbResUpperTresh();
+         my $ResumesByOrf = &LinkResumeIfIsInSameOrf($resumes,$NbResUpperTresh,$OrfFile);
+         
+         # Foreach ORF
+         while ( my ($Orf, $ResumeForThisOrf) = each %$ResumesByOrf ) {
+             my $ResumesForThisOrf  = $ResumesByOrf->{$Orf};
+             my $Resumes            = $ResumesForThisOrf->{"resume"};
+             my $nbResumeForThisOrf = scalar(@$Resumes);
+             
+             my $IsDup   = $ResumesForThisOrf->{isDuplicate};
+             
+             # Foreach alignement of this resume
+             foreach my $Resume (@$Resumes) {
+                 my $alignments        = $Resume->get_alignments();
+                 
+                 if (scalar(keys(%$alignments)) > 1) {
+                     &CreateAnnotForHMMInSameORF($OrfFile,$Orf,$Resume,$Res,$contigname,$seq,$contiglen);
+                     next;
+                 }
+                 
+                 while (my ($key,$ali) = each (%$alignments)) {
+                     if ($NbResUpperTresh == 1 || $IsDup == 1) {
+                         &CreateAnnotForHMMSimpleCase($OrfFile,$Orf,$Resume,$ali,$Res,$contigname);
+                     }
+                     else {
+                         &CreateAnnotCommentForHMM($Resume,$ali,$Res,$contigname);
+                     }
+                 }
              }
          }
     }
 }
+
+sub CreateAnnotForHMMInSameORF {
+    my ($OrfFile,$Orf,$resume,$name,$contigname,$seq,$contiglen) = @_;
+    
+    my $isInOrder = &CheckHMMMatchOrder($resume);
+    if ($LVL_INTRON == 1) {
+        my $description        = $resume->get_Description();
+        my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+        my $isMinus            = $direction eq "==>" ? 0 : 1;
+        my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+        my $annot = new PirObject::AnnotPair( type      => "C",
+                                              genename  => "ORF",
+                                              startpos  => $StartOrf,
+                                              endpos    => $EndOrf,
+                                              direction => $direction,
+                                              startline => "",
+                                              endline   => "");
+        &LocateIntrons($seq,undef,$annot,$name,$contigname,$isMinus);
+    }
+    
+    my $alignments = $resume->get_alignments();
+    return if !$isInOrder;
+
+    # Generation of gap list.
+    my $gap_list = CreateGapList($resume,$name,$contigname);
+    
+    # Check if 2 gap is OV.
+    $gap_list = &CheckIfTwoGapOV($gap_list);
+    
+    # If 2 gap OV make fusion between ali "before" and "after" gap
+    ($gap_list,$alignments) = &RemoveFalseIntron($gap_list,$alignments);
+    # No more gap
+    if (scalar(keys %$gap_list) == 0) {
+        while (my ($key,$ali) = each (%$alignments)) {
+            &CreateAnnotForHMMSimpleCase($OrfFile,$Orf,$resume,$ali,$name,$contigname);
+        }
+        return;
+    }
+    
+    # Extract intron annotations.
+    my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+    my $annotations = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
+    
+    my $introns_list = [];
+    foreach my $annot (@$annotations) {
+         my $type = $annot->get_type();
+         next if $type ne "C" && $type ne "I";
+         my $line = $annot->get_startline();
+         next if $line !~ m/\/group=/;
+         push(@$introns_list,$annot);
+    }
+    
+    # Check if gap between match contain intron.
+    foreach my $key (sort { $a <=> $b } keys(%$gap_list)) {
+        my $gap = $gap_list->{$key};
+        my ($gStart,$gEnd,$gDir) = ($gap->{start},$gap->{end},$gap->{dir});
+        
+        foreach my $annot (@$introns_list) {
+            my ($Istart,$Iend,$Idir) = ($annot->get_startpos(),$annot->get_endpos(),$annot->direction());
+            my $isOV = &OverlappingRegions($contiglen,$gStart,$gEnd,$gDir,$Istart,$Iend,$Idir);
+            print "gstart $gStart, gend $gEnd, gdir $gDir, istart $Istart, iend $Iend, idir $Idir isOV == $isOV\n";
+            $gap->{OVintron} = 1 if $isOV == 1;
+        }
+    }
+    
+    # If no introns OV.
+    ($gap_list,$alignments) = &RemoveFalseIntron($gap_list,$alignments);
+    
+    # No more gap
+    if (scalar(keys %$gap_list) == 0) {
+        while (my ($key,$ali) = each (%$alignments)) {
+            &CreateAnnotForHMMSimpleCase($OrfFile,$Orf,$resume,$ali,$name,$contigname);
+        }
+        return;
+    }
+    return;
+}
+
+sub CheckHMMMatchOrder {
+    my $resume = shift;
+    
+    my $alignments = $resume->get_alignments();
+    my $prev_hmmFrom = -1;
+    my $isOk = 1;
+    foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
+        my $ali = $alignments->{$key};
+        my ($aliFrom,$hmmFrom) = ($ali->{alFrom},$ali->{hmmFrom});
+        if ($prev_hmmFrom == -1) {
+            $prev_hmmFrom = $hmmFrom;
+            next;
+        }
+        else {
+            $isOk = 0 if $prev_hmmFrom > $hmmFrom;
+            # As we sort ali by aliTo this test is enough to check good order.
+        }
+    }
+    return $isOk;
+}
+
+sub CreateAnnotCommentForHMM {
+    my ($resume,,$ali,$name,$contigname) = @_;
+    
+    my $description        = $resume->get_Description();
+    my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+    my $isMinus            = $direction eq "==>" ? 0 : 1;
+    my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    my ($aliFrom,$aliTo)   = ($ali->get_aliFrom(),$ali->get_aliTo());
+    my ($hmmFrom,$hmmTo)   = ($ali->get_hmmFrom(),$ali->get_hmmTo());
+    my $start              = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
+    my $end                = $direction eq "==>" ? $StartOrf+(($aliTo)*3)   : $StartOrf-(($aliTo)*3);
+    my $startline          = ";;     G-$name $direction start ;; HMMmatch: $hmmFrom,$hmmTo";
+    my $endline            = ";;     G-$name $direction end";
+    
+    my $annot = new PirObject::AnnotPair( type      => "C",
+                                          genename  => $name,
+                                          startpos  => $start,
+                                          endpos    => $end,
+                                          direction => $direction,
+                                          startline => $startline,
+                                          endline   => $endline,);
+    &AddAnnotToPirMaster($contigname,$annot);
+}
+
+sub CreateGapList {
+    my ($resume,$name,$contigname) = @_;
+    
+    my $alignments = $resume->get_alignments();
+    my $gap_list   = {};
+    my $start_gap  = 0;
+    my ($cnt_gl,$cnt_gap) = (0,0);
+    foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
+        my $ali = $alignments->{$key};
+        my ($SimiStart,$SimiEnd) = &GetSimilarityPos($resume,$ali);
+        my $description        = $resume->get_Description();
+        my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+        
+        if ($cnt_gl % 2 == 0) {
+            $start_gap = $SimiEnd;
+        }
+        else {
+            my $addToStart = $direction eq "==>" ?  1 : -1;
+            my $addToEnd   = $direction eq "==>" ? -1 :  1;
+            
+            $gap_list->{$cnt_gap} = { start => $start_gap + $addToStart, end => $SimiStart + $addToEnd, dir => $direction};
+            $cnt_gap++
+        }
+        $cnt_gl++;
+    }
+    return $gap_list;
+}
+
+sub CheckIfTwoGapOV {
+    my $gap_list = shift;
+    
+    foreach my $key (sort { $a <=> $b } keys(%$gap_list)) {
+        my $gap = $gap_list->{$key};
+        my ($gStart,$gEnd,$gDir) = ($gap->{start},$gap->{end},$gap->{dir});
+        my $gapIsOV = 0;
+        if ($gDir eq "==>") {
+            $gapIsOV = 1 if $gEnd < $gStart;
+        }
+        else {
+            $gapIsOV = 1 if $gStart < $gEnd;
+        }
+        next if $gapIsOV != 1;
+        $gap->{OV} = 1;
+    }
+    
+    return $gap_list;
+}
+
+sub RemoveFalseIntron {
+    my ($gap_list,$alignments) = @_;
+    
+    my $cnt = 0;
+    my $prev_key = "";
+    foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
+        if ($prev_key eq "") {
+            $prev_key = $key;
+            $cnt++;
+            next;
+        }
+        my $gap      = $gap_list->{$cnt-1};
+        my $OV       = $gap->{OV}       || 0;
+        my $OVintron = $gap->{OVintron} || 0;
+        
+        if ($OV == 0 && $OVintron == 1) {
+            $cnt++; next;
+        }
+        
+        # Change values in $ali and delete $prev_ali
+        my $ali      = $alignments->{$key};
+        my $prev_ali = $alignments->{$prev_key};
+        
+        my $From_key   = $prev_key; 
+        my $To_key     = $ali->{aliTo}  > $prev_ali->{aliTo}  ? $key : $prev_key;
+        my $evalue_key = $ali->{Cvalue} < $prev_ali->{Cvalue} ? $key : $prev_key;
+        
+        $ali->{aliFrom} = $alignments->{$From_key}->{aliFrom};
+        $ali->{hmmFrom} = $alignments->{$From_key}->{hmmFrom};
+        $ali->{envFrom} = $alignments->{$From_key}->{envFrom};
+        
+        $ali->{aliTo}   = $alignments->{$To_key}->{aliTo};
+        $ali->{hmmTo}   = $alignments->{$To_key}->{hmmTo};
+        $ali->{envTo}   = $alignments->{$To_key}->{envTo};
+        
+        $ali->{Cvalue}  = $alignments->{$evalue_key}->{Cvalue};
+        $ali->{Ivalue}  = $alignments->{$evalue_key}->{Ivalue};
+        
+        
+        delete $alignments->{$prev_key};
+        delete $gap_list->{$cnt-1};
+        $prev_key = $key;
+        $cnt++
+    }
+    return ($gap_list,$alignments)
+}
+
+sub LinkResumeIfIsInSameOrf {
+    my ($resumes,$NbResUpperTresh,$OrfFile) = @_;
+    
+    my $ResumesByOrf = {};
+    my $num_resume   = 0 ;
+    foreach my $resume (@$resumes) {
+        next if $resume->get_BeforeThresh() == 0;
+        my $seqIdAndDesc = $resume->get_SeqIdAndDesc();
+     
+        my $isDuplicate = $NbResUpperTresh == 2 ? &CheckIfHMMERFindADuplicat($resumes,$OrfFile) : 0;
+        my $tmp_res = !$ResumesByOrf->{$seqIdAndDesc} ? [] : $ResumesByOrf->{$seqIdAndDesc}->{resume};
+        push (@$tmp_res,$resume);
+        $ResumesByOrf->{$seqIdAndDesc} = {resume      => $tmp_res,
+                                          isDuplicate => $isDuplicate};
+        $num_resume++;
+    }
+    
+    return $ResumesByOrf;
+}
+
+sub GetSimilarityPos {
+    my ($resume,$ali) = @_;
+    
+    my $description        = $resume->get_Description();
+    my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+    my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    # Treat information of ali and initialize
+    my ($aliFrom,$aliTo) = ($ali->get_aliFrom(),$ali->get_aliTo());
+    my $SimiStart = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
+    my $SimiEnd   = $direction eq "==>" ? $StartOrf+(($aliTo)*3) : $StartOrf-(($aliTo)*3);
+    
+    return ($SimiStart,$SimiEnd);
+}
+
+sub CreateAnnotForHMMSimpleCase {
+    my ($OrfFile,$Orf,$resume,$ali,$name,$contigname) = @_;
+    
+    # Treat information of resume
+    my $description        = $resume->get_Description();
+    my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+    my $isMinus            = $direction eq "==>" ? 0 : 1;
+    my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    
+    # Treat information of ali and initialize
+    my ($aliFrom,$aliTo) = ($ali->get_aliFrom(),$ali->get_aliTo());
+    my ($start,$end) = (0,0);
+    my ($startline,$endline,$type) = ("","","G");
+    
+    my $full5           = GetORF($OrfFile,$Orf);
+    my $aa_accepted     = { "M" => 1};
+    my $all_possible_st = &DefineAllPossibleStart($full5,$aa_accepted);
+    my $CloseStart      = &DefineCloseStart($all_possible_st,$aliFrom,$full5);
+    my $comment         = "";
+    # No M at all was found 
+    if ($CloseStart == $aliFrom && !$all_possible_st->{$CloseStart}) {
+        $start = $StartOrf;
+        my $SimiStart = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
+        $comment = "No M was found similarity start at $SimiStart";
+    }
+    # A M was found after similarity beginning
+    elsif ($CloseStart > $aliFrom) {
+        $start   = $StartOrf;
+        my $SimiStart = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
+        my $FirstM    = $direction eq "==>" ? $StartOrf+($CloseStart*3)  : $StartOrf-($CloseStart*3);
+        $comment = "First M found at $FirstM and similarity start at $SimiStart";
+    }
+    else {
+        $start = $direction eq "==>" ? $StartOrf+($CloseStart*3) : $StartOrf-($CloseStart*3);
+    }
+    $end   = $direction eq "==>" ? $EndOrf + 3 : $EndOrf - 3;
+    
+    $startline    = ";     G-$name $direction start";
+    $endline      = ";     G-$name $direction end";
+    # Translate annotation in comment if no correct M was found
+    if ($comment ne "") {
+        $startline = ";$startline $comment";
+        $endline   = ";$endline $comment";
+        $type      = "C";
+    }
+    
+    my $annot = new PirObject::AnnotPair( type      => $type,
+                                          genename  => $name,
+                                          startpos  => $start,
+                                          endpos    => $end,
+                                          direction => $direction,
+                                          startline => $startline,
+                                          endline   => $endline,);
+    &AddAnnotToPirMaster($contigname,$annot);    
+}
+
+sub GetORF {
+     my ($OrfFile,$seqIdAndDesc) = @_;
+    
+    my $contigList = $OrfFile;
+       $contigList =~ s/\.orf$/\.list/;
+    my $fh_contigList = new IO::File ">$contigList"
+        or die "Can't write in file '$contigList': $!\n";
+    print $fh_contigList "$seqIdAndDesc\n";
+    my $cmd = "grab-fasta -f $OrfFile -H $contigList -o - 2>/dev/null";
+    my $orf = `$cmd`;
+    die "No contig found for $seqIdAndDesc in $OrfFile\n"
+        if $orf eq "";
+    unlink($contigList) if (-e $contigList);
+    my $full5 = $orf;
+       $full5 =~ s/^>.+\n//g;
+    return $full5;
+}
+
+sub DefineCloseStart {
+    my ($all_possible_st,$aliFrom,$orf) = @_;
+    
+    # No M was found
+    if (scalar(keys %$all_possible_st) == 0){
+        return $aliFrom;
+    }
+    # Search M before aliFrom
+    my $close_start = length($orf);
+    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+        next if $st_pos >= $aliFrom;
+        $close_start = $st_pos;
+    }
+    # If no start was found before aliFrom return first M
+    if ($close_start == length($orf)) {
+        foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
+            $close_start = $st_pos;
+            last;
+        }
+    }
+    return $close_start;
+}
+
+sub CheckIfHMMERFindADuplicat {
+    my ($resumes,$OrfFile) = @_;
+    
+    my ($resume1,$resume2) = ($resumes->[0],$resumes->[1]);
+    my $isMinus_resume1 = $resume1->get_Description() !~ m/\(REVERSE SENSE\)/ ? 0 : 1;
+    my $isMinus_resume2 = $resume2->get_Description() !~ m/\(REVERSE SENSE\)/ ? 0 : 1;
+    
+    # If res1 and 2 is in same strand no duplicate.
+    return 0 if $isMinus_resume1 == $isMinus_resume2;
+    my $seqIdAndDesc1 = $resume1->get_SeqIdAndDesc();
+    my $resume1_full5 = GetORF($OrfFile,$seqIdAndDesc1);
+    my $seqIdAndDesc2 = $resume2->get_SeqIdAndDesc();
+    my $resume2_full5 = GetORF($OrfFile,$seqIdAndDesc2);
+    return $resume1_full5 eq $resume2_full5 ? 1 : 0;
+}
+
 #--------------------------------------------------#
 # Subs used for check Multicomments And Lc Introns #
 #--------------------------------------------------#
