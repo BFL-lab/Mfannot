@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.2 2011/03/04 20:40:51 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.3 2011/03/08 20:39:09 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.3  2011/03/08 20:39:09  nbeck
+#    Fixed memory bug for fake annot.
+#
 #    Revision 1.2  2011/03/04 20:40:51  nbeck
 #    Improvemed annotation of gene detected by HMM. Start and end defined for
 #    simple case.
@@ -342,7 +345,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.2 2011/03/04 20:40:51 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.3 2011/03/08 20:39:09 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -3944,7 +3947,7 @@ sub LocateIntrons {
     
     my $name_of_file      = "$TMPDIR/Intron/$name.$flag.fasta";
     my $outputfile_prefix = "$TMPDIR/Intron/$name.$flag";
-    
+        
     die "The file $name_of_file already exist"
         if (-e $name_of_file);
    
@@ -6799,6 +6802,7 @@ sub CreateAnnotForHMMInSameORF {
     my ($OrfFile,$Orf,$resume,$name,$contigname,$seq,$contiglen) = @_;
     
     my $isInOrder = &CheckHMMMatchOrder($resume);
+    my $stock_annot = [];
     if ($LVL_INTRON == 1) {
         my $description        = $resume->get_Description();
         my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
@@ -6811,6 +6815,8 @@ sub CreateAnnotForHMMInSameORF {
                                               direction => $direction,
                                               startline => "",
                                               endline   => "");
+        my $flag = $1 if $annot  && scalar($annot)  =~ m/0x(.+)\)/;
+        push(@$stock_annot,$annot);
         &LocateIntrons($seq,undef,$annot,$name,$contigname,$isMinus);
     }
     
