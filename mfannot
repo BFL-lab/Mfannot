@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.54 2011/01/25 21:16:32 nbeck Exp $
+#    $Id: mfannot,v 2.55 2011/03/18 20:43:49 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.55  2011/03/18 20:43:49  nbeck
+#    Handle IUPAC code replace non ACGT by N.
+#
 #    Revision 2.54  2011/01/25 21:16:32  nbeck
 #    Added comment for RNA identified by RNAfinder.
 #
@@ -336,7 +339,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.54 2011/01/25 21:16:32 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.55 2011/03/18 20:43:49 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -578,7 +581,7 @@ print $LOG_F $options if $ISLOGFILE;
 # - Load the sequence of each contig 
 
 print "Parsing masterfile $MASTERFILE...\n\n";
-my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE);
+my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE,1);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = scalar (@$contigs);        # Number of contigs in the masterfile
 die "No contig header can be found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
@@ -922,7 +925,7 @@ sub CleanPirmaster {
          $contig->set_name("contig$count");
          my $seq = $contig->get_sequence();
             $seq =~ s/\!//g;
-            $seq = $seq;
+	    $seq = $seq;
          $contig->set_sequence($seq);
          foreach my $AP (@$annotations) {
              my $type      = $AP->get_type();
@@ -4484,8 +4487,8 @@ sub AnnotateMfFromHYPPROTSArray {
         my $startwarning = $hyprot->get_startwarning() || "";
         # Add comment for frameshift
         $startwarning .= ($startwarning ne "" ?
-                         " / present probably a frameshift" 
-                       : "present probably a frameshift") 
+                         " / potential frameshift" 
+                       : "potential frameshift") 
                            if $frameshift;
 
         # Add comment for alternative start
@@ -7215,7 +7218,7 @@ sub CreateTBLoutput {
     
     my $mf2sqnErr   = "$TMPDIR/mf2sqnErr1";
     my $mf2sqnOut   = "$TMPDIR/mf2sqnOut1";
-    my $cmd = "mf2sqn -a generic -m $filename -t";
+    my $cmd = "mf2sqn -a Generic -m $filename -t";
     print STDERR $cmd if $DEBUG;
   	my $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
 	
