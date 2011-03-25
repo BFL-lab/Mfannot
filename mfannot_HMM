@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.4 2011/03/18 20:47:04 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.5 2011/03/25 23:33:00 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.5  2011/03/25 23:33:00  nbeck
+#    Changed way to annot rns and rnl, now use hmmsearch.
+#
 #    Revision 1.4  2011/03/18 20:47:04  nbeck
 #    Fixed start/end for gene identified by HMM, and try to reconstruct
 #    structure (exon/intron) of gene identified by HMM.
@@ -349,7 +352,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.4 2011/03/18 20:47:04 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.5 2011/03/25 23:33:00 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -457,7 +460,8 @@ my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 #---------------------------#
 my @LIB_PATH      = (($HOME || ".")); # You can add other search directories here
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
-$PEPLIBRARIES = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
+$PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
+$EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
 #Check for directory
 #Check for intronic lib
 my $intronic_lib    = "";
@@ -5193,10 +5197,12 @@ sub AnnotateFromExternalAPC {
             my $a_startline    = $annot->get_startline() || next;
             
             if ($annot->get_idbyHMM() && $annot->get_idbyHMM() == 1 || lc($a_genename) eq "rnpb" ) {
-                $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
-                           " / Approximative annotation" 
-                         : " ;; mfannot: Approximative annotation";
-                $annot->set_startline($a_startline);
+                if (lc($a_genename) ne "rns" && lc($a_genename) ne "rnl" ) {
+                    $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
+                               " / Approximative annotation" 
+                             : " ;; mfannot: Approximative annotation";
+                    $annot->set_startline($a_startline);
+                }
             }
 
             if ( $endpos < 0 || $startpos < 0 ) {
@@ -5231,6 +5237,16 @@ sub AnnotateFromExternalAPC {
                     $annot->set_endpos($seq_length);
                 }
             }
+            
+            # Add comment
+            my $RNAcomment = $annot->get_RNAcomment() || "";
+            if ($RNAcomment ne "") {
+                $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
+                           " / $RNAcomment" 
+                         : " ;; mfannot: $RNAcomment";
+                $annot->set_startline($a_startline);
+            }
+            
             my $add_external_annot = 1;
             if ($genename eq "IntronII" || $genename eq "IntronI") {
                 &AdjustIntronicAnnot_ForInitialAnnot($contigname,$annot);
