@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot,v 2.55 2011/03/18 20:43:49 nbeck Exp $
+#    $Id: mfannot,v 2.56 2011/03/31 17:01:02 nbeck Exp $
 #
 #    $Log: mfannot,v $
+#    Revision 2.56  2011/03/31 17:01:02  nbeck
+#    Fixed bug with duplicated sequence for HMM.
+#
 #    Revision 2.55  2011/03/18 20:43:49  nbeck
 #    Handle IUPAC code replace non ACGT by N.
 #
@@ -339,7 +342,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot,v 2.55 2011/03/18 20:43:49 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot,v 2.56 2011/03/31 17:01:02 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -4107,7 +4110,9 @@ sub AddSpliceScore {
         
         my ($Group_I1,$Group_I2) = &DefIntronType($BestHypExon);
         
+        my $cnt = 0;
         foreach my $dom (sort keys %$alignments) {
+            next if $cnt != 0;
             my $ali = $alignments->{$dom};
             my $pos = $ali->get_pos();
             my ($SpliceSeq,$Flanking_5,$Flanking_3) 
@@ -4137,6 +4142,7 @@ sub AddSpliceScore {
             my ($AliOut,$ProtHMM) = ("$FileName.ali","$FileName.hmm");
             &RunUmacAndHMMBuild($FileName,$AliOut,$ProtHMM,"AddSpliceScore") if (!(-e $ProtHMM));
             &CreateQueryFile($FileName,$SpliceSeq,$SeqId);
+            $cnt++;
         }
     }
     &RunHMMForeachSplice($ListOfFile,$BestHypExons);
