@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.8 2011/04/01 20:33:32 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.9 2011/04/04 00:49:28 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.9  2011/04/04 00:49:28  nbeck
+#    # Added useage of prot.prm for deviation.
+#
 #    Revision 1.8  2011/04/01 20:33:32  nbeck
 #    Fixed cut-off fir hmmsearch and exonerate.
 #
@@ -361,7 +364,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.8 2011/04/01 20:33:32 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.9 2011/04/04 00:49:28 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -558,6 +561,9 @@ print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
 print $options if $DEBUG;                        # Print the options on the screen 
 
 # CREATE THE TMPDIR #
+my $EGC_FILE = "/share/supported/mfannot/EGC/EGC.$GENCODE";
+die "No EGC file (with ncbi genetic code) was found for your genetic code '$GENCODE'\n"
+    if (!(-f $EGC_FILE));
 $TMPDIR = "/tmp/mfannot.$$" if !$TMPDIR;
 if (! -d $TMPDIR) {
     mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
@@ -566,7 +572,7 @@ if (! -d $TMPDIR) {
 # Initialization of $CODON_TABLE (Hashtable with genetic code)
 my $BIOCODONTABLE   = Bio::Tools::CodonTable->new( -id => $GENCODE);
 die "Unexisting genetic id\n" if   (not $BIOCODONTABLE->id($GENCODE));
-my $CODON_TABLE     = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); # Hashtable with genetic code
+my ($CODON_TABLE,$DEVIATION) = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); # Hashtable with genetic code
 
 # LIB CREATION #
 die "'$PEPLIBRARIES' isn't a directory\n" 
@@ -921,6 +927,30 @@ sub CacheCodonTableWithGeneticId {
     # Comment will begin with "!"
     my $codontable = shift;   # The bio::tools::codontable
     
+    # Parse "prot.prm"present in the current directory to take into account the deviation of the genetic code
+    my $initial_dir   = getcwd;
+    my ($triNtToChange,$Dev_line) = ({},"");
+    my $protprmFile   = "$initial_dir/prot.prm";
+    if (-f $protprmFile) {
+        system("cp $protprmFile $TMPDIR");
+        my $infh  = new IO::File "<$protprmFile"
+             or die "Can't read from file '$protprmFile': $!\n";
+        while( <$infh> ){
+            my $line = $_;
+            next if $line !~ m/^Deviation\s*=/;
+            $Dev_line = $line; 
+            $Dev_line =~ s/^Deviation\s*=\s*//;
+            $Dev_line =~ s/\s+$//;
+            my @correspondence = split(/,/,$Dev_line);
+            foreach my $cor (@correspondence) {
+                my @tab = split(/=/,$cor);
+                $triNtToChange->{uc($tab[0])} = uc($tab[1]);
+            }
+        }
+        $infh->close();
+        &ChangeECGFile($triNtToChange) if (scalar(keys %$triNtToChange) != 0);
+    }
+    
     my $ct_cache = {};
     my @letter = qw (A T C G N);
     my $i      = 0;
@@ -935,14 +965,85 @@ sub CacheCodonTableWithGeneticId {
                 my $codon = $letter[$i].$letter[$j].$letter[$z];
                 my $aa    = $codontable->translate($codon);
                 $ct_cache->{$codon} = $aa;
+                $ct_cache->{$codon} = $triNtToChange->{$codon} if $triNtToChange->{$codon};
                 $z++;
             }
             $j++;
         }
         $i++;
     }
-    return $ct_cache; 
+    return ($ct_cache,$Dev_line); 
 } # End sub
+
+sub ChangeECGFile {
+    my $triNtToChange = shift;
+    
+    # Read ECG File
+    my $infh  = new IO::File "<$EGC_FILE"
+        or die "Can't read from file '$EGC_FILE': $!\n";
+             
+    my $outfh = new IO::File ">$TMPDIR/EGC.$GENCODE"
+        or die "Can't write to $TMPDIR file '$TMPDIR/EGC.$GENCODE': $!\n";
+
+    my $isHeader = 1;
+    my ($AAs,$Starts,$Base1,$Base2,$Base3)    = ([],[].[],[],[]);
+    my ($Starts_l,$Base1_l,$Base2_l,$Base3_l) = ("","","","");
+    while ( my $line = <$infh> ) {
+        $isHeader = 0 if ($line =~ m/^AAs  =/);
+        if ($isHeader == 1) {
+            print $outfh $line;
+        }
+        else {
+            $line =~ s/\n$//;
+            my @this_line = split(/\s*=\s*/,$line);
+            my $info_for_array = $this_line[-1];
+            my @this_array = split(//,$info_for_array);
+            if ($line =~ m/^AAs/) {
+                $AAs = \@this_array;
+            }
+            elsif ($line =~ m/^Starts/) {
+                $Starts   = \@this_array;
+                $Starts_l = $line;
+            }
+            elsif ($line =~ m/^Base1/) {
+                $Base1   = \@this_array;
+                $Base1_l = $line;
+            }
+            elsif ($line =~ m/^Base2/) {
+                $Base2 = \@this_array;
+                $Base2_l = $line;
+            }
+            elsif ($line =~ m/^Base3/) {
+                $Base3 = \@this_array;
+                $Base3_l = $line;
+            }
+        }
+    }
+    $infh->close();
+    
+    my $triNtList = [];
+    for (my $i = 0; $i < @$AAs; $i++) {
+        my $triNt = $Base1->[$i].$Base2->[$i].$Base3->[$i];
+        push(@$triNtList,[$AAs->[$i],$triNt]);
+    }
+    my $new_AAs = "";
+    foreach my $info (@$triNtList) {
+        my ($AA,$triNt) = ($info->[0],$info->[1]);
+        if ($triNtToChange->{$triNt}) {
+            $new_AAs .= $triNtToChange->{$triNt};
+        }
+        else {
+            $new_AAs .= $AA;
+        }
+    }
+    
+    print $outfh "\nAAs  =   $new_AAs\n";
+    print $outfh "$Starts_l\n";
+    print $outfh "$Base1_l\n";
+    print $outfh "$Base2_l\n";
+    print $outfh "$Base3_l\n";
+    $outfh->close();
+}
 
 sub CleanPirmaster {
      my $AP_to_rm = [];
@@ -1053,44 +1154,6 @@ sub DefineNumberOfProcessor {
 # Subs for running flip  #
 #------------------------#
 
-sub RunFlipByCg {
-    # This function run flip with the masterfile
-    # Flip is a program generating ORF
-    my $cwd  = cwd();  # Get current working directory name
-    chdir ("$TMPDIR"); # Need to change the temporary directory to run flip
-
-    # Pour chaque contig
-    my $contigs   = $pirmaster->get_contigs();
-    foreach my $contig (@$contigs) {
-        # Just check if Flip outfiles exist here already, if so get rid of them
-        unlink("prot.lst") if (-e "prot.lst");
-        unlink("prot.src") if (-e "prot.src");
-        unlink("compl")    if (-e "compl");
-        unlink("nocompl")  if (-e "nocompl");
-        
-        my ($name,$geneticcode) = ($contig->get_name(),$contig->get_geneticcode());
-        my $infile      = "$TMPDIR/CgFiles/$name";
-        my $outfile     = "$TMPDIR/flip_$name.output";
-        
-        my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $geneticcode $infile > $TMPDIR/flip.output";
-        # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
-        system("$cmdflip >/dev/null 2>/dev/null");
-        print "$cmdflip\n" if $DEBUG;
-        system("cat prot.lst >> full_prot.lst");
-        system("cat prot.src >> full_prot.src");
-        system("cat compl    >> full_compl");
-        system("cat nocompl  >> full_nocompl");
-    }
-    unlink("prot.lst") if (-e "prot.lst");
-    unlink("prot.src") if (-e "prot.src");
-    unlink("compl")    if (-e "compl");
-    unlink("nocompl")  if (-e "nocompl");
-    system("mv full_prot.lst prot.lst");
-    system("mv full_prot.src prot.src");
-    system("mv full_compl compl");
-    system("mv full_nocompl nocompl");
-} # End sub
-
 sub RunFlip {
     # This function run flip with the masterfile
     # Flip is a program generating ORF
@@ -1119,7 +1182,8 @@ sub RunFlip {
     $ofh->close();
     $ifh->close();
 
-    my $cmdflip = "$FLIPPATH -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip.output";
+    my $to_add  = $DEVIATION ne "" ?  "-d '$DEVIATION'" : ""; 
+    my $cmdflip = "$FLIPPATH $to_add -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip.output";
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
 
     system("$cmdflip >/dev/null 2>/dev/null");
@@ -6670,7 +6734,18 @@ sub GetORFForLowConservedGenes {
     $fasta_fh->close();
     
     my $file_out = "$subdir/$name.orf";
-    system("$GETORFPATH $file_name  -table $GENCODE -outseq $file_out >/dev/null 2>/dev/null");
+    my $cwd = getcwd;
+    chdir("$TMPDIR");
+    my $cmd = "$GETORFPATH $file_name  -table $GENCODE -outseq $file_out";
+    print "$cmd\n" if $DEBUG;
+    my $resultat = system("$cmd >/dev/null 2>/dev/null");    
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
+    }
+    chdir("$cwd");
     return $file_out;
 }
 
@@ -7465,7 +7540,7 @@ sub DefineCloseStart {
     # Search M before aliFrom
     my $close_start = length($orf);
     foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        next if $st_pos >= $aliFrom;
+        next if $st_pos > $aliFrom;
         $close_start = $st_pos;
     }
     # If no start was found before aliFrom return first M or l
