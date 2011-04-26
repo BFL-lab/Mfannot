@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.10 2011/04/09 22:37:26 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.11 2011/04/26 00:24:54 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.11  2011/04/26 00:24:54  nbeck
+#    Fixed lvl_introns for web service, and fixed hmm for non identified genome.
+#
 #    Revision 1.10  2011/04/09 22:37:26  nbeck
 #    Added option for prm usage.
 #
@@ -367,7 +370,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.10 2011/04/09 22:37:26 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.11 2011/04/26 00:24:54 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -478,7 +481,7 @@ my @LIB_PATH      = (($HOME || ".")); # You can add other search directories her
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
 $PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
 $EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
-$LVL_INTRON     = 2;
+$LVL_INTRON    = $MAIL ? 1 : 2;
 #Check for directory
 #Check for intronic lib
 my $intronic_lib    = "";
@@ -833,7 +836,7 @@ sub CreatePepfileWithLibrary {
             next if $line =~ /^;|^\s*$/;
             if ($line =~ /^>/) {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
-                    if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s*([\S]*)\s*;/i));
+                    if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+([\S]+)\s*;/i));
                 my ($origine,$name) = (lc($1),$2);
                 if ($origine eq "pt" || $origine eq "mt") {
                     $origine eq "pt" ? $chloro_gene->{$name}++ : $mito_gene->{$name}++;
@@ -6646,11 +6649,24 @@ sub FindLowConservedGenesByHMM {
         my ($missing_genes,$add_name) = ({},"");
         if ($isMito) {
             $missing_genes = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
-            $add_name      = "_mito";
+            $add_name      = ["_mito"];
         }
         elsif ($isChloro) {
             $missing_genes = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
-            $add_name      = "_chloro";
+            $add_name      = ["_chloro"];
+        }
+        else {
+            my $missing_genes_mito   = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
+            my $missing_genes_chloro = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
+            foreach my $prot_mito (keys %$missing_genes_mito) {
+                my $nb_chloro = $missing_genes_chloro->{$prot_mito} || 0;
+                $missing_genes->{$prot_mito} = $missing_genes_mito->{$prot_mito} + $nb_chloro;
+            }
+            foreach my $prot_chloro (keys %$missing_genes_chloro) {
+                next if $missing_genes->{$prot_chloro};
+                $missing_genes->{$prot_chloro} = $missing_genes_chloro->{$prot_chloro};
+            }
+            $add_name      = ["_mito","_chloro"]
         }
         $missing_genes->{"hnh"}++; $missing_genes->{"giy"}++ ;$missing_genes->{"laglidadg"}++;
         my $OrfFile = &GetORFForLowConservedGenes($cg->get_sequence(),$cg->get_name());
@@ -6658,7 +6674,7 @@ sub FindLowConservedGenesByHMM {
         my $ResDir  = "$directories/hmmRes";
         mkdir($ResDir) if !(-d $ResDir);
         &RunHMMSearchForLowConservedGenes($missing_genes,$add_name,$OrfFile,$ResDir);
-        &CreateAllAnnotFindByHMM($directories,$ResDir,$cg->name());
+        &CreateAllAnnotFindByHMM($directories,$ResDir,$cg->name(),$add_name);
     }
 }
 
@@ -6760,38 +6776,50 @@ sub RunHMMSearchForLowConservedGenes {
     my ($FileRes,$hmm,$FastaName) = ("","",""); 
     
     foreach my $prot (keys %$missing_genes) {
-        if (!(-f "$HMM_model_path/$prot.hmm") && !(-f "$HMM_model_path/${prot}$add_name.hmm")) {
-            print "no hmm model find for $prot in $HMM_model_path, $prot is not searched\n";
-            next;
+        # Count to know how many models available
+        my $cnt = 0;
+        $cnt++ if (-f "$HMM_model_path/$prot.hmm");
+        foreach my $add (@$add_name) {
+            $cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
         }
-        elsif ((-f "$HMM_model_path/$prot.hmm") && (-f "$HMM_model_path/${prot}$add_name.hmm" && $add_name ne "")) {
-            print "2 hmm models was found for $prot in $HMM_model_path, $prot is not searched\n";
-            next;
+        
+        if ($cnt == 0) {
+            print "No hmm model find for $prot in $HMM_model_path, $prot is not searched\n"; next;
         }
-        my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add_name.hmm";
+        if (   scalar(@$add_name) == 1 && $cnt == 2) {
+            print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+        }
+        elsif (scalar(@$add_name) == 2 && $cnt == 3) {
+            print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+        }
         
-       
-        my $FileRes .= "$ResDir/$prot";
-        my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
-        print "$cmd\n" if $DEBUG;
-        
-        my $resultat = system("$cmd >/dev/null 2>/dev/null");
-        
-        my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-        my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-        my $returncode  = $resultat >> 8;   # exit status of subprogram
-        if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
-            print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
+        foreach my $add (@$add_name) {
+            my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
+            
+            my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
+            my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+            print "$cmd\n" if $DEBUG;
+            
+            my $resultat = system("$cmd >/dev/null 2>/dev/null");
+            
+            my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+            my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+            my $returncode  = $resultat >> 8;   # exit status of subprogram
+            if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+                print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
+            }
+            last if (-f "$HMM_model_path/$prot.hmm");
         }
     }
 }
 
 #---- CreateAllAnnotFindByHMM ----#
 sub CreateAllAnnotFindByHMM {
-    my ($HighDir,$ResDir,$contigname) = @_;
+    my ($HighDir,$ResDir,$contigname,$add_name) = @_;
     
     my $AllHMMAnnot = {};
-    my %dir = ();
+    my $both = scalar(@$add_name) == 2 ? 1 : 2;
+    my %dir  = ();
     tie %dir, 'IO::Dir', $ResDir;
     my $contig     = $pirmaster->GetContigByName($contigname);
     my $seq        = $contig->get_sequence();
@@ -6826,7 +6854,7 @@ sub CreateAllAnnotFindByHMM {
             # Important need to be sort by aliFrom for remove false intron after
             foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
                 my $ali = $alignments->{$key};
-                my $annot = &CreateAnnotCommentForHMM($resume,$ali,$Res,$contigname);
+                my $annot = &CreateAnnotCommentForHMM($resume,$ali,$Res,$contigname,$both);
                 my $idORF = $annot->get_IdORF();
                 $annot->set_HMMlen($QueryLen);
                 $annots->{$key} = $annot;
@@ -7473,8 +7501,11 @@ sub GetORF {
 }
 
 sub CreateAnnotCommentForHMM {
-    my ($resume,,$ali,$name,$contigname) = @_;
+    my ($resume,$ali,$name,$contigname,$both) = @_;
     
+    my @tab_name = split(/_/,$name);
+    $name    = $tab_name[0];
+    my $ori  = $tab_name[1] || "";
     my $description        = $resume->get_Description();
     my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
     my $isMinus            = $direction eq "==>" ? 0 : 1;
@@ -7484,6 +7515,7 @@ sub CreateAnnotCommentForHMM {
     my $start              = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
     my $end                = $direction eq "==>" ? $StartOrf+(($aliTo)*3)-1   : $StartOrf-(($aliTo)*3)+1;
     my $startline          = ";;     G-$name $direction start";
+       $startline         .= " ;; /ori= $ori" if $both == 1;
     my $endline            = ";;     G-$name $direction end";
     
     my $annot = new PirObject::AnnotPair( type      => "C",
@@ -7495,7 +7527,8 @@ sub CreateAnnotCommentForHMM {
                                           endline   => $endline,
                                           score     => $ali->get_Cvalue(),
                                           IdORF     => $resume->get_SeqIdAndDesc(),
-                                          HMMmatch  => "$hmmFrom,$hmmTo"
+                                          HMMmatch  => "$hmmFrom,$hmmTo",
+                                          origine   => $both == 1 ? $ori : undef
                                         );
     return $annot;
 }
