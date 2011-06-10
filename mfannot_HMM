@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.11 2011/04/26 00:24:54 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.12 2011/06/10 23:17:31 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.12  2011/06/10 23:17:31  nbeck
+#    Fixed annotation of empty orf (should not overlap RNA).
+#
 #    Revision 1.11  2011/04/26 00:24:54  nbeck
 #    Fixed lvl_introns for web service, and fixed hmm for non identified genome.
 #
@@ -370,7 +373,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.11 2011/04/26 00:24:54 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.12 2011/06/10 23:17:31 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -694,12 +697,12 @@ if (!$PARTIAL) {
     &AnnotateMiniExonsByHMM;
 }
 
-&AnnotateMfFromHYPPROTSArray;
-
 # Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
 print "$step) Annotation of RNA genes...\n"; 
 $step += 1;
 &Annotate_Using_external_programs;
+
+&AnnotateMfFromHYPPROTSArray;
 
 # Adjust intronic boundaries with rules for type I and type II 
 print "$step) Adjust intronic boundaries...\n"; 
@@ -4626,13 +4629,38 @@ sub AnnotateMfFromHYPPROTSArray {
         my $posiffusion     = $hyprot->get_posiffusion()   || undef;
         
         my $len_orf = 0;
-        if ( !(defined($isFusioned)) && $alt_start && (abs($start-$alt_start)/3 >= 100) 
+        if ( !(defined($isFusioned)) && $alt_start && (abs($start-$alt_start)/3 >= 100)
            && ((!$isMinus && $alt_start < $start) || ($isMinus && $start < $alt_start))) {
-            $len_orf     = abs($start-$alt_start)/3;
-            $fusion_name = "orf$len_orf";
-            $posiffusion = 2;
-            $startlinenumber = ( $isMinus ? 0 : 2);
-            $endlinenumber   = ( $isMinus ? 2 : 0);
+            my $annot_who_overlap = &WhatOverlapsThis($alt_start,$start,$contig);
+            # Keep only RNA
+            my $list_of_pos = [];
+            foreach my $list_who_overlap (@$annot_who_overlap) {
+                foreach my $AP_who_overlap (@$list_who_overlap ) {
+                    my $annot = $AP_who_overlap->[2];
+                    my $name  = $annot->get_genename();
+                    next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i;
+                    push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
+                }
+            }
+            @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
+            my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
+            if ($isMinus) {
+                while ($alt_start > $retain_val) {
+                    $alt_start = $alt_start - 3;
+                }
+            }
+            else {
+                while ($alt_start < $retain_val) {
+                    $alt_start = $alt_start + 3;
+                }
+            }
+            if (abs($start-$alt_start)/3 >= 100) {
+                $len_orf     = abs($start-$alt_start)/3;
+                $fusion_name = "orf$len_orf";
+                $posiffusion = 2;
+                $startlinenumber = ( $isMinus ? 0 : 2);
+                $endlinenumber   = ( $isMinus ? 2 : 0);
+            }
         }
         
         my $A_type           = "C" if $ToComment;
@@ -5944,19 +5972,44 @@ sub AddCommentForFusion {
 sub AnnotateEmptyOrfs {
    # This function takes the empty array of ORF and annotate it as ORFs
    # It means ORF having non corresponding gene in a pepfile
-   my $orf_a_annoter = scalar(@$EMPTYORFS);  
-     
     foreach my $emptyorf (@$EMPTYORFS) {
          # Process each non corresponding orf
          # Get informations  about empty ORF
          my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
+         my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
          my $strand_orf = $emptyorf->get_strand();
 
-         my $arrow = $strand_orf == 1 ? '==>' : '<==';
+         my $arrow   = $strand_orf == 1 ? '==>' : '<==';
+         my $isMinus   = $strand_orf == 1 ?  0 : 1;
          my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
          
+         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+         # Keep only RNA
+         my $list_of_pos = [];
+         foreach my $list_who_overlap (@$annot_who_overlap) {
+             foreach my $AP_who_overlap (@$list_who_overlap ) {
+                 my $annot = $AP_who_overlap->[2];
+                 my $name  = $annot->get_genename();
+                 next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i;
+                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
+             }
+         }
+         @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
+             if (scalar(@$list_of_pos) != 0 ) {
+             my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
+             if ($isMinus) {
+                 while ($start_orf > $retain_val) {
+                     $start_orf = $start_orf - 3;
+                 }
+             }
+             else {
+                 while ($start_orf < $retain_val) {
+                     $start_orf = $start_orf + 3;
+                 }
+             }
+         }
+         
          my $minimumlengthorf  = $MINLENEMPTYORF;    # Minimum Orf size, below this size, the ORF is no more kept
-         my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
          my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
          my $seq               = $contig->get_sequence();    # Get the sequence
             $seq               =~ s/!//g;                    # Remove ! from the sequence
@@ -5967,7 +6020,6 @@ sub AnnotateEmptyOrfs {
         my $possible_start = ();
         my $start_info     = ();
         # Other checking, such as overlapping..........
-        my $isMinus   = $strand_orf == 1 ?  0 : 1;
         my $posOffset = $isMinus         ? -3 : 3;
         for (;;$start_orf += $posOffset) {
             my $start_info     = ();
