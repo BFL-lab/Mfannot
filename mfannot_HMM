@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.12 2011/06/10 23:17:31 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.13 2011/06/13 23:58:44 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.13  2011/06/13 23:58:44  nbeck
+#    Fixed undef value and Generic.
+#
 #    Revision 1.12  2011/06/10 23:17:31  nbeck
 #    Fixed annotation of empty orf (should not overlap RNA).
 #
@@ -373,7 +376,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.12 2011/06/10 23:17:31 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.13 2011/06/13 23:58:44 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -4643,7 +4646,7 @@ sub AnnotateMfFromHYPPROTSArray {
                 }
             }
             @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
-            my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
+            my $retain_val   = $isMinus ? @$list_of_pos[0] || $alt_start : @$list_of_pos[-1] || $alt_start ;
             if ($isMinus) {
                 while ($alt_start > $retain_val) {
                     $alt_start = $alt_start - 3;
@@ -8394,7 +8397,7 @@ sub CreateTBLoutput {
     
     my $mf2sqnErr   = "$TMPDIR/mf2sqnErr1";
     my $mf2sqnOut   = "$TMPDIR/mf2sqnOut1";
-    my $cmd = "mf2sqn -a generic -m $filename -t";
+    my $cmd = "mf2sqn -a Generic -m $filename -t";
     print STDERR $cmd if $DEBUG;
   	my $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
 	
