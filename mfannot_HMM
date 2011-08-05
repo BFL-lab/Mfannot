@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.13 2011/06/13 23:58:44 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.14 2011/08/05 14:12:37 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.14  2011/08/05 14:12:37  nbeck
+#    Fixed gene annotation if identified by HMM and present at genome start or end.
+#
 #    Revision 1.13  2011/06/13 23:58:44  nbeck
 #    Fixed undef value and Generic.
 #
@@ -376,7 +379,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.13 2011/06/13 23:58:44 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.14 2011/08/05 14:12:37 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -6848,6 +6851,7 @@ sub RunHMMSearchForLowConservedGenes {
             print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
         }
         
+        # To parralized
         foreach my $add (@$add_name) {
             my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
             
@@ -6950,7 +6954,7 @@ sub CreateAllAnnotFindByHMM {
         
         # W/o introns or with introns
         if (scalar(@$tab_exons) == 0) {
-            $annot = &FindStartAndStopForSimpleGeneIdByHMM($annot,$seq);
+            $annot = &FindStartAndStopForSimpleGeneIdByHMM($annot,$seq,$contiglen);
             &AddAnnotToPirMaster($contigname,$annot);
         }
         else {
@@ -7429,7 +7433,7 @@ sub TryToReconstructFullGene {
 }
 
 sub FindStartAndStopForSimpleGeneIdByHMM {
-    my ($annot,$seq) = @_; 
+    my ($annot,$seq,$contiglen) = @_; 
     
     my $direction       = $annot->get_direction();
     my $isMinus         = $direction eq "==>" ? 0 : 1;
@@ -7476,8 +7480,16 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
         
         $annot->set_type("G");
     }
-    $end   = $direction eq "==>" ? $EndOrf + 3 : $EndOrf - 3;
-
+    
+    if ($direction eq "==>" && ($EndOrf + 3) > $contiglen) {
+    	$end = $EndOrf;
+    }
+    elsif ($direction eq "<==" && $EndOrf - 3 < 1) {
+        $end = $EndOrf;
+    }
+    else {
+        $end   = $direction eq "==>" ? $EndOrf + 3 : $EndOrf - 3;
+    }
     $annot->set_startpos($start);
     $annot->set_endpos($end);
     my $startline = $annot->get_startline();
