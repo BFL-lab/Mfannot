@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.14 2011/08/05 14:12:37 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.15 2011/08/15 03:32:58 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.15  2011/08/15 03:32:58  nbeck
+#    Removed die when protein haved non standard length, put this one in comment.
+#
 #    Revision 1.14  2011/08/05 14:12:37  nbeck
 #    Fixed gene annotation if identified by HMM and present at genome start or end.
 #
@@ -379,7 +382,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.14 2011/08/05 14:12:37 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.15 2011/08/15 03:32:58 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -1891,14 +1894,15 @@ sub AdjustStartByHMM {
     
     # Def this_prot
     my $prot = $hypprot->get_name();
-    my $this_prot = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
-       $this_prot = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
+    my $this_prot   = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
+    my $pb          = "";
+       ($this_prot,$pb) = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
     $hypprot->set_thisprot($this_prot);
     
     if ($this_prot eq "Frame-Shift-Detected") {
         $hypprot->set_startwarning("Aproximative start");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
-        return;
+        return $pb eq "dna_length" ? "Frame-Shift-Detected-Length" : "Frame-Shift-Detected";
     }
 
     # Def Full5
@@ -2827,7 +2831,38 @@ sub FindExonsInHypProtArray {
                 push (@$hypprotintronarray, $hypprotintron);
             }
             &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
-            &AdjustStartByHMM($hypprot, $dna_seq, $contigname);
+            my $msg = &AdjustStartByHMM($hypprot, $dna_seq, $contigname);
+            
+            if ($msg && $msg eq "Frame-Shift-Detected-Length") {
+				my $arrow = $strand == 1 ? "==>" : "<==";
+				
+				my $exons = $hypprot->get_exons();
+				for (my $i = 0; $i < @$exons; $i++) {
+					my $idx = $i + 1;
+					my $exon = new PirObject::AnnotPair(
+												type      => "C",
+												genename  => $name,
+												startpos  => $exons->[$i]->get_dnastart(),
+												endpos    => $exons->[$i]->get_dnaend(),
+												startline => ";; $name-E$idx $arrow start ;; mfannot: potential frameshift" , 
+												endline   => ";; $name-E$idx $arrow end"
+												);
+					&AddAnnotToPirMaster($contigname,$exon);
+				}
+            	
+				my $hyp_prot = new PirObject::AnnotPair(
+                                                 type      => "C",
+                                                 genename  => $name,
+                                                 startpos  => $start,
+                                                 endpos    => $exons->[-1]->get_dnaend(),
+                                                 direction => $arrow,
+                                                 startline => ";; $name $arrow start ;; mfannot: potential frameshift",
+                                                 endline   => ";; $name $arrow end",
+                                                 );
+			    &AddAnnotToPirMaster($contigname,$hyp_prot);
+			    pop @$HYPPROTS;
+			    next;
+			} 
             
             my $introns = $hypprot->get_introns();
             for (my $i = 0; $i < @$introns; $i++) {
@@ -3647,6 +3682,7 @@ sub GetProteinSequenceAndIntronsPos {
     my $name         = $hypprot->get_name();
     my $dna_sequence = "";
     my $length_tot   = 0;
+	
     for (my $i = 0 ; $i < scalar(@$exons) ; $i++) {
         my $hasFrameshift = $exons->[$i]->frameshiftsize();
         return "Frame-Shift-Detected" if $hasFrameshift;
@@ -3671,8 +3707,9 @@ sub GetProteinSequenceAndIntronsPos {
     }
     
     my $dna_length    = length($dna_sequence);
-    die "The protein $name is not valid, its length is not a multiple of three\n"
-       if $dna_length % 3 != 0;
+    if ($dna_length %3 != 0) {
+	    return ("Frame-Shift-Detected","dna_length") if $dna_length % 3 != 0;
+	}
        
     my $prot_sequence = &TranslateInProt($dna_sequence);
     $hypprot->set_thisprot($prot_sequence);
