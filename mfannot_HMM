@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.15 2011/08/15 03:32:58 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.16 2011/08/20 20:13:21 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.16  2011/08/20 20:13:21  nbeck
+#    Fixed annotation of dpo and rpo.
+#
 #    Revision 1.15  2011/08/15 03:32:58  nbeck
 #    Removed die when protein haved non standard length, put this one in comment.
 #
@@ -382,7 +385,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.15 2011/08/15 03:32:58 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.16 2011/08/20 20:13:21 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 
@@ -437,6 +440,7 @@ my $PARTIAL;                                    # This will cause mfannot to onl
 my $INSERTION;                                  # Minimum length for report insertion.
 my $MAIL;                                       # Mail in order to send results
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
+my $JUST_SIMI;                                  # An array containing names of gene to annotate by HMM similarity
 
 # Command line Program's paths
 my $PATH = $ENV{"PATH"} || "";
@@ -841,30 +845,34 @@ sub CreatePepfileWithLibrary {
     # Concatenate all the file from the library
     my $desc = "";
     foreach my $file (@files) {
-        my $loc_file = "$library/$file";
+	my $loc_file = "$library/$file";
         
         my $PEP_F = new IO::File "<$loc_file" or die "Can not open the pepfile '$loc_file': $!\n";
+        my $to_annot = 0;
         while (my $line = <$PEP_F>) {
             next if $line =~ /^;|^\s*$/;
             if ($line =~ /^>/) {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
                     if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+([\S]+)\s*;/i));
                 my ($origine,$name) = (lc($1),$2);
+                $to_annot = scalar(grep( /^$name$/, @$JUST_SIMI)) == 0 ? 1 : 0;
                 if ($origine eq "pt" || $origine eq "mt") {
                     $origine eq "pt" ? $chloro_gene->{$name}++ : $mito_gene->{$name}++;
                 }
                 $desc = $line;
                 $desc =~ s/^>?\s*//;
                 $desc =~ s/\s*$//;
-                print $outfh ">$desc\n";
+                print $outfh ">$desc\n" if $to_annot;
                 die "Error in library $library: duplicated FASTA header '$desc'.\n"
                     if exists $desc_to_prot->{$desc};
                 next;
             }
-            print $outfh $line; # seq line
-            $line =~ s/^\s*//; # cleanup seq line
-            $line =~ s/\s*$//;
-            $desc_to_prot->{$desc} .= $line;
+            if ($to_annot) {
+                print $outfh $line; # seq line
+                $line =~ s/^\s*//; # cleanup seq line
+                $line =~ s/\s*$//;
+                $desc_to_prot->{$desc} .= $line;
+            }
         }
         $PEP_F->close();
     }
@@ -908,6 +916,7 @@ sub GetOptions {
     $MAIL                    = $option->mail;              # Mail in order to send results
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
+    $JUST_SIMI               = ["dpo","rpo"];              # XXXX Need to be an option
     
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
@@ -6157,10 +6166,12 @@ sub CheckIfOrfIsToAnnot {
             my $feature_startpos        = $features_who_overlap->[2]->startpos;
             my $feature_endpos          = $features_who_overlap->[2]->endpos;
             my $feature_endline         = $features_who_overlap->[2]->endline;
+            my $feature_contain         = $features_who_overlap->[2]->containStruc || 0;
             
             #       ------------         ORF
             # * ------------------- **   Gene
             return ($tab_OV,$isOV,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "G" );
+            return ($tab_OV,$isOV,$ToAnnot) if ( $feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc);
             
             # No overlap with tRNA
             if ($isLongORF == 0) {
@@ -6198,7 +6209,7 @@ sub DefineOVByPercent {
     foreach my $features_who_overlap (@$info_who_overlap ){
         my $type   = $features_who_overlap->[2]->type;
         my $isFull = $features_who_overlap->[3] eq "YES" ? 1 : 0;
-        next if $type eq "O" || $type ne "G";
+         next if $type eq "O" || $type ne "G";
         $OV_autorized = $isFull ? 
                      &DefineCutForGeneWithoutIntron($min_orf,$max_orf,$info_who_overlap,$emptyorf)
                    : &DefineCutForGeneWithIntron($min_orf,$max_orf,$info_who_overlap,$emptyorf);
@@ -6942,7 +6953,7 @@ sub CreateAllAnnotFindByHMM {
          }
          my $QueryInfo = $HMMRes->get_Iterations()->[0]->get_QueryModel();
          my $QueryLen  = $1 if $QueryInfo =~ m/\(\s*(\d+)\s*nodes\s*\)/;
-         
+
          foreach my $resume (@$resumes) {
             next if $resume->get_BeforeThresh() == 0;
             my $alignments = $resume->get_alignments();
@@ -6958,6 +6969,9 @@ sub CreateAllAnnotFindByHMM {
              $AllHMMAnnot->{$Res}->{$resume->get_SeqIdAndDesc()} = [$annots,$resume];
          }
     }
+    
+    # Annotation of dpo and rpo in first time
+    $AllHMMAnnot = &AnnotationOfParticularStruc($AllHMMAnnot,$contigname); 
 
     my $keepAnnot = [];
     # Check and remove false intron.
@@ -7006,6 +7020,54 @@ sub CreateAllAnnotFindByHMM {
             &AddAnnotToPirMaster($contigname,$annot);
         }
     }
+}
+
+sub AnnotationOfParticularStruc {
+    my ($AllHMMAnnot,$contigname) = @_; 
+    
+    foreach my $name (keys %$AllHMMAnnot) {
+        my $genename = $1 if $name =~ m/^(.+)_/;
+        next if scalar(grep( /^$genename$/, @$JUST_SIMI)) == 0;
+        my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
+        foreach my $Orf (keys %$AllHMMAnnotByGene) {
+            #ORF Annotation
+            my $resume      = $AllHMMAnnotByGene->{$Orf}->[1];
+            my $description = $resume->get_Description();
+            my $direction   = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+            my $isMinus     = $direction eq "==>" ? 0 : 1;
+            my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+            my $orfsize = !$isMinus ? (($EndOrf - $StartOrf + 1)/3) - 1 : (($StartOrf - $EndOrf + 1)/3) -1;
+            my $GenenameORF = "orf". $orfsize;
+            my $orf_annot = new PirObject::AnnotPair( type      => "O",
+                                                  genename  => $GenenameORF,
+                                                  startpos  => $StartOrf,
+                                                  endpos    => $EndOrf,
+                                                  direction => $direction,
+                                                  containStruc => 1,
+                                                  startline => "; G-$GenenameORF $direction ;; start contain $genename",
+                                                  endline   => "; G-$GenenameORF $direction end");
+            
+            &AddAnnotToPirMaster($contigname,$orf_annot);
+            
+            my $annots      = $AllHMMAnnotByGene->{$Orf}->[0];
+            foreach my $key(keys %$annots) {
+                my $annot = $annots->{$key};
+                my $startline = $annot->get_startline . ";; HMM match pos. " . $annot->get_HMMmatch . " score " . $annot->get_score;
+                my $simi_annot = new PirObject::AnnotPair( type      => "C",
+                                                         genename  => "ORF",
+                                                         startpos  => $annot->get_startpos,
+                                                         endpos    => $annot->get_endpos,
+                                                         direction => $direction,
+                                                         startline => $startline,
+                                                         endline   => $annot->get_endline
+                                                         );
+                &AddAnnotToPirMaster($contigname,$simi_annot);
+            }
+        }
+        delete $AllHMMAnnot->{$name};
+    }
+    
+    return $AllHMMAnnot;
 }
 
 sub CheckForFalseIntrons {
@@ -7316,7 +7378,8 @@ sub MakeSelectionForSimpleCase {
                 my $features_min            = $features_who_overlap->[0];
                 my $features_max            = $features_who_overlap->[1];
                 if ( ($feature_annot_type eq "G" && $features_who_overlap->[3] eq "YES")      # Gene without intron
-                  || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")) {   # First or last exon
+                  || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")
+                  || ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc)) {   # First or last exon
                     
                     if ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
                     || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
@@ -7324,6 +7387,9 @@ sub MakeSelectionForSimpleCase {
                         my $max_start = ( ( $features_min > $min_annot ) ? $features_min : $min_annot);
                         my $min_end   = ( ( $features_max < $max_annot ) ? $features_max : $max_annot );
                         push(@$new_sort,$annot) if ($overlappingcutoff > ( $min_end - $max_start + 1));
+                    }
+					elsif ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc) {
+                        push(@$new_sort,$annot)
                     }
                 }
             }
@@ -8023,7 +8089,7 @@ sub WhatOverlapsThis {
     ($wstart, $wend) = ($wend, $wstart) if $wend < $wstart;
 
     my @GEI_annots = grep( $_->get_type() =~ m#^[GEIO]$# , @$annotlist);
-    my %RanksGEI   = ( G => 0, E => 1, I => 2, O => 3 );
+    my %RanksGEI   = ( G => 0, E => 1, I => 2, O => 3);
     @GEI_annots    = sort { $a->get_genename() cmp $b->get_genename()
                                                 or
                      $RanksGEI{$a->get_type()} <=> $RanksGEI{$b->get_type()}
