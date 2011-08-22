@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.16 2011/08/20 20:13:21 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.17 2011/08/22 01:59:53 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.17  2011/08/22 01:59:53  nbeck
+#    Added parallelization of HMM research for low conserved genes.
+#
 #    Revision 1.16  2011/08/20 20:13:21  nbeck
 #    Fixed annotation of dpo and rpo.
 #
@@ -360,6 +363,7 @@ use Bio::Tools::CodonTable;                           # To create a codon table,
 use Bio::Matrix::IO;                                  # Used for read matrix like PAM
 use List::Util qw(min max);
 use Sys::Hostname;
+sub info;
 
 BEGIN {
 # Load PirObject
@@ -385,9 +389,10 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.16 2011/08/20 20:13:21 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.17 2011/08/22 01:59:53 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
+my $MAINPROGRAM_PID = $$;
 
 # Get login name
 my $USER = getpwuid($<) or getlogin or die "Can't find USER from environment!\n";
@@ -794,6 +799,7 @@ exit 0;
 END { 
     # With exit, programme will go here
     # Cleanup temp directory when program exits.
+	return unless $$ == $MAINPROGRAM_PID; # We don't want to run this in a CHILD!
     return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     print "Temporary work directory $TMPDIR NOT cleaned up ...\n" if $DEBUG; 
     rmtree($TMPDIR) unless $DEBUG;
@@ -6881,43 +6887,70 @@ sub RunHMMSearchForLowConservedGenes {
     my ($missing_genes,$add_name,$OrfFile,$ResDir) = @_;
     my ($FileRes,$hmm,$FastaName) = ("","",""); 
     
-    foreach my $prot (keys %$missing_genes) {
-        # Count to know how many models available
-        my $cnt = 0;
-        $cnt++ if (-f "$HMM_model_path/$prot.hmm");
-        foreach my $add (@$add_name) {
-            $cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
-        }
+    my $totalstart = time;
+    my %pidsprots=();
+    my %protstarttime=();
+    
+    my @prots_todo = sort keys %$missing_genes;
+	info "Starting processing for HMMbuild and Align on $NB_PROC processor(s).\n" if $DEBUG;
+	for (;;) {
+		my $ongoing = scalar(keys %pidsprots);
+        last if !@prots_todo && !$ongoing;
+		if ($ongoing >= $NB_PROC || !@prots_todo) {
+			my $donepid = wait;
+			next if $donepid < 0; # should never happen?
+			my $prot = delete($pidsprots{$donepid}) || next;
+			my $start = $protstarttime{$prot};
+			info "INFO: Processing of protein '$prot' completed in ",(time-$start)," seconds.\n" if $DEBUG;
+			next;
+		}
+
+        my $prot = shift(@prots_todo);
+	
+        # Manage child subprocesses.
+		if (my $pid = fork()) {
+			$pidsprots{$pid}=$prot;
+			$protstarttime{$prot}=time;
+			info "INFO: Starting processing of '$prot'\n" if $DEBUG;
+			next;
+		}
         
-        if ($cnt == 0) {
-            print "No hmm model find for $prot in $HMM_model_path, $prot is not searched\n"; next;
-        }
-        if (   scalar(@$add_name) == 1 && $cnt == 2) {
-            print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
-        }
-        elsif (scalar(@$add_name) == 2 && $cnt == 3) {
-            print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
-        }
-        
-        # To parralized
-        foreach my $add (@$add_name) {
-            my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
-            
-            my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-            my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
-            print "$cmd\n" if $DEBUG;
-            
-            my $resultat = system("$cmd >/dev/null 2>/dev/null");
-            
-            my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-            my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-            my $returncode  = $resultat >> 8;   # exit status of subprogram
-            if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
-                print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
-            }
-            last if (-f "$HMM_model_path/$prot.hmm");
-        }
-    }
+		# Count to know how many models available
+		my $cnt = 0;
+		$cnt++ if (-f "$HMM_model_path/$prot.hmm");
+		foreach my $add (@$add_name) {
+			$cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
+		}
+		
+		if ($cnt == 0) {
+			print "No hmm model find for $prot in $HMM_model_path, $prot is not searched\n"; next;
+		}
+		if (   scalar(@$add_name) == 1 && $cnt == 2) {
+			print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+		}
+		elsif (scalar(@$add_name) == 2 && $cnt == 3) {
+			print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+		}
+		
+		foreach my $add (@$add_name) {
+			my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
+			
+			my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
+			my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+			print "$cmd\n" if $DEBUG;
+			
+			my $resultat = system("$cmd >/dev/null 2>/dev/null");
+			
+			my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+			my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+			my $returncode  = $resultat >> 8;   # exit status of subprogram
+			if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+				print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
+			}
+			last if (-f "$HMM_model_path/$prot.hmm");
+		}
+		exit 0;
+	}
 }
 
 #---- CreateAllAnnotFindByHMM ----#
@@ -7044,7 +7077,7 @@ sub AnnotationOfParticularStruc {
                                                   endpos    => $EndOrf,
                                                   direction => $direction,
                                                   containStruc => 1,
-                                                  startline => "; G-$GenenameORF $direction ;; start contain $genename",
+                                                  startline => "; G-$GenenameORF $direction start ;; contain $genename",
                                                   endline   => "; G-$GenenameORF $direction end");
             
             &AddAnnotToPirMaster($contigname,$orf_annot);
@@ -7381,15 +7414,15 @@ sub MakeSelectionForSimpleCase {
                   || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")
                   || ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc)) {   # First or last exon
                     
-                    if ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
+                    if ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc) {
+		      push(@$new_sort,$annot)
+		    }
+		    elsif ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
                     || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
                     && ( ! ($max_annot < $features_min || $min_annot > $features_max)))) {
                         my $max_start = ( ( $features_min > $min_annot ) ? $features_min : $min_annot);
                         my $min_end   = ( ( $features_max < $max_annot ) ? $features_max : $max_annot );
                         push(@$new_sort,$annot) if ($overlappingcutoff > ( $min_end - $max_start + 1));
-                    }
-					elsif ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc) {
-                        push(@$new_sort,$annot)
                     }
                 }
             }
@@ -8457,6 +8490,22 @@ sub IsIntronicOrf {
     print "WARNING NO START LINE IN OBJ:\n",$annot->ObjectToXML() if !defined($startline); 
     $startline =~ m#G-\S+-I\d+-\S+#  ? return 1 : return 0;
 } # End sub
+
+sub info {
+    my $messages = join("",@_);
+    my $prefix = "INFO: ";
+    $prefix = "$1: " if $messages =~ s/^([A-Z]+):\s*//;
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)
+       = localtime(time);
+    $year += 1900;  # Must ADD it! Always! See the doc!
+    my $stamp = sprintf("%2.2d:%2.2d:%2.2d",$hour,$min,$sec);
+    my @splitm = split(/\n/,$messages);
+    foreach my $line (@splitm) {
+       $line =~ s/^\s*//;
+       $line =~ s/\s*$/\n/;
+       print $prefix,"[$stamp] ",$line;
+    }
+}
 
 sub LogInfo {
     # This function is supposed to add information
