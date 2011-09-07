@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.17 2011/08/22 01:59:53 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.18 2011/09/07 00:41:57 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.18  2011/09/07 00:41:57  nbeck
+#    Removed cutoff for HMMsearch (introns/exons case).
+#
 #    Revision 1.17  2011/08/22 01:59:53  nbeck
 #    Added parallelization of HMM research for low conserved genes.
 #
@@ -389,7 +392,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.17 2011/08/22 01:59:53 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.18 2011/09/07 00:41:57 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -3598,7 +3601,7 @@ sub RunHMMSearchForMiniEx {
     
     my $FileRes = "${ShortName}_z$z.res";
     
-    my $cmd = "$HMMSEARCH_EXE --max -E 0.0001 -o $FileRes $prothmm  $FastaName";
+    my $cmd = "$HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4549,7 +4552,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_; 
     
-    my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmm  $FastaName";
+    my $cmd = "$HMMSEARCH_EXE --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
