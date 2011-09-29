@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.18 2011/09/07 00:41:57 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.19 2011/09/29 19:52:30 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.19  2011/09/29 19:52:30  nbeck
+#    Text modification at some place (made by Franz Lang).
+#
 #    Revision 1.18  2011/09/07 00:41:57  nbeck
 #    Removed cutoff for HMMsearch (introns/exons case).
 #
@@ -392,7 +395,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.18 2011/09/07 00:41:57 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.19 2011/09/29 19:52:30 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -514,7 +517,7 @@ foreach my $dir (@LIB_PATH) {
     $intronic_lib    = "$dir/intronic/intronic_orfs.pep";
     last;
 }
-die "No file was found for intronic orfs library\n"
+die "File not found in intronic orf library\n"
      if !$intronic_lib;
 
 #Check for family lib
@@ -524,7 +527,7 @@ foreach my $dir (@LIB_PATH) {
     $family_lib    = "$dir/family.lib";
     last;
 }
-die "No file was found for family library\n"
+die "File not found in family library\n"
      if !$family_lib;
 
 die "Please make sure the BLASTMAT environment variable is set\n".
@@ -580,7 +583,7 @@ my $options ="----------------------------------\n".
              "        General Options           \n".
              "----------------------------------\n";
 $options .= "Masterfile used : $MASTERFILE\n";
-$options .= "new Masterfile created : $OUTPUTFILE\n";
+$options .= "New Masterfile created : $OUTPUTFILE\n";
 $options .= "Genetic code : $GENCODE\n";
 $options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
 $options .= "Usage of RNAweasel\n";
@@ -597,12 +600,12 @@ die "No EGC file (with ncbi genetic code) was found for your genetic code '$GENC
     if (!(-f $EGC_FILE));
 $TMPDIR = "/tmp/mfannot.$$" if !$TMPDIR;
 if (! -d $TMPDIR) {
-    mkdir($TMPDIR,0700) or die "Error: can't create work directory '$TMPDIR': $!\n";
+    mkdir($TMPDIR,0700) or die "Error: can't create working directory '$TMPDIR': $!\n";
 }
 
 # Initialization of $CODON_TABLE (Hashtable with genetic code)
 my $BIOCODONTABLE   = Bio::Tools::CodonTable->new( -id => $GENCODE);
-die "Unexisting genetic id\n" if   (not $BIOCODONTABLE->id($GENCODE));
+die "Genetic id does not exist\n" if   (not $BIOCODONTABLE->id($GENCODE));
 my ($CODON_TABLE,$DEVIATION) = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); # Hashtable with genetic code
 
 # LIB CREATION #
@@ -627,7 +630,7 @@ print $LOG_F  "----------------------------------\n",
               "         Gene Annotation          \n",
               "----------------------------------\n" if $ISLOGFILE;
               
-print "File used in order to find motif is '$MOTFILE'\n" if $LVL_MOT != 0;
+print "File used for motif finding is '$MOTFILE'\n" if $LVL_MOT != 0;
 
 $options  = "Options : \n";                  # Options & parameters used for the blast
 $options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
@@ -636,8 +639,8 @@ $options .= "Minimum exon size : $MINEXONSIZE\n";
 $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
 $options .= "Minimum intron size : $MININTRONSIZE\n";
 $options .= "Matrix : $MATRIX\n";
-$options .= "Minimum length for non corresponding ORFs : $MINLENEMPTYORF\n";
-$options .= "Overlapping cutoff for non corresponding ORFs: $OVERLAPPINGCUTOFF\n";
+$options .= "Minimum length of non corresponding ORFs : $MINLENEMPTYORF\n";
+$options .= "Overlapping cutoff for non-corresponding ORFs: $OVERLAPPINGCUTOFF\n";
 
 print $options if $DEBUG;
 print $LOG_F $options if $ISLOGFILE;
@@ -650,7 +653,7 @@ print "Parsing masterfile $MASTERFILE...\n\n";
 my $pirmaster     = PirObject::Masterfile->ObjectFromMasterfile($MASTERFILE,1);
 my $contigs       = $pirmaster->get_contigs();
 my $numbercontigs = scalar (@$contigs);        # Number of contigs in the masterfile
-die "No contig header can be found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
+die "No contig header found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
 my $CONTIG = {};
@@ -670,7 +673,7 @@ my $step        = 1;
 if ($LVL_MOT != 1) {
 # Run the programm step by, to know the right step  
 # Flip running, generate ORFS
-print "$step) Flip...\n";
+print "$step) Translate (flip)...\n";
 $step += 1; 
 &RunFlip;
 
@@ -685,7 +688,7 @@ $step += 1;
 &ParseInformationFromBlastResult;
 
 # Selection of protein
-print "$step) Select best protein for Exonerate...\n";
+print "$step) Select best proteins for Exonerate...\n";
 $step += 1; 
 &Select_protein;
 
@@ -696,7 +699,7 @@ $step += 1;
 
 # Annotation of all introns
 if ($LVL_INTRON == 2 ) {
-    print "$step) Introns identification...\n";
+    print "$step) Intron identification...\n";
     &Annotate_Using_external_programs("IntronII,IntronI");
     $step += 1; 
 }
@@ -719,22 +722,22 @@ if (!$PARTIAL) {
 }
 
 # Annotate rRNA -> Use RNAweasel for 5SrRNA and rnpB, Use HMMweasel for rns and rnl
-print "$step) Annotation of RNA genes...\n"; 
+print "$step) Annotate RNA genes...\n"; 
 $step += 1;
 &Annotate_Using_external_programs;
 
 &AnnotateMfFromHYPPROTSArray;
 
 # Adjust intronic boundaries with rules for type I and type II 
-print "$step) Adjust intronic boundaries...\n"; 
+print "$step) Adjust intron boundaries...\n"; 
 $step += 1; 
 &Adjust_all_intronic_junctions;
 
-print "$step) Identify start codons; comment fusions...\n"; 
+print "$step) Identify start codons; identify gene fusions...\n"; 
 $step += 1; 
 &CommentFusion;
 
-print "$step) Find low conserved gene by HMM\n";
+print "$step) Find extra genes with HMM\n";
 $step +=1;
 &FindLowConservedGenesByHMM();
 
@@ -746,7 +749,7 @@ if ($ORFPROCESS) {
 }
 
 # Process intronical ORF -> annotate intronicale ORF not detected by Blast
-print "$step) Intronic ORF annotation...\n"; 
+print "$step) Intron ORF annotation...\n"; 
 $step += 1; 
 &AnnotateIntronicOrfs;
 
@@ -764,7 +767,7 @@ if ($LVL_MOT != 0) {
 # PROGRAMME ENDING #
 
 print "\n----------------------------------\n",
-      "       End of the Programme       \n",
+      "       This it, Folks !     \n",
       "----------------------------------\n";  
 
 # Unreferencing 
@@ -779,13 +782,13 @@ undef $EMPTYORFS;
 &LogInfo;
 
 # Dump it
-print "Dumping new masterfile in $OUTPUTFILE\n";
+print "Writing new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
 &CreateTBLoutput($OUTPUTFILE) if $MAIL;
 
 if (0) {
-print "Dumping PirMaster object to $OUTPUTFILE.xml\n";
+print "Writing PirMaster object to $OUTPUTFILE.xml\n";
 $pirmaster->ObjectToFile("$OUTPUTFILE.xml");
 }
 
@@ -842,7 +845,7 @@ sub SigCleanup {
 sub CreatePepfileWithLibrary {
     my ($library,$pepfile) = ($PEPLIBRARIES,$LIB_FILE);
 
-    opendir (DIR, $library) or die "Can not open directory '$library': $!\n"; # Open the directory
+    opendir (DIR, $library) or die "Cannot open directory '$library': $!\n"; # Open the directory
     my @files = grep((/\.faa$/ and -f "$library/$_"), readdir(DIR));   # Keep the existing *.pep files
     close (DIR);                                                      # Close the directory
 
@@ -856,7 +859,7 @@ sub CreatePepfileWithLibrary {
     foreach my $file (@files) {
 	my $loc_file = "$library/$file";
         
-        my $PEP_F = new IO::File "<$loc_file" or die "Can not open the pepfile '$loc_file': $!\n";
+        my $PEP_F = new IO::File "<$loc_file" or die "Cannot open the pepfile '$loc_file': $!\n";
         my $to_annot = 0;
         while (my $line = <$PEP_F>) {
             next if $line =~ /^;|^\s*$/;
@@ -944,7 +947,7 @@ sub GetOptions {
     my $name  = $OUTPUTFILE;
 
     # Checking to see if the path to the output file is writable
-    die "\nThe path to where your outputfile will be produced is not writable by you ($name).\nPlease resolve this problem before running again\n"
+    die "\nThe path for your outputfile is not writable by you ($name).\nPlease resolve this problem before running again\n"
         if (!-w (dirname($name)));
 
     # Determing new name of output file if file already exists
@@ -1095,7 +1098,7 @@ sub CleanPirmaster {
          my $comments    = $contig->get_namecomments() || "";
          my $header      = $contigname.$comments;
          $isUnique->{$header}++;
-         die "Two contig have same header '$header'\n" if $isUnique->{$header} > 1;
+         die "Two contigs have same header '$header'\n" if $isUnique->{$header} > 1;
          $count++;
          $CONTIG->{"contig$count"} = "$header";
          $contig->set_namecomments("");
@@ -1667,7 +1670,7 @@ sub Select_protein {
                     }
                     else {
                        $flipblastprot->set_frameshift(1);
-                       print "   Probable frameshift in $name\n"; 
+                       print "   Potential frameshift in $name\n"; 
                     }
                 } # End for $i
             } # End elsif
@@ -1918,7 +1921,7 @@ sub AdjustStartByHMM {
     $hypprot->set_thisprot($this_prot);
     
     if ($this_prot eq "Frame-Shift-Detected") {
-        $hypprot->set_startwarning("Aproximative start");
+        $hypprot->set_startwarning("Aproximate start");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
         return $pb eq "dna_length" ? "Frame-Shift-Detected-Length" : "Frame-Shift-Detected";
     }
@@ -2201,7 +2204,7 @@ sub ReadStockholmMultAligns {
 
     while ( my ($id, $value) = each(%global_seenids) ) { 
           my $mod   = $value % $nb_block_with_seq;
-          die "Sequence $id not presents in all block\n" if $mod != 0;
+          die "Sequence $id not present in all blocks\n" if $mod != 0;
     }
     
     my $length_stand = 0;
@@ -2217,9 +2220,9 @@ sub ReadStockholmMultAligns {
             my $length_PP    = length($PP) if $PP;
             my $length_seq   = length($seq);
             $length_stand = $length_seq if $length_stand == 0;
-            die "PP and sequence haven't same length for $id\n" 
+            die "PP and sequence do not have the same length for $id\n" 
                 if $PP && $length_PP != $length_seq;
-            die "$id haven't standard length\n" 
+            die "$id do not have standard length\n" 
                 if $length_seq != $length_stand;
             $seqobj = new PirObject::AlignedSeq(
                 seqId        => $id,
@@ -2230,7 +2233,7 @@ sub ReadStockholmMultAligns {
         }
     }
     my $length_PP_cons  = length($PP_cons);
-    die "PP_cons haven't standard length\n"
+    die "PP_cons do not have standard length\n"
         if $length_PP_cons && $length_PP_cons != $length_stand;
     
     $text = []; # Zap input array text, free memory
@@ -2576,8 +2579,8 @@ sub SearchForEndIfGeneHaveIntron {
 
 sub FindExonsInHypProtArray {
     # The main is to find exons by making a local alignement
-    mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create work directory '$TMPDIR/Exonerate': $!\n";
-    mkdir("$TMPDIR/Intron",0700) or die "Error: can't create work directory '$TMPDIR/Intron': $!\n";
+    mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create working directory '$TMPDIR/Exonerate': $!\n";
+    mkdir("$TMPDIR/Intron",0700) or die "Error: can't create working directory '$TMPDIR/Intron': $!\n";
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
 
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
@@ -2697,7 +2700,7 @@ sub FindExonsInHypProtArray {
              if ($strand{1} && $strand{-1}) {
                  # If we have a transpliced gene 
                  &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
-                 $add_text_in_header .= ";; Gene coding for $name is probably transpliced (see annotation in comments)\n";
+                 $add_text_in_header .= ";;  $name is potentially trans-spliced (annotation in comments)\n";
                  next;
              }
 
@@ -2778,7 +2781,7 @@ sub FindExonsInHypProtArray {
                     splice(@exon_start_end, $i, 1) if !$isTranspliced;
                     if ($isTranspliced) {
                         &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
-                        $add_text_in_header .= ";; Gene coding for $name is probably transpliced (see annotation in comments)\n";
+                        $add_text_in_header .= ";;    $name is potentially trans-spliced (annotation in comments)\n";
                         last;
                     }
                 }
@@ -3432,7 +3435,7 @@ sub AnnotateMiniExonsByHMM {
             my $LenAdj_f = $LenAdj_p + $LenAdj_n;
             next if $LenAdj_f == 0;
             if ( $LenAdj_f >= 20) {
-               $Intron->set_comment("Potential missing exon (~$LenAdj_f)");
+               $Intron->set_comment("Potentially missing exon (~$LenAdj_f)");
                next;
             }
             
@@ -4106,7 +4109,7 @@ sub AddGroupUseAP {
     my $AP_endline   = $AP->get_endline();
             
     my $type        = $1    if $AP_startline =~ m#group=(.+)#;
-       die "Internal error : external AP does not contain type on startline?!?\n" unless $type;
+       die "Internal error: external AP does not contain type on startline?!?\n" unless $type;
     
     my $intron_type  = $intron->get_type() || "";
        $intron_type .= "," if $intron_type;
@@ -5004,7 +5007,7 @@ sub SuspectIsInAFamily {
         return 1;
     }
     elsif ($OVInPercent >  75){
-        $add_text_in_header .= ";; Gene coding for $HP_name and $AP_name is probably in family\n";
+        $add_text_in_header .= ";; Gene for $HP_name and $AP_name is probably in family\n";
         return 0;
     }
     else {
@@ -5374,8 +5377,8 @@ sub AnnotateFromExternalAPC {
             if ($annot->get_idbyHMM() && $annot->get_idbyHMM() == 1 || lc($a_genename) eq "rnpb" ) {
                 if (lc($a_genename) ne "rns" && lc($a_genename) ne "rnl" ) {
                     $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
-                               " / Approximative annotation" 
-                             : " ;; mfannot: Approximative annotation";
+                               " / Approximate position" 
+                             : " ;; mfannot: Approximative position";
                     $annot->set_startline($a_startline);
                 }
             }
@@ -5667,8 +5670,8 @@ sub Adjust_TypeII {
     if (!$tab_scores[0]->[0] || $tab_scores[0]->[0] < 40) {
         my $start_line = $annot->get_startline();
         $start_line .= $start_line =~ m/ ;; mfannot:/ ?
-                       " / splice boundaries incertain" 
-                     : " ;; mfannot: splice boundaries incertain";
+                       " / splice boundaries uncertain" 
+                     : " ;; mfannot: splice boundaries uncertain";
         $annot->set_startline($start_line);
         return;
     }
@@ -5931,16 +5934,16 @@ sub CheckForCorrespondance {
     my $new_substring = "$new_substring1$new_substring2";
 
     if (length($old_substring) != length($new_substring)){
-        print "   WARNING : Combination $adjust_start,$adjust_end not used for adjust boundaries because they add or delete amino acid \n";
+        print "   WARNING : Combination $adjust_start,$adjust_end not used to adjust boundaries, as they add or delete an amino acid \n";
         return undef;
     }
     
     if (length($new_substring)%3 != 0){
-        print "   WARNING : Combination $adjust_start,$adjust_end not used for adjust boundaries because they shift the initial readingframe\n
+        print "   WARNING : Combination $adjust_start,$adjust_end not used to adjust boundaries, as they shift the initial readingframe\n
                   Initial phase is $phase the new phase is $new_phase \n
                   Sequence used at start of intron is $new_substring1 \n
                   Sequence used at end of intron is $new_substring2 \n
-                  Whole sequence used for check for stop codon is $new_substring\n";
+                  Whole sequence used to check for stop codon is $new_substring\n";
         return undef;
     }
     
@@ -6662,7 +6665,7 @@ sub choice_orf {
         my $LIB = new IO::File "$intronic_lib" || die ("Can not open the library for intronic orfs");
         while (<$LIB>) {
             next if !($_ =~ /^>/);
-            die "The file $intronic_lib haven't the good syntax\nThe line who haven't the good syntax is $_"
+            die "The file $intronic_lib doesn't have the good syntax\nat the corresponding line $_"
                 if (!($_ =~ /\s*([\S]*)\s*;/));
         }
         $LIB->close();
@@ -6679,7 +6682,7 @@ sub choice_orf {
         my $output       = "$TMPDIR/blastoutput_orf_".$orf->[0];
         my $type         = 'PROT';
         if (!(-e "$name_of_file")){
-            my $ORFFILE = new IO::File ">$name_of_file" or die "Can not open the orffile";
+            my $ORFFILE = new IO::File ">$name_of_file" or die "Cannot open the orffile";
             print $ORFFILE ">ORF_$orf_num\n";
             print $ORFFILE $orf_seq;
             $ORFFILE->close();
@@ -6696,7 +6699,7 @@ sub choice_orf {
         $searchfh->close();
 
         my $num    = @results;
-        die "We have more than 1 blast result for 1 orf\n" if $num > 1;
+        die "More than one blast result for one orf\n" if $num > 1;
 
         $orf->[1]->set_evalue(9999);                # Really bad evalue by default
 
@@ -6926,13 +6929,13 @@ sub RunHMMSearchForLowConservedGenes {
 		}
 		
 		if ($cnt == 0) {
-			print "No hmm model find for $prot in $HMM_model_path, $prot is not searched\n"; next;
+			print "No HMM model found for $prot in $HMM_model_path, $prot is not searched\n"; next;
 		}
 		if (   scalar(@$add_name) == 1 && $cnt == 2) {
-			print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+			print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
 		}
 		elsif (scalar(@$add_name) == 2 && $cnt == 3) {
-			print "Too much hmm models was found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+			print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
 		}
 		
 		foreach my $add (@$add_name) {
@@ -7593,7 +7596,7 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
     if ($CloseStart == $aliFrom && !$all_possible_st->{$CloseStart}) {
         my $SimiStart = $start;
         $start        = $StartOrf;
-        $comment      = "No ATG or GTG similarity start at $SimiStart and HMMmatch = $HMMmatch";
+        $comment      = "No ATG or GTG start codon at $SimiStart and HMMmatch = $HMMmatch";
     }
     # A M or v was found after similarity beginning
     elsif ($CloseStart > $aliFrom) {
@@ -7664,7 +7667,7 @@ sub FindStartAndStopForComplexGeneIdByHMM {
     if ($CloseStart == $aliFrom && !$all_possible_st->{$CloseStart}) {
         my $SimiStart = $start;
         $start        = $StartOrf;
-        $comment      = "No ATG or GTG similarity start at $SimiStart and HMMmatch = $HMMmatch";
+        $comment      = "No ATG or GTG start codon at $SimiStart and HMMmatch = $HMMmatch";
     }
     # A M or v was found after similarity beginning
     elsif ($CloseStart > $aliFrom) {
@@ -7694,7 +7697,7 @@ sub GetORF {
     my $contigList = $OrfFile;
        $contigList =~ s/\.orf$/\.list/;
     my $fh_contigList = new IO::File ">$contigList"
-        or die "Can't write in file '$contigList': $!\n";
+        or die "Can't write to file '$contigList': $!\n";
     print $fh_contigList "$seqIdAndDesc\n";
     my $cmd = "grab-fasta -f $OrfFile -H $contigList -o - 2>/dev/null";
     my $orf = `$cmd`;
@@ -7902,7 +7905,7 @@ sub read_pat_file{
 	    # A pattern line
         if ( $line =~ m/^\s*\S+\s+(\S+)\s+(\S+)\s*$/ ){
             ($name, $regexp) = ($1,$2);
-            die "Multiple pattern have same name $name,please fixed that in $pfile"
+            die "Multiple patterns have the same name $name, please fix in $pfile"
                 if $list_of_mot->{$name};
             $name =~ s/^\s*//, $name =~ s/\s*$//;
             # Validate name.
