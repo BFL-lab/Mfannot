@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.19 2011/09/29 19:52:30 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.20 2011/10/23 13:09:18 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.20  2011/10/23 13:09:18  nbeck
+#    Removed sqn format in mail.
+#
 #    Revision 1.19  2011/09/29 19:52:30  nbeck
 #    Text modification at some place (made by Franz Lang).
 #
@@ -395,7 +398,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.19 2011/09/29 19:52:30 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.20 2011/10/23 13:09:18 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -8614,15 +8617,15 @@ sub CreateTBLoutput {
 sub sendMail {
     my $filename = shift;
     
-	my $subject   = "mfannot result on $filename";
+    my $subject   = "mfannot result on $filename";
     my $mail_file = "/services/WWW/cgi-bin/mfannot/mail_core";
     die "File for mail core doesn't exist" if !(-f "$mail_file");
     my $new_file  = "$TMPDIR/$filename";
     my $sqn_file  = "$TMPDIR/$filename.sqn";
-	my $mailErr   = "$TMPDIR/mailErr";
-	my $mailOut   = "$TMPDIR/mailOut";
+    my $mailErr   = "$TMPDIR/mailErr";
+    my $mailOut   = "$TMPDIR/mailOut";
 	
-    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file , $sqn_file\'";
+    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file\'";
 	print STDERR $cmd if $DEBUG;
 	my $ret = system("$cmd 2> $mailErr");
 	
