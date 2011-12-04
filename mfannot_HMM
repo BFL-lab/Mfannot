@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.20 2011/10/23 13:09:18 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.21 2011/12/04 23:29:10 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.21  2011/12/04 23:29:10  nbeck
+#    Fixed bug with mini-exon research.
+#
 #    Revision 1.20  2011/10/23 13:09:18  nbeck
 #    Removed sqn format in mail.
 #
@@ -398,7 +401,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.20 2011/10/23 13:09:18 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.21 2011/12/04 23:29:10 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -540,8 +543,8 @@ die "Please make sure the BLASTMAT environment variable is set\n".
 my $matrix_path = $ENV{"BLASTMAT"}."/PAM70";
 
 # Check if ~/.HMMweasel.cache exist and create them if they doesn't
-my $HMM_cache = "$HOME/.HMMweasel.cache";
-unless(-d $HMM_cache){ mkdir $HMM_cache or die "Cannot create '$HMM_cache'";}
+#my $HMM_cache = "$HOME/.HMMweasel.cache";
+#unless(-d $HMM_cache){ mkdir $HMM_cache or die "Cannot create '$HMM_cache'";}
 
 my $parser           = new Bio::Matrix::IO(-format => 'scoring',
                                            -file   => $matrix_path);
@@ -770,7 +773,7 @@ if ($LVL_MOT != 0) {
 # PROGRAMME ENDING #
 
 print "\n----------------------------------\n",
-      "       This it, Folks !     \n",
+      "       This is it, Folks !     \n",
       "----------------------------------\n";  
 
 # Unreferencing 
@@ -3461,13 +3464,23 @@ sub AnnotateMiniExonsByHMM {
             # Add score for splice site
             &DefineEachIntronType($ListHypExons,$apl,$isMinus,$LenSeq);
             ($GroupI,$GroupII) = &AddSpliceScore($UseSeq,$ListHypExons,$isMinus,$Exon_p,$Exon_n,"intron${i}_it$NbChange",$ShortName,$GroupI,$GroupII);
-            @$ListHypExons   = sort { $a->{"gEvalue"} <=>  $b->{"gEvalue"} } @$ListHypExons;
+            @$ListHypExons   = sort {
+                                 &CompareHighPrecisionFloats($a->{"gEvalue"},$b->{"gEvalue"});
+                               } @$ListHypExons;
             # Select BestSol and add mini exon
             my $BestSol      = shift(@$ListHypExons);
-            &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
-            ($DefIntron,$MakeAli) = (0,1);
-            $NbChange++;
-            $i--;
+            
+            # Reajust Exon_p and Exon_n if core == 0
+
+            if ($BestSol->{"core"} == 0) {
+                &ReajustExonAndIntron($Introns,$Exons,$i,$BestSol,$isMinus)
+            }
+            else {
+                &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
+                ($DefIntron,$MakeAli) = (0,1);
+                $NbChange++;
+                $i--;
+            }
         }
     }
 }
@@ -4650,6 +4663,34 @@ sub AddMiniExon {
     splice(@$Introns, $i, 0, $FirstIntron,$SecondIntron);
 }
 
+sub ReajustExonAndIntron {
+    my ($Introns,$Exons,$i,$BestSol,$isMinus) = @_;
+    
+    my $LenPref         = ( $isMinus ? -$BestSol->{"prefix"} :  $BestSol->{"prefix"});
+    my $LenSuf          = ( $isMinus ?  $BestSol->{"suffix"} : -$BestSol->{"suffix"}); 
+    my $strand          = ( $isMinus ? "-" : "+");
+    my $AdjStart        = ( $isMinus ?  -1 :  1);
+    my $AdjEnd          = ( $isMinus ?   1 : -1);
+    
+    # Exons #
+    # Adjust end of previous exon
+    my $PrevExon    = $Exons->[$i];
+    my $EndPrevExon = $PrevExon->get_dnaend() + $LenPref;
+    $PrevExon->set_dnaend($EndPrevExon);
+    
+    # Adjust start of next exon
+    my $NextExon = $Exons->[$i+1];
+    my $StartNextExon  = $NextExon->get_dnastart() + $LenSuf;
+    $NextExon->set_dnastart($StartNextExon);
+    
+    # Reajust intron
+    my $Intron = @$Introns[$i];
+    my $StartIntron = $EndPrevExon   + $AdjStart;
+    my $EndIntron   = $StartNextExon + $AdjEnd;
+    $Intron->set_start($StartIntron);
+    $Intron->set_end($EndIntron);
+}
+
 #-------------------------------------------------#
 # Subs for putting annotations in the masterfile  #
 #-------------------------------------------------#
@@ -5532,7 +5573,7 @@ sub Adjust_all_intronic_junctions {
             $annot->set_globaltype($global_type);
         }
         elsif ($nb_type >= 2 ) {
-            my $add = $nb_type > 2 ? "more than" : "";
+            my $add = $nb_type > 2 ? "more than " : "";
             my $global_type = &DefGlobalIntronType(\@intron_type);
             $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                           " / $add two introns identified" 
