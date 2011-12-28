@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.21 2011/12/04 23:29:10 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.22 2011/12/28 15:43:07 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.22  2011/12/28 15:43:07  nbeck
+#    Added option nice -19.
+#
 #    Revision 1.21  2011/12/04 23:29:10  nbeck
 #    Fixed bug with mini-exon research.
 #
@@ -401,7 +404,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.21 2011/12/04 23:29:10 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.22 2011/12/28 15:43:07 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -2101,7 +2104,7 @@ sub RunHMM {
     }
     
     # 3. Run HMMBuild...
-    $cmd = "$HMMBUILD_EXE $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMBUILD_EXE $ProtHMM $AliOut >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -2113,7 +2116,7 @@ sub RunHMM {
     }
     
     # 4. Run HMMAlign...
-    $cmd = "$HMMALIGN_EXE --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMALIGN_EXE --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -3047,7 +3050,7 @@ sub Choose_best_solution {
     # 2. BLAST
     my $output         = "$TMPDIR/Exonerate/out_${name}_e$i";
     unlink($output) or die "Impossible to delete $output\n" if (-f $output);
-    my $cmdblast = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $base_name -i $file_for_blast -o $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
+    my $cmdblast = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $base_name -i $file_for_blast -o $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
     
@@ -3585,7 +3588,7 @@ sub RunUmacAndHMMBuild {
     }
     
     # 2. Run HMMBuild...
-    $cmd = "$HMMBUILD_EXE --amino $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMBUILD_EXE --amino $ProtHMM $AliOut >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -3620,7 +3623,7 @@ sub RunHMMSearchForMiniEx {
     
     my $FileRes = "${ShortName}_z$z.res";
     
-    my $cmd = "$HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice $HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4571,7 +4574,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_; 
     
-    my $cmd = "$HMMSEARCH_EXE --noali --max -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCH_EXE --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -6732,7 +6735,7 @@ sub choice_orf {
             $ORFFILE->close();
             
             # RUN FOR BLAST : run blast with the db created and the flip results        
-            my $cmdblast = "$BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf_intronic_orf -i $name_of_file -o $output 2> $TMPDIR/blasterr_1.txt";
+            my $cmdblast = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf_intronic_orf -i $name_of_file -o $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
         }
@@ -6986,7 +6989,7 @@ sub RunHMMSearchForLowConservedGenes {
 			my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 			
 			my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-			my $cmd = "$HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+			my $cmd = "nice -19 $HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
 			print "$cmd\n" if $DEBUG;
 			
 			my $resultat = system("$cmd >/dev/null 2>/dev/null");
