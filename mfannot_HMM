@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.22 2011/12/28 15:43:07 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.23 2012/01/15 04:33:19 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.23  2012/01/15 04:33:19  nbeck
+#    Endonuclease annotation take a specific way, need to add case for intronic endo.
+#
 #    Revision 1.22  2011/12/28 15:43:07  nbeck
 #    Added option nice -19.
 #
@@ -404,7 +407,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.22 2011/12/28 15:43:07 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.23 2012/01/15 04:33:19 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -748,7 +751,7 @@ $step += 1;
 
 print "$step) Find extra genes with HMM\n";
 $step +=1;
-&FindLowConservedGenesByHMM();
+my $Endo_by_cg = &FindLowConservedGenesAndEndoByHMM();
 
 # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
 if ($ORFPROCESS) {
@@ -760,7 +763,7 @@ if ($ORFPROCESS) {
 # Process intronical ORF -> annotate intronicale ORF not detected by Blast
 print "$step) Intron ORF annotation...\n"; 
 $step += 1; 
-&AnnotateIntronicOrfs;
+&AnnotateIntronicOrfs();
 
 &MulticommentConfidence;
 &LcIntrons;
@@ -3623,7 +3626,7 @@ sub RunHMMSearchForMiniEx {
     
     my $FileRes = "${ShortName}_z$z.res";
     
-    my $cmd = "nice $HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -6087,7 +6090,7 @@ sub AnnotateEmptyOrfs {
          # Process each non corresponding orf
          # Get informations  about empty ORF
          my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
-         my $contig            = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
+         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
          my $strand_orf = $emptyorf->get_strand();
 
          my $arrow   = $strand_orf == 1 ? '==>' : '<==';
@@ -6688,7 +6691,7 @@ sub AnnotateIntronicOrfs {
         my $endline     = ";     G-$GenenameORF $direction end";
            $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
         
-        #  Treatment to add a number after the genename #
+        # Treatment to add a number after the genename #
         my $orfannot = new PirObject::AnnotPair(
                                                 type      => "O",  
                                                 genename  => $GenenameORF,
@@ -6805,42 +6808,67 @@ sub IsInPhase {
 # Subs used for find low conserved genes by HMM    #
 #--------------------------------------------------#
 
-sub FindLowConservedGenesByHMM {
+sub FindLowConservedGenesAndEndoByHMM {
     my $contigs = $pirmaster->get_contigs();
-    
+
+    my $Endo_by_cg = {};
     foreach my $cg (@$contigs) {
-        my ($gene_list,$nb_mito,$nb_chloro) = &GetGeneForThisCg($cg);
-        my ($isMito,$isChloro)              = &ChooseGenomeType($gene_list,$MITO_GENE_LIST,$CHLORO_GENE_LIST,$MITO_GENE_TYP,$CHLORO_GENE_TYP,$nb_mito,$nb_chloro);
-        my ($missing_genes,$add_name) = ({},"");
-        if ($isMito) {
-            $missing_genes = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
-            $add_name      = ["_mito"];
-        }
-        elsif ($isChloro) {
-            $missing_genes = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
-            $add_name      = ["_chloro"];
-        }
-        else {
-            my $missing_genes_mito   = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
-            my $missing_genes_chloro = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
-            foreach my $prot_mito (keys %$missing_genes_mito) {
-                my $nb_chloro = $missing_genes_chloro->{$prot_mito} || 0;
-                $missing_genes->{$prot_mito} = $missing_genes_mito->{$prot_mito} + $nb_chloro;
-            }
-            foreach my $prot_chloro (keys %$missing_genes_chloro) {
-                next if $missing_genes->{$prot_chloro};
-                $missing_genes->{$prot_chloro} = $missing_genes_chloro->{$prot_chloro};
-            }
-            $add_name      = ["_mito","_chloro"]
-        }
-        $missing_genes->{"hnh"}++; $missing_genes->{"giy"}++ ;$missing_genes->{"laglidadg"}++;
         my $OrfFile = &GetORFForLowConservedGenes($cg->get_sequence(),$cg->get_name());
         my ($volume,$directories,$file_name) = File::Spec->splitpath($OrfFile);
-        my $ResDir  = "$directories/hmmRes";
-        mkdir($ResDir) if !(-d $ResDir);
-        &RunHMMSearchForLowConservedGenes($missing_genes,$add_name,$OrfFile,$ResDir);
-        &CreateAllAnnotFindByHMM($directories,$ResDir,$cg->name(),$add_name);
+
+        # For gene
+        my $ResDirForGene  = "$directories/hmmRes_gene";
+        mkdir($ResDirForGene) if !(-d $ResDirForGene);
+        &FindLowConservedGenes($cg,$ResDirForGene,$OrfFile,$directories);
+        
+        # For endonuclease
+        my $ResDirForEndo  = "$directories/hmmRes_endo";
+        mkdir($ResDirForEndo) if !(-d $ResDirForEndo);
+        $Endo_by_cg = &FindEndo($cg,$ResDirForEndo,$OrfFile,$directories);
     }
+    return $Endo_by_cg;
+}
+
+sub FindLowConservedGenes {
+    my ($cg,$ResDir,$OrfFile,$directories) = @_;
+        
+    my ($gene_list,$nb_mito,$nb_chloro) = &GetGeneForThisCg($cg);
+    my ($isMito,$isChloro)              = &ChooseGenomeType($gene_list,$MITO_GENE_LIST,$CHLORO_GENE_LIST,$MITO_GENE_TYP,$CHLORO_GENE_TYP,$nb_mito,$nb_chloro);
+    my ($missing_genes,$add_name) = ({},"");
+    if ($isMito) {
+        $missing_genes = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
+        $add_name      = ["_mito"];
+    }
+    elsif ($isChloro) {
+        $missing_genes = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
+        $add_name      = ["_chloro"];
+    }
+    else {
+        my $missing_genes_mito   = &DefinedMissingGene($gene_list,$MITO_GENE_LIST);
+        my $missing_genes_chloro = &DefinedMissingGene($gene_list,$CHLORO_GENE_LIST);
+        foreach my $prot_mito (keys %$missing_genes_mito) {
+            my $nb_chloro = $missing_genes_chloro->{$prot_mito} || 0;
+            $missing_genes->{$prot_mito} = $missing_genes_mito->{$prot_mito} + $nb_chloro;
+        }
+        foreach my $prot_chloro (keys %$missing_genes_chloro) {
+            next if $missing_genes->{$prot_chloro};
+            $missing_genes->{$prot_chloro} = $missing_genes_chloro->{$prot_chloro};
+        }
+        $add_name      = ["_mito","_chloro"]
+    }
+    &RunHMMSearchForLowConservedGenes($missing_genes,$OrfFile,$ResDir,$add_name);
+    &CreateAllGeneAnnotFindByHMM($directories,$ResDir,$cg->name(),$add_name,$missing_genes);
+}
+
+sub FindEndo {
+    my ($cg,$ResDir,$OrfFile,$directories) = @_;
+
+    my $endo = {};
+    $endo->{"hnh"}++; $endo->{"giy"}++ ;$endo->{"laglidadg"}++;
+    &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
+    my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
+    
+    return $Endo_by_cg;
 }
 
 #---- GetGeneForThisCg ----#
@@ -6937,7 +6965,8 @@ sub GetORFForLowConservedGenes {
 
 #---- RunHMMSearchForLowConservedGenes ----#
 sub RunHMMSearchForLowConservedGenes {
-    my ($missing_genes,$add_name,$OrfFile,$ResDir) = @_;
+    my ($missing_genes,$OrfFile,$ResDir,$add_name) = @_;
+    $add_name = [""] if !defined($add_name);
     my ($FileRes,$hmm,$FastaName) = ("","",""); 
     
     my $totalstart = time;
@@ -6947,16 +6976,16 @@ sub RunHMMSearchForLowConservedGenes {
     my @prots_todo = sort keys %$missing_genes;
 	info "Starting processing for HMMbuild and Align on $NB_PROC processor(s).\n" if $DEBUG;
 	for (;;) {
-		my $ongoing = scalar(keys %pidsprots);
-        last if !@prots_todo && !$ongoing;
-		if ($ongoing >= $NB_PROC || !@prots_todo) {
-			my $donepid = wait;
-			next if $donepid < 0; # should never happen?
-			my $prot = delete($pidsprots{$donepid}) || next;
-			my $start = $protstarttime{$prot};
-			info "INFO: Processing of protein '$prot' completed in ",(time-$start)," seconds.\n" if $DEBUG;
-			next;
-		}
+	    my $ongoing = scalar(keys %pidsprots);
+            last if !@prots_todo && !$ongoing;
+	    if ($ongoing >= $NB_PROC || !@prots_todo) {
+		my $donepid = wait;
+		next if $donepid < 0; # should never happen?
+		my $prot = delete($pidsprots{$donepid}) || next;
+		my $start = $protstarttime{$prot};
+		info "INFO: Processing of protein '$prot' completed in ",(time-$start)," seconds.\n" if $DEBUG;
+		next;
+	}
 
         my $prot = shift(@prots_todo);
 	
@@ -6972,9 +7001,10 @@ sub RunHMMSearchForLowConservedGenes {
 		my $cnt = 0;
 		$cnt++ if (-f "$HMM_model_path/$prot.hmm");
 		foreach my $add (@$add_name) {
-			$cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
+		    next if $add eq "";
+		    $cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
 		}
-		
+
 		if ($cnt == 0) {
 			print "No HMM model found for $prot in $HMM_model_path, $prot is not searched\n"; next;
 		}
@@ -7006,60 +7036,24 @@ sub RunHMMSearchForLowConservedGenes {
 	}
 }
 
-#---- CreateAllAnnotFindByHMM ----#
-sub CreateAllAnnotFindByHMM {
+#---- CreateAllGeneAnnotFindByHMM ----#
+sub CreateAllGeneAnnotFindByHMM {
     my ($HighDir,$ResDir,$contigname,$add_name) = @_;
-    
-    my $AllHMMAnnot = {};
+
     my $both = scalar(@$add_name) == 2 ? 1 : 2;
-    my %dir  = ();
-    tie %dir, 'IO::Dir', $ResDir;
     my $contig     = $pirmaster->GetContigByName($contigname);
     my $seq        = $contig->get_sequence();
        $seq        = lc($seq);
     my $contiglen  = $contig->get_sequencelength();
-       
-    my $OrfFile = "$HighDir/$contigname.orf";
-    foreach my $Res (keys %dir) {
-        next if $Res =~ m/^\./;
-        my $FileRes = "$ResDir/$Res";
-        my $Searchfh  = new IO::File "<$FileRes"
-            or die "Can't read from file '$FileRes': $!\n";
-        my @tab   = <$Searchfh>;
-        $Searchfh->close();
     
-        my $HMMRes = new PirObject::HMMsearchOutput();
-           $HMMRes->FillFeaturesFromTextOutput(\@tab);
-        my $AllHMMRes =  $HMMRes->get_Iterations()->[0]->get_resume();
-         
-        my $resumes = $HMMRes->get_Iterations()->[0]->get_resume();
-        if (scalar(@$resumes) == 0) {
-            unlink($FileRes);
-            next;
-         }
-         my $QueryInfo = $HMMRes->get_Iterations()->[0]->get_QueryModel();
-         my $QueryLen  = $1 if $QueryInfo =~ m/\(\s*(\d+)\s*nodes\s*\)/;
-
-         foreach my $resume (@$resumes) {
-            next if $resume->get_BeforeThresh() == 0;
-            my $alignments = $resume->get_alignments();
-            my $annots     = {};
-            # Important need to be sort by aliFrom for remove false intron after
-            foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
-                my $ali = $alignments->{$key};
-                my $annot = &CreateAnnotCommentForHMM($resume,$ali,$Res,$contigname,$both);
-                my $idORF = $annot->get_IdORF();
-                $annot->set_HMMlen($QueryLen);
-                $annots->{$key} = $annot;
-             }
-             $AllHMMAnnot->{$Res}->{$resume->get_SeqIdAndDesc()} = [$annots,$resume];
-         }
-    }
+    my $AllHMMAnnot = &CreateAllHMMAnnot($ResDir,$contigname,$contig,$both);
     
     # Annotation of dpo and rpo in first time
     $AllHMMAnnot = &AnnotationOfParticularStruc($AllHMMAnnot,$contigname); 
 
     my $keepAnnot = [];
+    my $OrfFile = "$HighDir/$contigname.orf";
+
     # Check and remove false intron.
     $AllHMMAnnot = &CheckForFalseIntrons($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen);
     # Case of simple duplication
@@ -7108,6 +7102,51 @@ sub CreateAllAnnotFindByHMM {
     }
 }
 
+sub CreateAllHMMAnnot {
+    my ($ResDir,$contigname,$contig,$both) = @_;
+    
+    my $AllHMMAnnot = {};
+    my %dir  = ();
+    tie %dir, 'IO::Dir', $ResDir;
+       
+    foreach my $Res (keys %dir) {
+        next if $Res =~ m/^\./;
+        my $FileRes = "$ResDir/$Res";
+        my $Searchfh  = new IO::File "<$FileRes"
+            or die "Can't read from file '$FileRes': $!\n";
+        my @tab   = <$Searchfh>;
+        $Searchfh->close();
+    
+        my $HMMRes = new PirObject::HMMsearchOutput();
+           $HMMRes->FillFeaturesFromTextOutput(\@tab);
+        my $AllHMMRes =  $HMMRes->get_Iterations()->[0]->get_resume();
+         
+        my $resumes = $HMMRes->get_Iterations()->[0]->get_resume();
+        if (scalar(@$resumes) == 0) {
+            unlink($FileRes);
+            next;
+         }
+         my $QueryInfo = $HMMRes->get_Iterations()->[0]->get_QueryModel();
+         my $QueryLen  = $1 if $QueryInfo =~ m/\(\s*(\d+)\s*nodes\s*\)/;
+
+         foreach my $resume (@$resumes) {
+            next if $resume->get_BeforeThresh() == 0;
+            my $alignments = $resume->get_alignments();
+            my $annots     = {};
+            # Important need to be sort by aliFrom for remove false intron after
+            foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
+                my $ali = $alignments->{$key};
+                my $annot = &CreateAnnotCommentForHMM($resume,$ali,$Res,$contigname,$both);
+                my $idORF = $annot->get_IdORF();
+                $annot->set_HMMlen($QueryLen);
+                $annots->{$key} = $annot;
+             }
+             $AllHMMAnnot->{$Res}->{$resume->get_SeqIdAndDesc()} = [$annots,$resume];
+         }
+    }
+    return $AllHMMAnnot;
+}
+
 sub AnnotationOfParticularStruc {
     my ($AllHMMAnnot,$contigname) = @_; 
     
@@ -7135,6 +7174,7 @@ sub AnnotationOfParticularStruc {
             
             &AddAnnotToPirMaster($contigname,$orf_annot);
             
+            # Similarity annotation
             my $annots      = $AllHMMAnnotByGene->{$Orf}->[0];
             foreach my $key(keys %$annots) {
                 my $annot = $annots->{$key};
@@ -7409,6 +7449,7 @@ sub SortHMMAnnot {
     foreach my $gene (keys %$AllHMMAnnot) {
         my $AllHMMAnnotByGene = $AllHMMAnnot->{$gene};
         
+        # Simple case no intron
         if (scalar(keys %$AllHMMAnnotByGene) == 1) {
             foreach my $Orf (keys %$AllHMMAnnotByGene) {
                 my $annots = $AllHMMAnnotByGene->{$Orf}->[0];
@@ -7418,6 +7459,7 @@ sub SortHMMAnnot {
                 }
             }
         }
+        # More complex can be a duplication or a gene with intron
         elsif (scalar(keys %$AllHMMAnnotByGene) == 2) {
             foreach my $Orf (keys %$AllHMMAnnotByGene) {
             my $annots = $AllHMMAnnotByGene->{$Orf}->[0];
@@ -7428,6 +7470,7 @@ sub SortHMMAnnot {
                 }
             }
         }
+        # Gene with intron suspected
         else {
             foreach my $Orf (keys %$AllHMMAnnotByGene) {
             my $annots = $AllHMMAnnotByGene->{$Orf}->[0];
@@ -7845,6 +7888,77 @@ sub DefineCloseStart {
         }
     }
     return $close_start;
+}
+
+#---- CreateAllEndoAnnotFindByHMM ----#
+sub CreateAllEndoAnnotFindByHMM {
+    my ($HighDir,$ResDir,$contigname) = @_;
+    
+    my $contig     = $pirmaster->GetContigByName($contigname);
+    my $seq        = $contig->get_sequence();
+       $seq        = lc($seq);
+    my $contiglen  = $contig->get_sequencelength();
+    
+    my $AllHMMAnnot = &CreateAllHMMAnnot($ResDir,$contigname,$contig,1);
+    
+    my $sort_annots_simple = [];  
+    foreach my $name (keys %$AllHMMAnnot) {
+        my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
+        foreach my $Orf (keys %$AllHMMAnnotByGene) {
+            my $annots = $AllHMMAnnotByGene->{$Orf}->[0];
+    
+            # If we have more than one match keep the best score in mind
+            my $best_score = $annots->{1}->get_score();
+            if (scalar(keys %$annots) != 1) {
+                foreach my $key (keys %$annots) {
+              	    my $annot  = $annots->{$key};
+              	    my $this_score = $annot->get_score();
+              	    $best_score = $this_score if &CompareHighPrecisionFloats($this_score,$best_score) == 1;
+              	}
+            }
+          
+            # Extract information
+            my $annot              = $annots->{1};
+            my $idORF              = $annot->get_IdORF();
+            my $direction          = $annot->get_direction();
+            my $name               = uc($annot->get_genename());
+            my $isMinus            = $direction eq "==>" ? 0 : 1;
+            my ($StartOrf,$EndOrf) = ($1,$2) if $idORF =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+            my $start              = $isMinus ? $StartOrf - 3 : $StartOrf + 3 ;
+            my $end                = $isMinus ? $EndOrf   - 3 : $EndOrf   + 3;
+            my $orfsize            = !$isMinus ? (($end - $start + 1)/3) - 1 : (($start - $end + 1)/3) -1;
+          
+            # Create new annot
+            my $new_annot = new PirObject::AnnotPair( type      => "G",
+          		  			  IdORF     => $idORF,
+          		  			  genename  => "orf${orfsize}",
+          		  			  startpos  => $start,
+          		  			  endpos    => $end,
+          		  			  direction => $direction,
+          		  			  startline => ";     G-orf${orfsize} $direction start /note=$name ;; evalue:$best_score",
+          		  			  endline   => ";     G-orf${orfsize} $direction end",
+          		  			  score     => $best_score,
+          		  			  );
+          
+            push(@$sort_annots_simple,$new_annot)
+       	 }
+    }
+    
+    # Make selection which orf need to be annot
+    $sort_annots_simple  = &MakeSelectionForSimpleCase($sort_annots_simple,$contig);
+    
+    # Keep in mind wich orf has not been annotated, annot other.
+    foreach my $annot (@$sort_annots_simple){
+        my $startline = $annot->get_startline();
+        my $name      = lc($1) if $annot->get_startline() =~ m/note=(\w+)/;
+        &AddAnnotToPirMaster($contigname,$annot);
+        delete $AllHMMAnnot->{$name};
+    }
+
+    my $Endo_by_cg = {};
+    $Endo_by_cg->{$contigname} = $AllHMMAnnot;
+    
+    return $Endo_by_cg;
 }
 
 #--------------------------------------------------#
