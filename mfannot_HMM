@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.23 2012/01/15 04:33:19 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.24 2012/01/18 03:54:10 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.24  2012/01/18 03:54:10  nbeck
+#    Fixed annotation of endonuclease intronic.
+#
 #    Revision 1.23  2012/01/15 04:33:19  nbeck
 #    Endonuclease annotation take a specific way, need to add case for intronic endo.
 #
@@ -407,7 +410,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.23 2012/01/15 04:33:19 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.24 2012/01/18 03:54:10 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -763,7 +766,7 @@ if ($ORFPROCESS) {
 # Process intronical ORF -> annotate intronicale ORF not detected by Blast
 print "$step) Intron ORF annotation...\n"; 
 $step += 1; 
-&AnnotateIntronicOrfs();
+&AnnotateIntronicOrfs($Endo_by_cg);
 
 &MulticommentConfidence;
 &LcIntrons;
@@ -6500,6 +6503,7 @@ sub DefineGTGorTTGup {
 #------------------------------------#
 
 sub AnnotateIntronicOrfs {
+    my $Endo_by_cg = shift;
     my $contigs             = $pirmaster->get_contigs();
     my $minimumlengthorf_nt = $MINLENEMPTYORF;
     my $minimumlengthorf_aa = $minimumlengthorf_nt / 3;
@@ -6638,7 +6642,7 @@ sub AnnotateIntronicOrfs {
                                                               prefix     => $prefix,
                                                               size       => $orfsize,
                                                               seq        => $seq_orf_aa,
-                                                              firstAA   => $intronic_orf->get_firstAA()
+                                                              firstAA    => $intronic_orf->get_firstAA()
                                                              );
         push (@$potential_intronic_orfs, $potential_intronic_orf);
     }
@@ -6692,13 +6696,55 @@ sub AnnotateIntronicOrfs {
            $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
         
         # Treatment to add a number after the genename #
+        
+        my $endo_list = $Endo_by_cg->{$contigname};
+        my $contig    = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
+        my $contiglen         = $contig->get_sequencelength();
+
+        # Add information about endonuclease
+        my $add_to_startline = "";
+        my $endo_evalue      = "";
+        foreach my $key(keys %$endo_list) {
+            my $info_by_endo = $endo_list->{$key};
+            foreach my $key( keys %$info_by_endo) {
+                my $annots = $info_by_endo->{$key}->[0];
+                foreach my $key (keys %$annots){
+                    my $endo = $annots->{$key};
+                    
+                    next if $direction ne $endo->get_direction();
+                    # Endonuclease
+                    my $endo_start = $endo->get_startpos();
+                    my $endo_end   = $endo->get_endpos();
+                    
+                    # ORF
+                    my $orf_start  = $selected_orf->get_start();
+                    my $orf_end    = $selected_orf->get_end();
+                    
+                    
+                    
+                    my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$direction,
+                    	                                      $endo_start,$endo_end,$direction);
+                    next if !$isOV;
+                    my $isMinus  = ($direction eq "==>" ? 0 : 1);
+                    my ($first_start,$second_start)  
+                    	         = $endo_start < $orf_start ? ( $endo_start, $orf_start) : ($orf_start, $endo_start);
+                    my $distance = $second_start - $first_start;
+                    
+                    next if ($distance % 3 != 0);
+                    $endo_evalue   = $endo->get_score() if $endo_evalue eq "" || (&CompareHighPrecisionFloats($endo->get_score(),$endo_evalue) == 1);
+                    my $uc_name    = uc($endo->get_genename());
+                    $add_to_startline = " /note=$uc_name ;; evalue:$endo_evalue";
+                }
+            }
+        }
+        
         my $orfannot = new PirObject::AnnotPair(
                                                 type      => "O",  
                                                 genename  => $GenenameORF,
                                                 startpos  => $selected_orf->get_start(),
                                                 endpos    => $selected_orf->get_end(),
                                                 direction => $direction,
-                                                startline => $startline,
+                                                startline => "${startline}${add_to_startline}",
                                                 endline   => $endline,
                                                );
 
