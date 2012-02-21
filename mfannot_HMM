@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.26 2012/01/28 20:17:10 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.27 2012/02/21 01:46:14 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.27  2012/02/21 01:46:14  nbeck
+#    Full annotation of rns/rnl if overlapp nothing.
+#
 #    Revision 1.26  2012/01/28 20:17:10  nbeck
 #    Added anticodon to genelist.
 #
@@ -416,7 +419,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.26 2012/01/28 20:17:10 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.27 2012/02/21 01:46:14 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -5314,6 +5317,7 @@ sub Annotate_Using_external_programs {
                 my $mf            = "$work_dir/$_";
                 my $out           = "$mf-$genename.xml";
                 my $APC           = &ExecuteExternalProgram($commandobject,$genename,undef,$mf,$out);
+                &ReconstructFullRNA($genename,$APC) if $genename eq "rns" || $genename eq "rnl";
                 &AnnotateFromExternalAPC($genename,$APC);
             } # End foreach genename1, genename2, ...
         } # End foreach "genename1,genename2"
@@ -5375,6 +5379,135 @@ sub ExecuteExternalProgram {
     my @annotpaircollections = PirObject->FileHandleToObject($infh);
     $infh->close();
     \@annotpaircollections;
+}
+
+sub ReconstructFullRNA {
+    my $genename             = shift;
+    my $annotpaircollections = shift; # Ref to array of APC
+    
+    foreach my $annotcollection (@$annotpaircollections) {
+        my $header       = $annotcollection->get_contigname();
+        my ($contigname) = ($header =~ m#^>?\s*(\S+)#)
+            or die "Can't parse header line '$header'\n";
+        next if $contigname eq "consensus";
+        my $contig      = $pirmaster->GetContigByName($contigname)
+            or die "Can't get contig by name in AnnotateFromExternalAPC\n";
+        my $dna_seq     = $contig->get_sequence();
+           $dna_seq     =~ s/\!//g;
+        my $seq_length  = $contig->get_sequencelength();
+        # Annotate the results, using the annotpairlist field of
+        # your annotcollection (an AnnotPairCollection object).
+        my $annotpairs = $annotcollection->get_annotpairlist();
+        
+        my $minus_annots = {};
+        my $plus_annots  = {};
+        foreach my $annot (@$annotpairs){
+            my $type       = $annot->get_type()     || "G";
+            my $a_genename = $annot->get_genename() || $genename;
+            my $startpos   = $annot->get_startpos()
+               || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
+            my $endpos     = $annot->get_endpos(); # Can be undef
+            
+            my $isMinus    = 1  if defined($endpos) && $startpos > $endpos;
+            my $RNAcomment = $annot->get_RNAcomment();
+            if ($annot->get_startline =~ m/5\'/ || $RNAcomment =~ m/5\'/i) {
+              $isMinus ? $minus_annots->{1} = $annot : $plus_annots->{1} = $annot;
+            }
+            # XXX -> Check for 3' pb
+            elsif ($annot->get_endline =~ m/3\'/i || $RNAcomment =~ m/3\'/i) {
+              $isMinus ? $minus_annots->{9999} = $annot : $plus_annots->{9999} = $annot;
+            }
+            else {
+              my ($start) = ($RNAcomment =~ m#pos\s+(\d+)#);
+              $isMinus ? $minus_annots->{$start} = $annot : $plus_annots->{$start} = $annot;
+            }
+        }
+        
+        # Check if annot on plus strand is in order
+        my $plus_is_in_order = 1;
+        my $prev_pos = 0;
+        foreach my $key (sort { $a <=> $b } keys %$plus_annots) {
+            my $annot =  $plus_annots->{$key}; 
+            my $pos = $annot->get_startpos();
+            if ($prev_pos == 0) {
+                $prev_pos = $pos;
+                next;
+            }
+            $plus_is_in_order = 0 if $pos < $prev_pos;
+            last if $plus_is_in_order == 0;
+            $prev_pos = $pos;
+        }
+        
+        # Check if annot on minus strand is in order
+        my $minus_is_in_order = 1;
+        $prev_pos = 0;
+        foreach my $key (sort { $b <=> $a } keys %$minus_annots) {
+            my $annot =  $minus_annots->{$key}; 
+            my $pos = $annot->get_startpos();
+            if ($prev_pos == 0) {
+                $prev_pos = $pos;
+                next;
+            }
+            $minus_is_in_order = 0 if $pos < $prev_pos;
+            last if $minus_is_in_order == 0;
+            $prev_pos = $pos;
+        }
+        
+        next if $plus_is_in_order == 0 && $minus_is_in_order == 0;
+       
+        # Check what overlap plus strand
+        my @sorted_plus_keys  = (sort { $a <=> $b } keys %$plus_annots);
+        my $annot_who_overlap_plus =  keys( %$plus_annots) > 0 ? &WhatOverlapsThis($plus_annots->{$sorted_plus_keys[0]}->get_startpos(),$plus_annots->{$sorted_plus_keys[-1]}->get_endpos(),$contig) : [];
+        # Check what overlap minus strand
+        my @sorted_minus_keys = (sort { $b <=> $a } keys %$minus_annots);
+        my $annot_who_overlap_minus = keys( %$minus_annots) > 0 ? &WhatOverlapsThis($minus_annots->{$sorted_minus_keys[-1]}->get_startpos(),$minus_annots->{$sorted_minus_keys[0]}->get_endpos(),$contig) : [];
+
+        next if scalar(@$annot_who_overlap_plus) != 0 || scalar(@$annot_who_overlap_minus) != 0;
+        
+        # Check which part is the first one.YYYY
+        my $add_to_plus  = "";
+        my $add_to_minus = "";
+        if (keys( %$plus_annots) > 0 && keys( %$minus_annots) > 0) {
+           my ($last_pos_in_plus, $first_pos_in_minus) = ($sorted_plus_keys[-1],$sorted_minus_keys[0]);
+           ($add_to_plus,$add_to_minus) = $last_pos_in_plus < $first_pos_in_minus ? ("_1","_2") : ("_2","_1");
+        }
+        
+        # Only in + strand 
+        if ( keys( %$plus_annots) > 0) {
+            my $start_annot = $plus_annots->{$sorted_plus_keys[0]}->get_startpos();
+            my $end_annot = $plus_annots->{$sorted_plus_keys[-1]}->get_endpos();                                                                                   
+            my $startline   = ";     G-${genename}${add_to_plus} ==> start";
+            my $endline     = ";     G-${genename}${add_to_plus} ==> end";
+            my $annot       = new PirObject::AnnotPair(
+                                        type            => "G",  
+                                        genename        => $genename,
+                                        startpos        => $start_annot,
+                                        endpos          => $end_annot,
+                                        direction       => "==>",
+                                        startline       => $startline,
+                                        endline         => $endline,
+                                       );
+           &AddAnnotToPirMaster($contigname,$annot);
+        }
+        # Only in - strand
+        if ( keys( %$minus_annots) > 0 ) {
+            my $start_annot = $minus_annots->{$sorted_minus_keys[-1]}->get_startpos();
+            my $end_annot   = $minus_annots->{$sorted_minus_keys[0]}->get_endpos();         
+            my $startline   = ";     G-${genename}${add_to_minus} <== start";
+            my $endline     = ";     G-${genename}${add_to_minus} <== end";
+            my $annot       = new PirObject::AnnotPair(
+                                        type            => "G",  
+                                        genename        => $genename,
+                                        startpos        => $start_annot,
+                                        endpos          => $end_annot,
+                                        direction       => "<==",
+                                        startline       => $startline,
+                                        endline         => $endline,
+                                       );
+           &AddAnnotToPirMaster($contigname,$annot);
+        }
+        $annotcollection->set_annotpairlist([])
+    }
 }
 
 sub AnnotateFromExternalAPC {
