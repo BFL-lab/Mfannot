@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.27 2012/02/21 01:46:14 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.28 2012/03/17 18:22:59 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.28  2012/03/17 18:22:59  nbeck
+#    Added numerotation to dpo and rpo.
+#
 #    Revision 1.27  2012/02/21 01:46:14  nbeck
 #    Full annotation of rns/rnl if overlapp nothing.
 #
@@ -419,7 +422,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.27 2012/02/21 01:46:14 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.28 2012/03/17 18:22:59 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -7339,6 +7342,8 @@ sub AnnotationOfParticularStruc {
         my $genename = $1 if $name =~ m/^(.+)_/;
         next if scalar(grep( /^$genename$/, @$JUST_SIMI)) == 0;
         my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
+        # YYYY sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}}
+        my $simi_annot_by_cg = {};
         foreach my $Orf (keys %$AllHMMAnnotByGene) {
             #ORF Annotation
             my $resume      = $AllHMMAnnotByGene->{$Orf}->[1];
@@ -7363,16 +7368,30 @@ sub AnnotationOfParticularStruc {
             my $annots      = $AllHMMAnnotByGene->{$Orf}->[0];
             foreach my $key(keys %$annots) {
                 my $annot = $annots->{$key};
-                my $startline = $annot->get_startline . ";; HMM match pos. " . $annot->get_HMMmatch . " score " . $annot->get_score;
+                # Two annot cannot have same startpos.
+                $simi_annot_by_cg->{$contigname}->{$annot->get_startpos} = $annot;
+            }
+        }
+        foreach my $contig (keys %$simi_annot_by_cg) {
+            my $all_simi_annot = $simi_annot_by_cg->{$contig};
+            my $cnt = 1;
+            foreach my $key (sort { $a <=> $b } keys(%$all_simi_annot)) {
+                my $annot      = $all_simi_annot->{$key};
+                my $startline  = $annot->get_startline;
+                $startline     =~ s/(G-$genename)/${1}_$cnt/;
+                $startline    .= " ;; HMM match pos. " . $annot->get_HMMmatch . " score " . $annot->get_score;
+                my $endline    = $annot->get_endline;
+                $endline       =~ s/(G-$genename)/${1}_$cnt/;
                 my $simi_annot = new PirObject::AnnotPair( type      => "C",
                                                          genename  => "ORF",
                                                          startpos  => $annot->get_startpos,
                                                          endpos    => $annot->get_endpos,
-                                                         direction => $direction,
+                                                         direction => $annot->get_direction,
                                                          startline => $startline,
-                                                         endline   => $annot->get_endline
+                                                         endline   => $endline
                                                          );
                 &AddAnnotToPirMaster($contigname,$simi_annot);
+                $cnt++
             }
         }
         delete $AllHMMAnnot->{$name};
