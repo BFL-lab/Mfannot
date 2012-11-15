@@ -35,9 +35,12 @@
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.   #
 #############################################################################
 #
-#    $Id: mfannot_HMM,v 1.29 2012/03/31 02:36:05 nbeck Exp $
+#    $Id: mfannot_HMM,v 1.30 2012/11/15 07:35:31 nbeck Exp $
 #
 #    $Log: mfannot_HMM,v $
+#    Revision 1.30  2012/11/15 07:35:31  nbeck
+#    Removed "_1" and add cutoff for HMM.
+#
 #    Revision 1.29  2012/03/31 02:36:05  nbeck
 #    Removed annotation of dpo/rpo and endo when '-a' option is set.
 #
@@ -425,7 +428,7 @@ PirObject->LoadDataModel("HMMsearchOutput");
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.29 2012/03/31 02:36:05 nbeck Exp $';
+$RCS_VERSION='$Id: mfannot_HMM,v 1.30 2012/11/15 07:35:31 nbeck Exp $';
 ($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
 my ($BASENAME) = ($0 =~ /([^\/]+)$/);
 my $MAINPROGRAM_PID = $$;
@@ -467,6 +470,7 @@ my $EXTSELECTPROG;                              # List of name for external prog
 my $LVL_INTRON;                                 # Indicate level of intron identification (1 or 2).
 my $BLASTOUTPUT       = "";                     # The path for blast file results
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
+my $HMMVALUECUTOFF    = "10e-3";                # Cutoff value for HMM
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;                    # Minimum size of a gap between 2 ORf. If 2 same ORF
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
@@ -876,8 +880,8 @@ sub CreatePepfileWithLibrary {
     my ($library,$pepfile) = ($PEPLIBRARIES,$LIB_FILE);
 
     opendir (DIR, $library) or die "Cannot open directory '$library': $!\n"; # Open the directory
-    my @files = grep((/\.faa$/ and -f "$library/$_"), readdir(DIR));   # Keep the existing *.pep files
-    close (DIR);                                                      # Close the directory
+    my @files = grep((/\.faa$/ and -f "$library/$_"), readdir(DIR));         # Keep the existing *.pep files
+    close (DIR);                                                             # Close the directory
 
     my $outfh = new IO::File ">$pepfile"
         or die "Can't write to library file '$pepfile': $!\n";
@@ -887,7 +891,7 @@ sub CreatePepfileWithLibrary {
     # Concatenate all the file from the library
     my $desc = "";
     foreach my $file (@files) {
-	my $loc_file = "$library/$file";
+	      my $loc_file = "$library/$file";
         
         my $PEP_F = new IO::File "<$loc_file" or die "Cannot open the pepfile '$loc_file': $!\n";
         my $to_annot = 0;
@@ -2416,7 +2420,7 @@ sub ChooseBestStart {
     return ($best_start,$median) if $best_start;
     
     foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        #xxxxxxx attention + 2 doit etre ici d une variable.
+        #xxxxxxx +2 need to be an option.
         delete $all_possible_st->{$st_pos} if $st_pos > ($right_lim_for_st + 2);
     }
     
@@ -3515,6 +3519,7 @@ sub CreateAlignForMiniEx {
     my $ProtSeq = &GetProteinSequenceAndIntronsPos($Exons,$Introns,$Seq,$hypprot);
     return "Frame-Shift-Detected"  if $ProtSeq eq "Frame-Shift-Detected";
     $ProtSeq    = substr($ProtSeq, 0, -1);
+    # $ProtSeq    =~ s/\*/n/g;    
     
     # Create Seq for HMM and run HMM
     my ($this_fasta,$homo_fasta) = &ExtractLibSeqs($hypprot,$ProtSeq);
@@ -3634,6 +3639,7 @@ sub RunHMMSearchForMiniEx {
     $next_seq = substr($next_seq,0,$More_n);
     
     my $i = 0;
+    return [] if scalar(@$ListHypExons) == 0;
     foreach my $exon (@$ListHypExons) {
         my $exon_seq = $exon->{seq} || "";
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
@@ -3956,8 +3962,10 @@ sub DefineMissingLeft {
         $aa = chop($aa) if $i != $max_similarity_accepted;
         $missing_left = $aa . $missing_left;
     }
+    # Remove beginning -
     $missing_left =~ s/^-//;
-    my $X = $missing_left; 
+    my $X = $missing_left;
+    # Keep only the X (unknown AA)
        $X =~ s/[^X]//g;
     my $nb_X = length($X);
     return ($missing_left,$nb_X);
@@ -5408,6 +5416,8 @@ sub ReconstructFullRNA {
         my $minus_annots = {};
         my $plus_annots  = {};
         foreach my $annot (@$annotpairs){
+            my $idbyHMM = $annot->get_idbyHMM() || 0;
+            next if $idbyHMM == 1 && &CompareHighPrecisionFloats($annot->get_score(), $HMMVALUECUTOFF) == 1; # score > $HMMVALUECUTOFF
             my $type       = $annot->get_type()     || "G";
             my $a_genename = $annot->get_genename() || $genename;
             my $startpos   = $annot->get_startpos()
@@ -5535,6 +5545,9 @@ sub AnnotateFromExternalAPC {
         # your annotcollection (an AnnotPairCollection object).
         my $annotpairs = $annotcollection->get_annotpairlist();
         foreach my $annot (@$annotpairs){
+            my $idbyHMM = $annot->get_idbyHMM() || 0;
+            next if $idbyHMM == 1 && &CompareHighPrecisionFloats($annot->get_score(),"$HMMVALUECUTOFF") == 1; # score > $HMMVALUECUTOFF
+
             my $type       = $annot->get_type()     || "G";
             my $a_genename = $annot->get_genename() || $genename;
             my $startpos   = $annot->get_startpos()
@@ -7324,6 +7337,8 @@ sub CreateAllHMMAnnot {
 
          foreach my $resume (@$resumes) {
             next if $resume->get_BeforeThresh() == 0;
+            my $fEvalue = $resume->get_fEvalue();
+            next if &CompareHighPrecisionFloats($fEvalue,"$HMMVALUECUTOFF") == 1; # fEvalue > $HMMVALUECUTOFF
             my $alignments = $resume->get_alignments();
             my $annots     = {};
             # Important need to be sort by aliFrom for remove false intron after
@@ -8802,7 +8817,7 @@ sub RenumberFeatures {
 
         # Renumber all annots of each group (each group gets a single new number)
         for (my $i = 1; @dorenumber > 0 ; $i++) {
-            my $newsuf = "_$i";
+            my $newsuf = $i == 1 ? "" : "_$i";
             next if $suffix2groups->{$newsuf}; # Already used? try next suffix
             my $group = shift(@dorenumber);
             foreach my $annot (@$group) {
@@ -8814,9 +8829,7 @@ sub RenumberFeatures {
                 my $end       = $annot->get_endpos();
                 print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
                     if ($type eq "G" || $type eq "O") && $origname eq $genename && $genename ne "comment"; # no warn if "cox1_1-I1-orf344"
-                # print " -> To $newsuf : $startline ";
                 $startline = &ReplaceNumber($startline,$newsuf,$genename,$annot);
-                # print " -> $startline\n";
                 $endline   = &ReplaceNumber($endline,$newsuf,$genename,$annot) if $endline;
                 $annot->set_startline($startline);
                 $annot->set_endline($endline);
