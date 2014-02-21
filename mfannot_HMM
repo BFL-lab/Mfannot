@@ -5598,7 +5598,7 @@ sub AnnotateFromExternalAPC {
                 if (lc($a_genename) ne "rns" && lc($a_genename) ne "rnl" ) {
                     $a_startline .= $a_startline =~ m/ ;; mfannot:/ ?
                                " / Approximate position" 
-                             : " ;; mfannot: Approximative position";
+                             : " ;; mfannot: Approximate position";
                     $annot->set_startline($a_startline);
                 }
             }
