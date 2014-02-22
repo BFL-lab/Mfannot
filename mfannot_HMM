@@ -551,7 +551,7 @@ my @LIB_PATH      = (($HOME || ".")); # You can add other search directories her
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
 $PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
 $EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
-$LVL_INTRON    = $MAIL ? 1 : 2;
+#$LVL_INTRON    = $MAIL ? 1 : 2;
 #Check for directory
 #Check for intronic lib
 my $intronic_lib    = "";
