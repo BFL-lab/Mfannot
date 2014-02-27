@@ -9019,7 +9019,7 @@ sub sendMail {
     my $mailErr   = "$TMPDIR/mailErr";
     my $mailOut   = "$TMPDIR/mailOut";
 	
-    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file\'";
+    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@gmail.com\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file , $sqn_file\'";
 	print STDERR $cmd if $DEBUG;
 	my $ret = system("$cmd 2> $mailErr");
 	
