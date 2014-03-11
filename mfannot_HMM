@@ -3151,7 +3151,7 @@ sub CheckRealIntrons {
         
         # Changed info for exon
         my $number_frameshift = ($exon->get_frameshiftsize() || 0) + ($next_exon->get_frameshiftsize() || 0);
-        $exon->set_frameshift($number_frameshift) if $number_frameshift != 0;
+        $exon->set_frameshiftsize($number_frameshift) if $number_frameshift != 0;
         $exon->set_dnaend($next_exon->get_dnaend());
         $exon->set_insertion($intron_len_aa) if $intron_len_aa >= $max_ins_permitted;
         push(@$exons_to_rm,$i+1);
