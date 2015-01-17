@@ -972,6 +972,13 @@ sub GetOptions {
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
     $JUST_SIMI               = ["dpo","rpo"];              # XXXX Need to be an option
+
+    my @AF_HOSTS= qw( megasuno.bcm.umontreal.ca
+                  megasuno);
+	if ($MAIL) {
+		die "MFannot can only run with -a option on : megasuno"
+	    	unless scalar(grep( $_ eq hostname(), @AF_HOSTS));
+	}
     
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
