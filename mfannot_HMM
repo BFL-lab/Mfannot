@@ -7735,11 +7735,14 @@ sub MakeSelectionForSimpleCase {
 
     my $new_sort = [];
     my $contiglen  = $contig->get_sequencelength();
-    # First time remove annot who OV gene id by previosly.
+    
+        # First time remove annot who OV gene id by previously.
     foreach my $annot (@$sort_annots_simple) {
         my $annot_who_overlap = &WhatOverlapsThis($annot->get_startpos(),$annot->get_endpos(),$contig);
         
+        my $to_add = 0; # counter to decide if $annot should be keep or not
         foreach my $info_who_overlap (@$annot_who_overlap){
+            
             foreach my $features_who_overlap (@$info_who_overlap ){
                 my $min_annot = $annot->get_direction() eq "==>" ? $annot->get_startpos() : $annot->get_endpos() ;
                 my $max_annot = $annot->get_direction() eq "==>" ? $annot->get_endpos()   : $annot->get_startpos;
@@ -7749,24 +7752,28 @@ sub MakeSelectionForSimpleCase {
                 my $feature_annot_type      = $features_who_overlap->[2]->type;
                 my $features_min            = $features_who_overlap->[0];
                 my $features_max            = $features_who_overlap->[1];
+                
                 if ( ($feature_annot_type eq "G" && $features_who_overlap->[3] eq "YES")      # Gene without intron
                   || ($feature_annot_type eq "E" && $features_who_overlap->[3] eq "YES")
                   || ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc)) {   # First or last exon
                     
                     if ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc) {
-		      push(@$new_sort,$annot)
-		    }
-		    elsif ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
-                    || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
-                    && ( ! ($max_annot < $features_min || $min_annot > $features_max)))) {
+		                $to_add++;
+		                #push(@$new_sort,$annot)
+		            } elsif ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
+                         || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
+                         && ( ! ($max_annot < $features_min || $min_annot > $features_max)))) {
+                        
                         my $max_start = ( ( $features_min > $min_annot ) ? $features_min : $min_annot);
                         my $min_end   = ( ( $features_max < $max_annot ) ? $features_max : $max_annot );
-                        push(@$new_sort,$annot) if ($overlappingcutoff > ( $min_end - $max_start + 1));
+                        $to_add++ if ($overlappingcutoff > ( $min_end - $max_start + 1));
+                        #push(@$new_sort,$annot) if ($overlappingcutoff > ( $min_end - $max_start + 1));
+                    
                     }
                 }
             }
         }
-        push(@$new_sort,$annot) if scalar(@$annot_who_overlap) == 0;
+        push(@$new_sort,$annot) if scalar(@$annot_who_overlap) == $to_add;
     }
     
     $sort_annots_simple = $new_sort;
@@ -7946,11 +7953,11 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
         }
         # Remove double ; and pass annot in G type
         my $startline = $annot->get_startline();
-        $startline =~ s/^;//;
+        $startline =~ s/^;// if $startline =~ m/^;;/;
         $annot->set_startline($startline);
         
         my $endline = $annot->get_endline();
-        $endline =~ s/^;//;
+        $endline =~ s/^;// if $endline =~ m/^;;/;
         $annot->set_endline($endline);
         
         $annot->set_type("G");
