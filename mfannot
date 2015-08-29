@@ -42,7 +42,9 @@
 
 require 5.00;
 use strict;
+
 use vars qw( $VERSION $RCS_VERSION );
+
 use IO::File;
 use IO::Dir;
 use Cwd;
@@ -56,26 +58,24 @@ use Bio::Tools::CodonTable;                           # To create a codon table,
 use Bio::Matrix::IO;                                  # Used for read matrix like PAM
 use List::Util qw(min max);
 use Sys::Hostname;
+
 sub info;
 
 BEGIN {
 # Load PirObject
-PirObject->LoadDataModel("Masterfile");               # Masterfile object
-PirObject->LoadDataModel("MfAnnotExternalProgs");     # Support for execution of external programs
-PirObject->LoadDataModel("AnnotPairCollection");      # Also for external programs.
-PirObject->LoadDataModel("ExonerateOutput");          # Parser for Exonerate output
-PirObject->LoadDataModel("FlipBlastProt");            # Objects for storing ORFs predicted by Flip and kept with blast
-PirObject->LoadDataModel("HypProt");                  # Hypothetical protein : We believe its a protein after flip.
-PirObject->LoadDataModel("HypFusion");                # Contain information about gene fusion
-PirObject->LoadDataModel("Option");                   # A module for options gestion
-PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs having no corresponding genes
-PirObject->LoadDataModel("BlastOutput");              # Model of blast results in XML (blastall -m 7)
-PirObject->LoadDataModel("AlignedSeq");
-PirObject->LoadDataModel("MultAlign");
-PirObject->LoadDataModel("AlignedSeq");
-PirObject->LoadDataModel("MultAlign");
-PirObject->LoadDataModel("HMMsearchOutput");
-
+  PirObject->LoadDataModel("Masterfile");               # Masterfile object
+  PirObject->LoadDataModel("MfAnnotExternalProgs");     # Support for execution of external programs
+  PirObject->LoadDataModel("AnnotPairCollection");      # Also for external programs.
+  PirObject->LoadDataModel("ExonerateOutput");          # Parser for Exonerate output
+  PirObject->LoadDataModel("FlipBlastProt");            # Objects for storing ORFs predicted by Flip and kept with blast
+  PirObject->LoadDataModel("HypProt");                  # Hypothetical protein : We believe its a protein after flip.
+  PirObject->LoadDataModel("HypFusion");                # Contain information about gene fusion
+  PirObject->LoadDataModel("Option");                   # A module for options gestion
+  PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs having no corresponding genes
+  PirObject->LoadDataModel("BlastOutput");              # Model of blast results in XML (blastall -m 7)
+  PirObject->LoadDataModel("AlignedSeq");
+  PirObject->LoadDataModel("MultAlign");
+  PirObject->LoadDataModel("HMMsearchOutput");
 } # End Begin
 
 # Default umask
@@ -110,13 +110,11 @@ my $GENCODE          = undef;                   # Genetique code
 my $LOG_FILE;                                   # Log file : store all the information about run
 my $ISLOGFILE        = 0;                       # Just to know if the $LOG_FILE is not empty (0 or 1)
 my $MASTERFILE       = undef;                   # Path for Masterfile
-my $PEPFILE;                                    # Path for the peptide file used
 my $CACHE_PEPLIBRARY = {};                      # Cache of all proteins in library
 my @PROT_FOR_EXONERATE;                         # Array with homolog protein for Exonerate
 my $OUTPUTFILE;                                 # Path for the new
 my $ORFPROCESS;                                 # Allows ORF appearing in the masterfile as annotations
 my $PEPLIBRARIES;                               # The libraries, in input, by default datagenescollection and dataorfcollection
-my $INPUTPEPFILES;                              # The input files
 my $EXTCONFIGFILE;                              # The path for configuration file, it's use for annotation of rnpB, rnl and rns;
 my $MOTFILE;                                    # The path of pattren file.
 my $LVL_MOT;                                    # Indicate level of motif identification.
@@ -6344,7 +6342,6 @@ sub AnnotateIntronicOrfs {
             my $startline = $annot->get_startline();
             my $endline   = $annot->get_endline();
             my ($prefix,$prot) = ("","");
-            my @orf; 
             
                $prefix     = $1 if $endline   =~ /;\s+G-(\S+)/;
             my $num_intron = $2 if $startline =~ m#G-(\S+)-I(\d+)#;
