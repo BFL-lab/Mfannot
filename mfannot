@@ -161,40 +161,39 @@ my $HMMSEARCH_EXE           = &GetPath("hmmsearch3");
 
 my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --nosplicesignal T"; 
 
-# Models and lib path
-my @MOD_PATH      = (
-    # You can add other search directories here
-    ($HOME || ".") . "/mfannot_models",
-);
+###################################################################
+# Check file existance: models, external config file, motif file. #
+###################################################################
 
-push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"}))
-    if $ENV{"MFANNOT_MOD_PATH"};
+# 1. Check for models path XXX todo 
+my @MOD_PATH      = (($HOME || ".") . "/models");
+push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"})) if $ENV{"MFANNOT_MOD_PATH"};
     
 my $MODEL_PATH = "";
 foreach my $path (@MOD_PATH) {
-    next if !(-d $path);
-    $MODEL_PATH = $path;
+  next if !(-d $path);
+  $MODEL_PATH = $path;
 }
 
 $MODEL_PATH =~ s/\/$//;
 die "No path for ErpinModels and HMMweaselModels were found\n"
-    if !$MODEL_PATH;
+  if !$MODEL_PATH;
     
-# Check file existance
+#  2. Check for external config file
 die "File $EXTCONFIGFILE give with option 'ext_select' doesn't exist.\n"
-if (! -e "$EXTCONFIGFILE");
+  if (! -e "$EXTCONFIGFILE");
 
+# 3. Check for motif file
 die "File $MOTFILE give with option 'motfile' doesn't exist.\n"
-    if ( ! -e "$MOTFILE");
+  if ( ! -e "$MOTFILE");
         
 my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 
-#---------------------------#
+# 4. Check for library path
 my @LIB_PATH      = (($HOME || ".")); # You can add other search directories here
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
-$PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
-$EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
-#$LVL_INTRON    = $MAIL ? 1 : 2;
+
+
 #Check for directory
 #Check for intronic lib
 my $intronic_lib    = "";
@@ -222,6 +221,10 @@ die "Please make sure the BLASTMAT environment variable is set\n".
 
 my $matrix_path = $ENV{"BLASTMAT"}."/PAM70";
 
+# XXX No more usefull to remove
+# $PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
+# $EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
+
 # Check if ~/.HMMweasel.cache exist and create them if they doesn't
 #my $HMM_cache = "$HOME/.HMMweasel.cache";
 #unless(-d $HMM_cache){ mkdir $HMM_cache or die "Cannot create '$HMM_cache'";}
@@ -234,6 +237,7 @@ my $matrix           = $parser->next_matrix;
 my $HMM_model_path = "/share/supported/mfannot/protein_collections/identified_by_gene/model/hmm/";
 
 
+# XXX What to do
 # Parameters that don't have (yet) options on the command-line
 my $SHORT_HSPS_MIN_EVALUE = "1e-11";
 
@@ -252,6 +256,7 @@ $SIG{'ALRM'} = \&SigCleanup;
 ###############################
 
 my $LOG_F = new IO::File ">$LOG_FILE" if $ISLOGFILE;
+
 #----------HEADER PRINTED OUT----------------------------------------------------------
 my $header = "\n".
              "######################################################################\n".
@@ -268,25 +273,25 @@ my $add_text_in_header = "";
 my $options ="----------------------------------\n".
              "        General Options           \n".
              "----------------------------------\n";
-$options .= "Masterfile used : $MASTERFILE\n";
-$options .= "New Masterfile created : $OUTPUTFILE\n";
-$options .= "Genetic code : $GENCODE\n";
-$options .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
-$options .= "Usage of RNAweasel\n";
-$options .= "The Path of configfile is : $EXTCONFIGFILE\n";
-$options .= "The Path of pattern file is : $MOTFILE\n";
-$options .= "Look in the peptide library $PEPLIBRARIES\n";
+$options   .= "Masterfile used : $MASTERFILE\n";
+$options   .= "New Masterfile created : $OUTPUTFILE\n";
+$options   .= "Genetic code : $GENCODE\n";
+$options   .= "Logfile : $LOG_FILE\n" if $ISLOGFILE;
+$options   .= "Usage of RNAweasel\n";
+$options   .= "The Path of configfile is : $EXTCONFIGFILE\n";
+$options   .= "The Path of pattern file is : $MOTFILE\n";
+$options   .= "Look in the peptide library $PEPLIBRARIES\n";
 
 print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
-print $options if $DEBUG;                        # Print the options on the screen 
+print $options          if $DEBUG;               # Print the options on the screen 
 
 # CREATE THE TMPDIR #
 my $EGC_FILE = "/share/supported/mfannot/EGC/EGC.$GENCODE";
 die "No EGC file (with ncbi genetic code) was found for your genetic code '$GENCODE'\n"
-    if (!(-f $EGC_FILE));
+  if (!(-f $EGC_FILE));
 $TMPDIR = "/tmp/mfannot.$$" if !$TMPDIR;
 if (! -d $TMPDIR) {
-    mkdir($TMPDIR,0700) or die "Error: can't create working directory '$TMPDIR': $!\n";
+  mkdir($TMPDIR,0700) or die "Error: can't create working directory '$TMPDIR': $!\n";
 }
 
 # Initialization of $CODON_TABLE (Hashtable with genetic code)
@@ -300,9 +305,11 @@ die "'$PEPLIBRARIES' isn't a directory\n"
 my $LIB_FILE                   = "$TMPDIR/library.pep";
 my ($MITO_GENE_LIST,$CHLORO_GENE_LIST) = ({},{});
    ($CACHE_PEPLIBRARY,$MITO_GENE_LIST,$CHLORO_GENE_LIST) = &CreatePepfileWithLibrary;
+# List of typiccal gene in order to determine if the genome is a mitochondiral genome or a chloroplastic genome.
 my $MITO_GENE_TYP   = ["cox1","cox2","cox3","cob","atp6"];
 my $CHLORO_GENE_TYP = ["apcA","apcB","apcD","apcE","apcF","cpcG","petA","petB"];
    
+   # XXXX Not useful ! 
    $PENAMEDISPLAY{"$LIB_FILE"} = $PEPLIBRARIES;     # Associate, the name of the library for each peplibraries
 die "Unable to read '$LIB_FILE'\n" 
     if (not -r $LIB_FILE);
@@ -7943,46 +7950,45 @@ sub ReplaceCgName {
 #---------------------------------#
 
 sub read_pat_file{
-    my $pfile = shift;
-
-    my($name, $regexp);
-    
-    my $infh  = new IO::File "<$pfile"
-        or die "Can't read from file '$pfile': $!\n";
-    my $list_of_mot = ();
-    
+  my $pfile = shift;
+  my $infh  = new IO::File "<$pfile"
+    or die "Can't read from file '$pfile': $!\n";
+  
+  my($name, $regexp);
+  my $list_of_mot = ();
+     
 	while( <$infh> ){
-	    chomp;
-        my $line = $_;
-	    next if $line =~ m/^\s*$/ || $line =~ m/^#/ ; # skip blank lines
-	    # A pattern line
-        if ( $line =~ m/^\s*\S+\s+(\S+)\s+(\S+)\s*$/ ){
-            ($name, $regexp) = ($1,$2);
-            die "Multiple patterns have the same name $name, please fix in $pfile"
-                if $list_of_mot->{$name};
-            $name =~ s/^\s*//, $name =~ s/\s*$//;
-            # Validate name.
-            &PrintError("name",$name,$pfile) if ( $name =~ /\s/ or !$name ); 
-            # Validate regexp.
-            my $invalid_pat = 0;
-            $regexp =~ s/\s//g;
-            &PrintError("regexp",$regexp,$pfile) if $regexp eq '';
-            &PrintError("regexp",$regexp,$pfile) if $regexp =~ /[^ a c g t n { } \d \[ \] ( ) , \* \? \+ .]/i;
-            eval "'' =~ /$regexp/";
-            &PrintError("regexp",$regexp,$pfile) if $@;
-            &PrintError("regexp",$regexp,$pfile) if '' =~ /$regexp/;
-            &PrintError("regexp",$regexp,$pfile) if $regexp =~ / \*\? | \}\? | \+\? | \?\? /x;
-            $list_of_mot->{$name} = $regexp;
-	    }
-	    # Line is invalid
-	    else{
-            print "File $pfile contains syntax errors on line $..\n";
-		    print "Please correct them and rerun $BASENAME.\n";
-		    return 1;
-	    }
+	  chomp;
+    my $line = $_;
+	  next if $line =~ m/^\s*$/ || $line =~ m/^#/ ; # skip blank lines
+	  # A pattern line
+    if ( $line =~ m/^\s*\S+\s+(\S+)\s+(\S+)\s*$/ ){
+      ($name, $regexp) = ($1,$2);
+      die "Multiple patterns have the same name $name, please fix in $pfile"
+        if $list_of_mot->{$name};
+      $name =~ s/^\s*//, $name =~ s/\s*$//;
+      # Validate name.
+      &PrintError("name",$name,$pfile) if ( $name =~ /\s/ or !$name ); 
+      # Validate regexp.
+      my $invalid_pat = 0;
+      $regexp =~ s/\s//g;
+      &PrintError("regexp",$regexp,$pfile) if $regexp eq '';
+      &PrintError("regexp",$regexp,$pfile) if $regexp =~ /[^ a c g t n { } \d \[ \] ( ) , \* \? \+ .]/i;
+      eval "'' =~ /$regexp/";
+      &PrintError("regexp",$regexp,$pfile) if $@;
+      &PrintError("regexp",$regexp,$pfile) if '' =~ /$regexp/;
+      &PrintError("regexp",$regexp,$pfile) if $regexp =~ / \*\? | \}\? | \+\? | \?\? /x;
+      $list_of_mot->{$name} = $regexp;
+	  }
+	  # Line is invalid
+	  else {
+      print "File $pfile contains syntax errors on line $..\n";
+		  print "Please correct them and rerun $BASENAME.\n";
+		  return 1;
+	  }
 	}
-    $infh->close();
-    return $list_of_mot;
+  $infh->close();
+  return $list_of_mot;
 }
 
 sub PrintError {
