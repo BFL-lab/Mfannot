@@ -43,6 +43,8 @@
 require 5.00;
 use strict;
 
+$DB::inhibit_exit = 0;
+
 use vars qw( $VERSION $RCS_VERSION );
 
 use IO::File;
@@ -102,7 +104,6 @@ my $EMPTYORFS        = [];                      # Array containing ORFs having n
 my $START_COUNT      = {};                      # Hash with count of tri_nt start.
 my $FAMILY_LIST      = {};                      # Hash with family list.
 my $TMPDIR           = "";                      # Temporary directory
-my %PENAMEDISPLAY;                              # An hash array, containing the name to display, associate with peplibraries and pepfiles
 
 # General options
 my $DEBUG;                                      # Debug mode. If true, display message on the screen
@@ -135,37 +136,37 @@ my $MINEXONSIZE;                                # Minimum exon size for intron.
 my $MATRIX;                                     # PAM or BLOSUM matrix
 my $PARTIAL;                                    # This will cause mfannot to only run a subset of all its built-in analysis
 my $INSERTION;                                  # Minimum length for report insertion.
-my $MAIL;                                       # Mail in order to send results
+my $LIGHT;                                      # Don't run endonuclease search and don't search for every gene by HMM
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
 my $JUST_SIMI;                                  # An array containing names of gene to annotate by HMM similarity
+my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
 
 # Command line Program's paths
 my $PATH = $ENV{"PATH"} || "";
 my @PATH = split(/:/, $PATH);
 
 my $HOME                    = $ENV{"HOME"};
-my $BLASTPATH               = &GetPath("blastall");
-my $FORMATDBPATH            = &GetPath("formatdb");
-my $MAKEBLASTDBPATH         = &GetPath("makeblastdb");
 my $FLIPPATH                = &GetPath("flip");
-my $EXONERATEPATH           = &GetPath("exonerate-MF");
-my $MUSCLEPATH              = &GetPath("muscle");                        
+my $MAKEBLASTDBPATH         = &GetPath("makeblastdb"); 
+my $BLASTPATH               = &GetPath("blastp");
+my $BLASTNPATH              = &GetPath("blastn");
+my $MUSCLEPATH              = &GetPath("muscle");
+my $UMACPATH                = &GetPath("umac"); 
+my $HMMBUILDPATH            = &GetPath("hmmbuild");
+my $HMMALIGNPATH            = &GetPath("hmmalign");
+my $HMMSEARCHPATH           = &GetPath("hmmsearch");
+my $EXONERATEPATH           = &GetPath("exonerate");
 my $GETORFPATH              = &GetPath("getorf");
-my $UMAC_EXE                = &GetPath("umac");
-my $HMMBUILD_EXE            = &GetPath("hmmbuild3");
-my $HMMALIGN_EXE            = &GetPath("hmmalign3");
-my $HMMSEARCH_EXE           = &GetPath("hmmsearch3");
+my $MF2SQNPATH              = &GetPath("mf2sqn");
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
-
-my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --nosplicesignal T"; 
 
 ###################################################################
 # Check file existance: models, external config file, motif file. #
 ###################################################################
 
-# 1. Check for models path XXX todo 
+# 1. Check for models path 
 my @MOD_PATH      = (($HOME || ".") . "/models");
 push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"})) if $ENV{"MFANNOT_MOD_PATH"};
     
@@ -174,6 +175,11 @@ foreach my $path (@MOD_PATH) {
   next if !(-d $path);
   $MODEL_PATH = $path;
 }
+
+#HMMmodel path
+my $HMM_model_path = "$MODEL_PATH/HMM_models/id_by_gene";
+die "Directory for gene identified by HMM model not found\n" 
+   if (! -e "$HMM_model_path");
 
 $MODEL_PATH =~ s/\/$//;
 die "No path for ErpinModels and HMMweaselModels were found\n"
@@ -221,23 +227,12 @@ die "Please make sure the BLASTMAT environment variable is set\n".
 
 my $matrix_path = $ENV{"BLASTMAT"}."/PAM70";
 
-# XXX No more usefull to remove
-# $PEPLIBRARIES  = "/share/supported/mfannot/protein_collections/identified_by_gene/model/faa/identified";
-# $EXTCONFIGFILE = "/share/supported/mfannot/config/.mfannot_external_programs.conf.hmm";
-
-# Check if ~/.HMMweasel.cache exist and create them if they doesn't
-#my $HMM_cache = "$HOME/.HMMweasel.cache";
-#unless(-d $HMM_cache){ mkdir $HMM_cache or die "Cannot create '$HMM_cache'";}
-
 my $parser           = new Bio::Matrix::IO(-format => 'scoring',
                                            -file   => $matrix_path);
 my $matrix           = $parser->next_matrix;
 
-#HMMmodel path
-my $HMM_model_path = "/share/supported/mfannot/protein_collections/identified_by_gene/model/hmm/";
 
-
-# XXX What to do
+# TODO
 # Parameters that don't have (yet) options on the command-line
 my $SHORT_HSPS_MIN_EVALUE = "1e-11";
 
@@ -286,7 +281,7 @@ print $LOG_F "$options" if $ISLOGFILE;           # Print options in the logfile
 print $options          if $DEBUG;               # Print the options on the screen 
 
 # CREATE THE TMPDIR #
-my $EGC_FILE = "/share/supported/mfannot/EGC/EGC.$GENCODE";
+my $EGC_FILE = "$ENV{'EGC'}/EGC.$GENCODE";
 die "No EGC file (with ncbi genetic code) was found for your genetic code '$GENCODE'\n"
   if (!(-f $EGC_FILE));
 $TMPDIR = "/tmp/mfannot.$$" if !$TMPDIR;
@@ -303,17 +298,16 @@ my ($CODON_TABLE,$DEVIATION) = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); #
 die "'$PEPLIBRARIES' isn't a directory\n" 
     if (not -d $PEPLIBRARIES);
 my $LIB_FILE                   = "$TMPDIR/library.pep";
+
 my ($MITO_GENE_LIST,$CHLORO_GENE_LIST) = ({},{});
    ($CACHE_PEPLIBRARY,$MITO_GENE_LIST,$CHLORO_GENE_LIST) = &CreatePepfileWithLibrary;
+die "Unable to read '$LIB_FILE'\n"
+  if (not -r $LIB_FILE);
+
 # List of typiccal gene in order to determine if the genome is a mitochondiral genome or a chloroplastic genome.
 my $MITO_GENE_TYP   = ["cox1","cox2","cox3","cob","atp6"];
 my $CHLORO_GENE_TYP = ["apcA","apcB","apcD","apcE","apcF","cpcG","petA","petB"];
    
-   # XXXX Not useful ! 
-   $PENAMEDISPLAY{"$LIB_FILE"} = $PEPLIBRARIES;     # Associate, the name of the library for each peplibraries
-die "Unable to read '$LIB_FILE'\n" 
-    if (not -r $LIB_FILE);
-
 # ANNOTATION # 
 # Print option of the annotation
 print "----------------------------------\n",
@@ -383,7 +377,7 @@ $step += 1;
 # Selection of protein
 print "$step) Select best proteins for Exonerate...\n";
 $step += 1; 
-&Select_protein;
+&SelectProteinForExo;
 
 # Create hypothetical proteins  
 print "$step) Annotate genes w/o introns...\n";
@@ -392,9 +386,9 @@ $step += 1;
 
 # Annotation of all introns
 if ($LVL_INTRON == 2 ) {
-    print "$step) Intron identification...\n";
-    &Annotate_Using_external_programs("IntronII,IntronI");
-    $step += 1; 
+  print "$step) Intron identification...\n";
+  &Annotate_Using_external_programs("IntronII,IntronI");
+  $step += 1; 
 }
 
 # Make the alignement and give the exons
@@ -478,7 +472,7 @@ undef $EMPTYORFS;
 print "Writing new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-&CreateTBLoutput($OUTPUTFILE) if $MAIL;
+&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT;
 
 if (0) {
 print "Writing PirMaster object to $OUTPUTFILE.xml\n";
@@ -492,13 +486,12 @@ if ($ISLOGFILE == 1) {
 
 my $filename = basename($OUTPUTFILE);
 system("cp $OUTPUTFILE $TMPDIR/$filename");
-&sendMail($filename) if $MAIL;
 exit 0;
 
 END { 
     # With exit, programme will go here
     # Cleanup temp directory when program exits.
-	return unless $$ == $MAINPROGRAM_PID; # We don't want to run this in a CHILD!
+    return unless $$ == $MAINPROGRAM_PID; # We don't want to run this in a CHILD!
     return unless defined($TMPDIR) and $TMPDIR =~ m#^/tmp/#;
     print "Temporary work directory $TMPDIR NOT cleaned up ...\n" if $DEBUG; 
     rmtree($TMPDIR) unless $DEBUG;
@@ -618,18 +611,13 @@ sub GetOptions {
     $MATRIX                  = $option->matrix;            # The matrix used in genewise alignement
     $PARTIAL                 = $option->partial;           # This will cause mfannot to only run a subset of all its built-in analysis
     $INSERTION               = $option->insertion;         # Minimum length for report insertion
-    $MAIL                    = $option->mail;              # Mail in order to send results
+    $LIGHT                   = $option->light;             # Don't search for endonuclease and don't search all gene by HMM
+    $SQN_FORMAT              = $option->sqnformat;         # If true do mf -> sqn conversion
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
     $JUST_SIMI               = ["dpo","rpo"];              # XXXX Need to be an option
-
-    my @AF_HOSTS= qw( megasuno.bcm.umontreal.ca
-                  megasuno);
-	if ($MAIL) {
-		die "MFannot can only run with -a option on : megasuno"
-	    	unless scalar(grep( $_ eq hostname(), @AF_HOSTS));
-	}
     
+
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
             $ISLOGFILE       = $option->islogfile;     #  Just to know if the $LOG_FILE is not empty (0 or 1)
@@ -947,7 +935,7 @@ sub BlastFlipVSGene {
     system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results        
-    my $cmdblast     = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf -i $TMPDIR/prot.lst -o $BLASTOUTPUT -a $NB_PROC 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $TMPDIR/mf -query $TMPDIR/prot.lst -out $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     system ($cmdblast);
 } # End sub
@@ -1303,8 +1291,8 @@ sub FindIndexOfGeneFusion {
 # of protein with exon/intron (In order to run Exonerate)   #
 #-----------------------------------------------------------#
 
-sub Select_protein {
-    # This function is create in order to selection the protein for run Exonerate or not
+sub SelectProteinForExo {
+    # This function is create in order to select the protein for run Exonerate or not
     my $compt = 0;
     my @index;
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {
@@ -1405,9 +1393,9 @@ sub Select_protein {
 # Subs for identifying similar ORFs  #
 #------------------------------------#
 
+# This function fill the HYPPROTS array (array of hypothetical proteins with
+# FLIPBLASTPROTS array (array of ORF and hsp)
 sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
-    # This function fill the HYPPROTS array (array of hypothetical proteins with
-    # FLIPBLASTPROTS array (array of ORF and hsp)
     
     # This is mainly the algorithm given by Franz
     foreach my $flipblastprot (@$FLIPBLASTPROTS) {        # For each flip blast protein
@@ -1591,6 +1579,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
+        # XXXX
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
         push (@$HYPPROTS,  $newhypprot);
     } # End for each Flip Blast Prot
@@ -1783,7 +1772,7 @@ sub RunHMM {
     }
     
     # 2. Run Umac...
-    $cmd = "$UMAC_EXE -i '$ProtOut' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
+    $cmd = "$UMACPATH -i '$ProtOut' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -1795,7 +1784,7 @@ sub RunHMM {
     }
     
     # 3. Run HMMBuild...
-    $cmd = "nice -19 $HMMBUILD_EXE $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMBUILDPATH $ProtHMM $AliOut >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
                                                                                        
     $resultat = system("$cmd");                                                        
@@ -1807,7 +1796,7 @@ sub RunHMM {
     }
     
     # 4. Run HMMAlign...
-    $cmd = "nice -19 $HMMALIGN_EXE --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMALIGNPATH --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -2324,7 +2313,8 @@ sub FindExonsInHypProtArray {
             $FH->close() or die "Impossible to close $filecontig\n";
         }
 
-        my $cmd = "$EXONERATEPATH $Exonerate_parameter --geneticcode $GENCODE $fileprot '$filecontig' > $exonerate_out"; # $Exonerate_parameter $fileprot $filecontig
+        my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --splice3 $MODEL_PATH/Splice/neutral.pssm --splice5 $MODEL_PATH/Splice/neutral.pssm --geneticcode $GENCODE";
+        my $cmd = "$EXONERATEPATH $Exonerate_parameter $fileprot '$filecontig' > $exonerate_out"; # $Exonerate_parameter $fileprot $filecontig
         print "\n$cmd\n" if $DEBUG;
 
         my $resultat = system("$cmd");
@@ -2734,14 +2724,14 @@ sub Choose_best_solution {
     # 1. FORMATDB
     my $base_name    = "$TMPDIR/Exonerate/mf_${name}_e$i";
     unlink($base_name) or die "Impossible to delete $base_name\n" if (-f $base_name);
-    my $command      = "$FORMATDBPATH -p 'T' -t banque -i $protein_file -n $base_name -l $TMPDIR/Exonerate/fdb_exon.log >/dev/null 2>/dev/null";
+    my $command      = "$MAKEBLASTDBPATH -in $protein_file -dbtype nucl -out $base_name >/dev/null 2>/dev/null";
     print "$command\n" if $DEBUG;
     my $resformatdb  = system($command);
     
     # 2. BLAST
     my $output         = "$TMPDIR/Exonerate/out_${name}_e$i";
     unlink($output) or die "Impossible to delete $output\n" if (-f $output);
-    my $cmdblast = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $base_name -i $file_for_blast -o $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
+    my $cmdblast = "nice -19 $BLASTPATH -outmft 5 -matrix $MATRIX -db $base_name -query $file_for_blast -out $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
     
@@ -3206,7 +3196,7 @@ sub CreateAlignForMiniEx {
     # Run Umac...
     my $ProtAli  = $ProtAln;
        $ProtAli  =~ s/.aln/.ali/;
-    my $cmd = "$UMAC_EXE -i '$ProtAln' -o '$ProtAli' -f clustal >/dev/null 2>/dev/null";
+    my $cmd = "$UMACPATH -i '$ProtAln' -o '$ProtAli' -f clustal >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     my $resultat = system("$cmd");
@@ -3268,7 +3258,7 @@ sub RunUmacAndHMMBuild {
     my ($FileName,$AliOut,$ProtHMM,$SubName) = @_;
     
     # 1. Run Umac...
-    my $cmd = "$UMAC_EXE -i '$FileName' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
+    my $cmd = "$UMACPATH -i '$FileName' -o '$AliOut' -f stockholm >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     my $resultat = system("$cmd");
@@ -3280,7 +3270,7 @@ sub RunUmacAndHMMBuild {
     }
     
     # 2. Run HMMBuild...
-    $cmd = "nice -19 $HMMBUILD_EXE --amino $ProtHMM $AliOut >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMBUILDPATH --amino $ProtHMM $AliOut >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -3316,7 +3306,7 @@ sub RunHMMSearchForMiniEx {
     
     my $FileRes = "${ShortName}_z$z.res";
     
-    my $cmd = "nice -19 $HMMSEARCH_EXE -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4269,7 +4259,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_; 
     
-    my $cmd = "nice -19 $HMMSEARCH_EXE --noali --max -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -6418,8 +6408,8 @@ sub AnnotateIntronicOrfs {
         for (;;$start_orf += $posOffset) {
             last if $start_orf >= $end_orf   && !$isMinus;
             last if $end_orf   >= $start_orf && $isMinus;
-            last if  (($end_orf - $start_orf + 1 ) < $minimumlengthorf_nt) && !$isMinus;
-            last if  (($start_orf - $end_orf + 1 ) < $minimumlengthorf_nt) &&  $isMinus;  #  Size verification 
+            last if (($end_orf - $start_orf + 1 ) < $minimumlengthorf_nt) && !$isMinus;
+            last if (($start_orf - $end_orf + 1 ) < $minimumlengthorf_nt) &&  $isMinus;  #  Size verification 
     
             my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
                $codon = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
@@ -6543,8 +6533,6 @@ sub AnnotateIntronicOrfs {
                     my $orf_start  = $selected_orf->get_start();
                     my $orf_end    = $selected_orf->get_end();
                     
-                    
-                    
                     my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$direction,
                     	                                      $endo_start,$endo_end,$direction);
                     next if !$isOV;
@@ -6589,7 +6577,7 @@ sub choice_orf {
         }
         $LIB->close();
     
-        my $command      = "$FORMATDBPATH -p 'T' -t banque -i $intronic_lib -n $TMPDIR/mf_intronic_orf -l $TMPDIR/fdb_intronic_orf.log >/dev/null 2>/dev/null";
+        my $command      = "$MAKEBLASTDBPATH -dbtype nucl -in $intronic_lib -out $TMPDIR/mf_intronic_orf >/dev/null 2>/dev/null";
         print "$command\n" if $DEBUG;
         my $resformatdb  = system($command);
     }
@@ -6606,8 +6594,10 @@ sub choice_orf {
             print $ORFFILE $orf_seq;
             $ORFFILE->close();
             
-            # RUN FOR BLAST : run blast with the db created and the flip results        
-            my $cmdblast = "nice -19 $BLASTPATH -m 7 -p blastp -M $MATRIX -d $TMPDIR/mf_intronic_orf -i $name_of_file -o $output 2> $TMPDIR/blasterr_1.txt";
+            # RUN FOR BLAST : run blast with the db created and the flip results   
+            # XXX
+	    #  nice -19 /usr/bin/blastn -outfmt 5 -db /tmp/mfannot.242/mf_intronic_orf -query /mfannot/protein_collections/intronic/intronic_orfs.pep -out /tmp/mfannot.242/mf_intronic_orf.xml 
+            my $cmdblast = "nice -19 $BLASTNPATH -outfmt 5 -db $TMPDIR/mf_intronic_orf -query $name_of_file -out $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
         }
@@ -6732,7 +6722,7 @@ sub FindLowConservedGenes {
 sub FindEndo {
     my ($cg,$ResDir,$OrfFile,$directories) = @_;
 
-    return {} if ($MAIL);
+    return {} if ($LIGHT);
     
     my $endo = {}; 
     $endo->{"hnh"}++; $endo->{"giy"}++ ;$endo->{"laglidadg"}++;
@@ -6813,15 +6803,15 @@ sub GetORFForLowConservedGenes {
     my $subdir = "$dir/$name";
     mkdir($subdir) if !(-d $subdir);
     my $file_name = "$subdir/$name.faa";
-    my $fasta_fh = new IO::File ">$file_name"
+    my $fasta_fh  = new IO::File ">$file_name"
         or die "Cannot open $file_name in GetORFForLowConservedGenes\n";
     print $fasta_fh ">$name\n$seq\n";
     $fasta_fh->close();
     
     my $file_out = "$subdir/$name.orf";
-    my $cwd = getcwd;
+    my $cwd = getcwd();
     chdir("$TMPDIR");
-    my $cmd = "$GETORFPATH $file_name  -table $GENCODE -outseq $file_out";
+    my $cmd = "$GETORFPATH $file_name -table $GENCODE -outseq $file_out";
     print "$cmd\n" if $DEBUG;
     my $resultat = system("$cmd >/dev/null 2>/dev/null");    
     my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
@@ -6890,7 +6880,7 @@ sub RunHMMSearchForLowConservedGenes {
 			my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 			
 			my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-			my $cmd = "nice -19 $HMMSEARCH_EXE --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+			my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
 			print "$cmd\n" if $DEBUG;
 			
 			my $resultat = system("$cmd >/dev/null 2>/dev/null");
@@ -7026,7 +7016,7 @@ sub AnnotationOfParticularStruc {
     foreach my $name (keys %$AllHMMAnnot) {    	    
         my $genename = $1 if $name =~ m/^(.+)_/;
         next if scalar(grep( /^$genename$/, @$JUST_SIMI)) == 0;
-        if ($MAIL) {
+        if ($LIGHT) {
           delete $AllHMMAnnot->{$name};
           next;
         }
@@ -7901,9 +7891,6 @@ sub LcIntrons {
     my $contigs   = $pirmaster->get_contigs();
     
     foreach my $contig (@$contigs) {
-        # my $name   = $contig->get_name();
-        # my $header = $CONTIG->{"$name"};
-        # $contig->set_name($header);
         my $seq = $contig->get_sequence();
            $seq =~ s/!//g;
         my $annotations = $contig->get_annotations();
@@ -8006,6 +7993,7 @@ sub SearchMotAndMakeAP {
         my $rev_pat = $pat;
            $rev_pat =~ tr/ACGT/TGCA/;
            $rev_pat = reverse $rev_pat;
+        # Check for palindrome
         my $isPal   = $pat eq $rev_pat && $pat =~ /^[a_zA-Z]+$/ ? 1 : 0;
         
         foreach my $contig ( @$contigs) {
@@ -8609,7 +8597,7 @@ sub LogInfo {
     push(@report, $rep) if $cnt;
 
     push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
-    push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname()) if !$MAIL;
+    push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
     push(@$header, @report, ";;",);
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
     push(@$header, ";; end mfannot\n;;");
@@ -8620,13 +8608,13 @@ sub LogInfo {
 sub CreateTBLoutput {
     my $filename = shift;
     
-    # Faire un premier tour dans mf2sqn pour faire le subInfo.
+    # First pass in mf2sqn to generate the subInfo.
     my $initial_dir = getcwd;
     chdir("$TMPDIR");
     
     my $mf2sqnErr   = "$TMPDIR/mf2sqnErr1";
     my $mf2sqnOut   = "$TMPDIR/mf2sqnOut1";
-    my $cmd = "mf2sqn -a Generic -m $filename -t";
+    my $cmd = "$MF2SQNPATH -a Generic -m $filename -t";
     print STDERR $cmd if $DEBUG;
   	my $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
 	
@@ -8637,11 +8625,12 @@ sub CreateTBLoutput {
 	}
     
     # Changed param into SubInfo.
-    my $oldSubInfofh = new IO::File "<$filename.subInfo"
-        or die "Can't open SubInfo file '$filename.subInfo': $!\n";
+    my $basename     = basename($filename);
+    my $oldSubInfofh = new IO::File "<$basename.subInfo"
+        or die "Can't open SubInfo file '$basename.subInfo': $!\n";
     
-    my $newSubInfofh = new IO::File ">$filename.subInfo.new"
-        or die "Can't open SubInfo file '$filename.subInfo.new': $!\n";
+    my $newSubInfofh = new IO::File ">$basename.subInfo.new"
+        or die "Can't open SubInfo file '$basename.subInfo.new': $!\n";
     
     while (my $line = <$oldSubInfofh>) {
         $line =~ s/'TOPOLOGY'     => 'C'/'TOPOLOGY'     => 'O'/;
@@ -8654,42 +8643,27 @@ sub CreateTBLoutput {
     }
     $oldSubInfofh->close();
     $newSubInfofh->close();
-    system("mv $filename.subInfo.new $filename.subInfo");
+    system("mv $basename.subInfo.new $basename.subInfo");
     
     # Re-run mf2sqn
     $mf2sqnErr   = "$TMPDIR/mf2sqnErr1";
     $mf2sqnOut   = "$TMPDIR/mf2sqnOut1";
     print STDERR $cmd if $DEBUG;
-  	$ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
+    $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
 	
-	if (($ret >> 8) > 1) {
-	    print STDERR "There was an error running mf2sqn.\n";
-		print STDERR "Content of STDERR output:\n";
-		system("cat",$mf2sqnErr);
-	}
-    chdir("$initial_dir");
-}
+    if (($ret >> 8) > 1) {
+        print STDERR "There was an error running mf2sqn.\n";
+	print STDERR "Content of STDERR output:\n";
+	system("cat",$mf2sqnErr);
+    }
 
-sub sendMail {
-    my $filename = shift;
-    
-    my $subject   = "mfannot result on $filename";
-    my $mail_file = "/services/WWW/cgi-bin/mfannot/mail_core";
-    die "File for mail core doesn't exist" if !(-f "$mail_file");
-    my $new_file  = "$TMPDIR/$filename";
-    my $sqn_file  = "$TMPDIR/$filename.sqn";
-    my $mailErr   = "$TMPDIR/mailErr";
-    my $mailOut   = "$TMPDIR/mailOut";
-	
-    my $cmd = "perl /services/WWW/cgi-bin/RNAweasel/bin/sendmail.pl -f \'mfannot\@bch.umontreal.ca\' -t \'$MAIL\' -s \'$subject\' -a \'$mail_file , $new_file , $sqn_file\'";
-	print STDERR $cmd if $DEBUG;
-	my $ret = system("$cmd 2> $mailErr");
-	
-	if (($ret >> 8) > 1) {
-		print STDERR "There was an error sending mail.\n";
-		print STDERR "Content of STDERR output:\n";
-		system("cat",$mailErr);
-	}
+    if (-e "$initial_dir/$basename.sqn") {
+      print "Cannot copy $basename.sqn the file already exist";
+    } else {
+       system("cp $basename.sqn $initial_dir/");
+    }
+ 
+    chdir("$initial_dir");
 }
 
 # End Of File. Or is it? What's beyond? Maybe the lost characters of all the sentences that were trunca
