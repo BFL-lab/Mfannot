@@ -1796,7 +1796,7 @@ sub RunHMM {
     }
     
     # 4. Run HMMAlign...
-    $cmd = "nice -19 $HMMALIGNPATH --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
+    $cmd = "nice -19 $HMMALIGNPATH --trim --outformat stockholm -o $ProtAln $ProtHMM $ProtIn >/dev/null 2>/dev/null";
     print "\n$cmd\n" if $DEBUG;
     
     $resultat = system("$cmd");
@@ -7834,6 +7834,7 @@ sub CreateAllEndoAnnotFindByHMM {
     }
     
     # Make selection which orf need to be annot
+    @$sort_annots_simple  = sort { &CompareHighPrecisionFloats($a->get_score(),$b->get_score) } @$sort_annots_simple;
     $sort_annots_simple  = &MakeSelectionForSimpleCase($sort_annots_simple,$contig);
     
     # Keep in mind wich orf has not been annotated, annot other.
