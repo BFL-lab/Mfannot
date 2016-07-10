@@ -1,7 +1,7 @@
 # MFannot
 
 MFannot is a program able to perform annotation of mitochondrial and plastid genomes that requires little if any manual corrections (replacing manual annotation of often many days to a few minutes ...).
-It makes intense use of the RNA/intron detection tools as [HMMER](http://hmmer.org/), [exonerate](https://github.com/nathanweeks/exonerate), [erpin](https://bioinformatics.ca/links_directory/tool/9822/erpin).
+It makes intense use of the RNA/intron detection tools as [HMMER](http://hmmer.org/), [exonerate](https://github.com/nathanweeks/exonerate), [erpin](https://bioinformatics.ca/links_directory/tool/9822/erpin) and others.
 
 MFannot is particularly helpful with organelle genomes that contain lots of introns. Intron-exon boundaries are identified by a combination of intron splice rules and exon similarities, and are thus precise in most instances. The output of MFannot is listings of gene coordinates either in XML format, a format that can be directly loaded into NCBI sequence submission tools, or in masterfile format (computer-parsible as well as human-readable; annotations embedded into the sequence).
 
@@ -20,11 +20,11 @@ MFannot is a pipeline that used some well know program, as blast, HMMER, exonera
 Here is the list of all the program you need install on your system:
 
 - Blast: to install Blast see the documentation on [NCBI website](http://www.ncbi.nlm.nih.gov/guide/howto/run-blast-local/).
-- HMMER: to install HMMER see the documentation on [HMMER website](http://hmmer.org/download.html)
-- Exonerate: to install Exonerate see the documentation of the following [github repo](https://github.com/nathanweeks/exonerate)
-- Muscle: to install Muscle see the documentation [here](http://www.drive5.com/muscle/)
-- EMBOSS: to install EMBOSS see the documentation [here](http://emboss.sourceforge.net/download/#Stable/)
-- PirObject: to install this Perl library see the documetation of the following [github repo](https://github.com/prioux/PirObject)
+- HMMER: to install HMMER see the documentation on [HMMER website](http://hmmer.org/download.html).
+- Exonerate: to install Exonerate see the documentation of the following [github repo](https://github.com/nathanweeks/exonerate).
+- Muscle: to install Muscle see the documentation [here](http://www.drive5.com/muscle/).
+- EMBOSS: to install EMBOSS see the documentation [here](http://emboss.sourceforge.net/download/#Stable/).
+- PirObject: to install this Perl library see the documetation of the following [github repo](https://github.com/prioux/PirObject),
 
 #### Internal programs
 
