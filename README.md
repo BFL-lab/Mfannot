@@ -47,14 +47,3 @@ Please see [CONTRIBUTING](CONTRIBUTING.md) and [CONDUCT](CONDUCT.md) for details
 ## License
 
 GNU General Public License v3.0. Please see [License File](LICENSE.md) for more information.
-
-
-
-# mfannotStep to install: 
-
-1. git clone https://github.com/natacha-beck/mfannot.git
-2. Download and install http://sourceforge.net/projects/pirobject/
-3. Install perl lib: 
-  1.  sudo  cpan LWP::UserAgent
-  2.  sudo cpan Bio::SeqIO
-  3.  sudo  cpan Bio::AlignIO
