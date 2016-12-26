@@ -10,7 +10,7 @@ This package is based on activities of the OGMP (i.e, priori to 2002).
 ## Install
 
 **Note**: At this point the installation of MFannot was only tested on Unix system (Ubuntu and CentOS).
-However, you can use the [Docker container](XXX) of MFannot to run it on MacOS and Windows.
+However, you can use the [Docker container](https://hub.docker.com/r/nbeck/mfannot) of MFannot to run it on MacOS and Windows.
 
 #### BioPerl
 
@@ -32,7 +32,7 @@ Here is the list of all the program you need install on your system:
 
 #### Internal programs
 
-During the development of MFannot a lot of underlying software was develloped in parrallel, and need to be install as a part of MFannot. 
+During the development of MFannot a lot of underlying software was developed in parallel, and so it needs to be installed as part of MFannot.
 
 - PirModels: all the PirModels needed by umac, HMMsearchWC and other programs developped at OGMP, to install the PirModels see the documentation [here](https://github.com/BFL-lab/PirModels).
 - flip:to install flip see the documentation [here](https://github.com/BFL-lab/flip)
@@ -44,15 +44,17 @@ During the development of MFannot a lot of underlying software was develloped in
 
 #### Data
 
+MFannot need some data to run, you will find all the information about this data [here](https://github.com/BFL-lab/MFannot_data).
 
+## Docker container
 
-## Docker container and file
+During the release process, we used a Docker container to test the installation. You can find this docker container [here](https://hub.docker.com/u/nbeck/mfannot) and used it in order to run MFannot locally if you do not want to install everything. 
 
-During the release process, we used a Docker container to test the installation. You can find this docker container [here](XXX) and used it in order to run MFannot locally if you do not want to install everything. 
-XXX: add documetation to run the docker container.
+If you want to see the process to install MFannot on Ubuntu14 you can take a look to [this Dockerfile](https://hub.docker.com/r/nbeck/mfannot/~/dockerfile/).
 
 ## Usage
 
+In order to get the help page of MFannot you need to type `MFannot -h` in your terminal.
 
 ## Contributing
 
@@ -60,7 +62,7 @@ Please see [CONTRIBUTING](CONTRIBUTING.md) and [CONDUCT](CONDUCT.md) for details
 
 ## Credits
 
-- [All Contributors](https://github.com/natacha-beck/bf-umac/graphs/contributors)
+- [All Contributors](https://github.com/BFL-lab/mfannot/graphs/contributors)
 
 ## License
 
