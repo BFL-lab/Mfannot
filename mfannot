@@ -43,10 +43,6 @@
 require 5.00;
 use strict;
 
-$DB::inhibit_exit = 0;
-
-use vars qw( $VERSION $RCS_VERSION );
-
 use IO::File;
 use IO::Dir;
 use Cwd;
@@ -84,10 +80,9 @@ BEGIN {
 umask 027;
 
 # Program's name and version number.
-$RCS_VERSION='$Id: mfannot_HMM,v 1.33 2013/07/26 20:52:59 nbeck Exp $';
-($VERSION) = ($RCS_VERSION =~ m#,v ([\w\.]+)#);
-my ($BASENAME) = ($0 =~ /([^\/]+)$/);
-my $MAINPROGRAM_PID = $$;
+our $VERSION   = "1.34";
+our ($BASENAME) = ($0 =~ /([^\/]+)$/);
+our $MAINPROGRAM_PID = $$;
 
 # Get login name
 my $USER = getpwuid($<) or getlogin or die "Can't find USER from environment!\n";
@@ -3430,9 +3425,7 @@ sub GetProteinSequenceAndIntronsPos {
     }
     
     my $dna_length    = length($dna_sequence);
-    if ($dna_length %3 != 0) {
-	    return ("Frame-Shift-Detected","dna_length") if $dna_length % 3 != 0;
-	}
+    return "Frame-Shift-Detected" if $dna_length % 3 != 0;
        
     my $prot_sequence = &TranslateInProt($dna_sequence);
     $hypprot->set_thisprot($prot_sequence);
