@@ -153,6 +153,8 @@ my $HMMSEARCHPATH           = &GetPath("hmmsearch");
 my $EXONERATEPATH           = &GetPath("exonerate");
 my $GETORFPATH              = &GetPath("getorf");
 my $MF2SQNPATH              = &GetPath("mf2sqn");
+my $GRABFASTAPATH           = &GetPath("grab-fasta");
+
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
@@ -7678,7 +7680,7 @@ sub GetORF {
     my $fh_contigList = new IO::File ">$contigList"
         or die "Can't write to file '$contigList': $!\n";
     print $fh_contigList "$seqIdAndDesc\n";
-    my $cmd = "grab-fasta -f $OrfFile -H $contigList -o - 2>/dev/null";
+    my $cmd = "$GRABFASTAPATH -f $OrfFile -H $contigList -o - 2>/dev/null";
     my $orf = `$cmd`;
     die "No contig found for $seqIdAndDesc in $OrfFile\n"
         if $orf eq "";
