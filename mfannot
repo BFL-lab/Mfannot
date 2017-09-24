@@ -2347,10 +2347,12 @@ sub FindExonsInHypProtArray {
                                              scalar(@$a) <=> scalar(@$b)
                                 } @$grouped_reports;
 
-        foreach my $group (@$grouped_reports) {
+        for (my $group_n=0; $group_n < @$grouped_reports; $group_n++) {  # Push information about the new exon
+            my $group = @$grouped_reports[$group_n];
             my @exon_start_end = ();                                  # Tab with information about start and end of all exons present in Exonerte Output
             my %strand;
-            foreach my $report (@$group) {
+            for (my $report_n=0; $report_n < @$group; $report_n++) {  # Push information about the new exon
+                my $report = @$group[$report_n];
                 my $features                 = $report->dnafeatures;  # $features contains all information present in the part GFF DNA per lines
                 my $query_range              = $report->query_range;
                 my $raw_score                = $report->raw_score;
@@ -2375,7 +2377,7 @@ sub FindExonsInHypProtArray {
                      my $start       = ($strand_exon eq "-" ? $lineobj->get_end()   : $lineobj->get_start());
                      my $end         = ($strand_exon eq "-" ? $lineobj->get_start() : $lineobj->get_end());
                      my $attributes  = $lineobj->get_attributes();
-                     my $info  = [$start,$end,$strand_exon,$start_query,$attributes,$end_query,$raw_score];
+                     my $info  = [$start,$end,$strand_exon,$start_query,$attributes,$end_query,$raw_score,$report_n,$count_exon];
                      push(@exon_start_end, $info);
                      # @exon_start_end contain information about exon with start end and strand of each exons
                      $count_exon++;
@@ -2395,6 +2397,40 @@ sub FindExonsInHypProtArray {
 
              @exon_start_end = sort {    ($a->[3] <=> $b->[3])
                                      ||  ($b->[0] <=> $a->[0])} @exon_start_end if $isMinus == 1; # Sort exons_start_end by start strand+
+
+
+             # Adjust exons position if overlap at protein level
+             my $reduce_size =  0;
+             my $prot_start  = -1;
+             for (my $i = 0; $i < (@exon_start_end-1); $i++) {
+                if ($isMinus == 0) {
+                  if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
+                    $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
+                    # If it is the first exon adjust exon position at dna level
+                    if ($exon_start_end[$i+1]->[8] == 0) {
+                      $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] + ($reduce_size * 3) + 3;
+                      $prot_start = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
+                    }
+                    # Foreach exon of the group adjust exon position at protein level
+                    if ($prot_start != -1) {
+                      $exon_start_end[$i+1]->[3] = $prot_start;
+                    }
+                  }
+                } else {
+                  if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
+                    $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
+                    # If it is the first exon adjust exon position at dna level
+                    if ($exon_start_end[$i+1]->[8] == 0) {
+                      $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] - ($reduce_size * 3) - 3;
+                      $prot_start                = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
+                    }
+                    # Foreach exon of the group adjust exon position at protein level
+                    if ($prot_start != -1) {
+                      $exon_start_end[$i+1]->[3] = $prot_start;
+                    }
+                  }
+                }
+             }
 
              # Correction about start and end of exon if two exons is overlapping #
              my @exon_start_end_cor =();                                             # Correction about start and end of exon if two exons is overlapping
@@ -3129,7 +3165,7 @@ sub AnnotateMiniExonsByHMM {
 
             next if $NbIntron < 2 && $LenAdj_f <= 2; # Initial annotation is considered to be true
             my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
-            if ($Seq_n == "") {
+            if ($Seq_n eq "") {
               &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
               next;
             }
