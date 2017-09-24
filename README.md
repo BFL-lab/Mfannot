@@ -1,6 +1,7 @@
 # MFannot
 
-MFannot is a program able to annotate mitochondrial and plastid genomes. It is a perl wrapper around a set of external independent annotation tools.
+MFannot is a program able to annotate mitochondrial and plastid genomes. 
+It is a PERL wrapper around a set of external independent annotation tools.
 
 It makes intense use of RNA/intron detection tools as [HMMER](http://hmmer.org/), [exonerate](https://github.com/nathanweeks/exonerate), [erpin](https://bioinformatics.ca/links_directory/tool/9822/erpin) and others.
 
@@ -8,12 +9,11 @@ MFannot is particularly helpful with organelle genomes that contain lots of intr
 
 The output of MFannot is listings of gene coordinates either in [Sequin format](https://www.ncbi.nlm.nih.gov/Sequin/), a format that can be directly loaded into NCBI sequence submission tools, or in [Masterfile](http://megasun.bch.umontreal.ca/ogmp/masterfile/intro.html) format (computer-parsible as well as human-readable; annotations embedded into the FASTA sequence).
 
-This package is based on activities of the OGMP (Organelle Genome Megasequencing Project, Département de Biochimie, Université de Montréal, circa 1990-1998) and further developed since then by the labs of B.F. Lang and G. Burger.
+This package is based on activities of the OGMP (Organelle Genome Megasequencing Project, Département de Biochimie, Université de Montréal, circa 1990-1998) and further developed since then by the labs of [B.F. Lang](https://biochimie.umontreal.ca/en/department/professors/franz-bernd-lang/) and [G. Burger](https://biochimie.umontreal.ca/en/department/professors/gertraud-burger/).
 
 ## Installation
 
 **Note**: At this point the installation of MFannot is only possible on Unix systems (e.g. Ubuntu and CentOS).
-However, you can use the [Docker container](https://hub.docker.com/r/nbeck/mfannot) of MFannot to run it on MacOS and Windows.
 
 #### BioPerl
 
