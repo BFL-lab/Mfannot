@@ -52,9 +52,9 @@ These files are all available as a single bundle in this [GitHub repo](https://g
 
 ## Docker container
 
-The entire software package, including data files, is available in a Docker container. You can find this docker container on [DockerHub](https://hub.docker.com/u/nbeck/mfannot) and use it in order to run MFannot locally if you do not want to install everything. 
+The entire software package, including data files, is available in a Docker container. You can find this docker container on [DockerHub](https://hub.docker.com/r/nbeck/mfannot/) and use it in order to run MFannot locally if you do not want to install everything. 
 
-The process to install MFannot on Ubuntu14 within a Docker image is documented in this [Dockerfile](https://hub.docker.com/r/nbeck/mfannot/~/dockerfile/).
+The process to install MFannot on Ubuntu14 within a Docker image is documented in the [Dockerfile] present in this repository.
 
 ## Usage
 
