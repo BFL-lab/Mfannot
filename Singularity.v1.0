@@ -1,0 +1,15 @@
+Bootstrap: docker
+From: nbeck/mfannot
+
+%help
+You are in the MFannot container. To see help run
+singularity exec mfannot.simg -h
+
+%labels
+Author natabeck@gmail.com
+Vendor Ubuntu
+Version v1.0
+
+%post
+echo "For more information on MFannot, go to:"
+echo "https://github.com/BFL-lab/Mfannot"

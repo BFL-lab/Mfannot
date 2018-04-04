@@ -98,10 +98,17 @@ RUN git clone https://github.com/BFL-lab/MFannot_data.git
 #Install BLAST matrix
 RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/* ; cd ..
 
+#Copy RNAfinder config file
+RUN cp ~/.RNAfinder.cfg /
+
+#mv PirModels 
+RUN mv /root/PirModels / 
+
 ####################
 # Set ENV variable #
 ####################
 
+ENV RNAFINDER_CFG_PATH /
 ENV MF2SQN_LIB /mf2sqn/lib/
 ENV MFANNOT_LIB_PATH /MFannot_data/protein_collections/
 ENV MFANNOT_EXT_CFG_PATH /MFannot_data/config
@@ -109,4 +116,4 @@ ENV MFANNOT_MOD_PATH /MFannot_data/models/
 ENV BLASTMAT /BLASTMAT/
 ENV EGC /MFannot_data/EGC/
 ENV ERPIN_MOD_PATH /MFannot_data/models/Erpin_models/
-
+ENV PIR_DATAMODEL_PATH /PirModels
