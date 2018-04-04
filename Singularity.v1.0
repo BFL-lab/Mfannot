@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: nbeck/mfannot_n
+From: nbeck/mfannot_nb
 
 %help
 You are in the MFannot container. To see help run
