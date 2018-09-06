@@ -57,6 +57,12 @@ Further external programs and libraries that were developed in parallel to MFann
 MFannot needs some static data files to run; these contain data defining splice sites, reference protein sequences, HMM models, etc.
 These files are all available as a single bundle in this [GitHub repo](https://github.com/BFL-lab/MFannot_data).
 
+#### BLAST matrices
+
+Download BLAST matrices from the ncbi `ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/*` 
+and set the environment variable `BLASTMAT` to point to the directory where you have download the matrices.  
+
+
 ## Docker container
 
 The entire software package, including data files, is available in a Docker container. You can find this docker container on [DockerHub](https://hub.docker.com/r/nbeck/mfannot/) and use it in order to run MFannot locally if you do not want to install everything. 
