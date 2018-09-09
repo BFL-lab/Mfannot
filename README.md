@@ -59,7 +59,7 @@ These files are all available as a single bundle in this [GitHub repo](https://g
 
 #### BLAST matrices
 
-Download BLAST matrices from the ncbi `ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/*` 
+Download BLAST matrices from the ncbi `ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/*` (eg: `wget -r -np -nd -P /path/to/mfannot/blast_matrices ftp://ftp.ncbi.nlm.nih.gov/blast/matrices`) 
 and set the environment variable `BLASTMAT` to point to the directory where you have download the matrices.  
 
 
