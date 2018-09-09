@@ -17,7 +17,8 @@ RUN apt-get install -y git \
                        wget\
                        libglib2.0-dev\
                        automake\
-                       autotools-dev
+                       autotools-dev \
+                       vim
 
 
 ############################
