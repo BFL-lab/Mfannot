@@ -1050,7 +1050,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $contigname = $1 || "Unknown contig name";
     $contigname =~ s/;$//; # spurious semicolon introduced by flip
 
-    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
+    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)/);
     $strand   = ($strand eq 'orig' ? 1 : -1);
 
     my $hitslist = $iteration->Iteration_hits() || return;
