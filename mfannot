@@ -162,7 +162,7 @@ my $MF2SQNPATH              = &GetPath("mf2sqn");
 ###################################################################
 
 # 1. Check for models path
-my @MOD_PATH      = (($HOME || ".") . "/models");
+my @MOD_PATH      = (($ENV{"MFANNOT_MOD_PATH"} || $HOME || ".") . "/MFannot_data/models");
 push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"})) if $ENV{"MFANNOT_MOD_PATH"};
 
 my $MODEL_PATH = "";
@@ -191,7 +191,7 @@ die "File $MOTFILE give with option 'motfile' doesn't exist.\n"
 my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 
 # 4. Check for library path
-my @LIB_PATH      = (($HOME || ".")); # You can add other search directories here
+my @LIB_PATH      = (($ENV{"MFANNOT_LIB_PATH"} || $HOME || ".")); # You can add other search directories here
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
 
 
