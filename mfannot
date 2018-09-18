@@ -4970,7 +4970,7 @@ sub Annotate_Using_external_programs {
     # we parse here.
 
     # Create one file per contig
-    my $work_dir = "$TMPDIR/Contig";
+    my $work_dir = "$TMPDIR/Contig_ext";
     &CreateContigFile if (!(-d $work_dir));
 
     # Default: all of them
@@ -5031,14 +5031,14 @@ sub Annotate_Using_external_programs {
 } # End sub
 
 sub CreateContigFile {
-    mkdir("$TMPDIR/Contig",0700);
+    mkdir("$TMPDIR/Contig_ext",0700);
     my $contigs = $pirmaster->get_contigs();
     foreach my $contig (@$contigs) {
         my $seq       = $contig->get_sequence();
            $seq       =~ s/!//g;
         my $name      = $contig->get_name();
 
-        my $contig_file = "$TMPDIR/Contig/$name";
+        my $contig_file = "$TMPDIR/Contig_ext/$name";
         my $CF = new IO::File ">$contig_file" or die "Cannot open : $contig_file\n";
         print $CF ">$name\n$seq\n";
         $CF->close();
