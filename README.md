@@ -25,12 +25,18 @@ MFannot is a PERL pipeline that use [BioPerl](http://bioperl.org/), so you need 
 
 MFannot uses some well known programs, taht need to be installed on your system::
 
-- Blast: to install Blast see the documentation at the [NCBI website](http://www.ncbi.nlm.nih.gov/guide/howto/run-blast-local/).
+- Blast (requires version 2.2.26 and version >= 2.2.27+): to install Blast see the documentation at the [NCBI website](http://www.ncbi.nlm.nih.gov/guide/howto/run-blast-local/).
+  * tested on version 2.2.26 and 2.2.31+
 - HMMER: to install HMMER see the documentation at the [HMMER website](http://hmmer.org/download.html).
+  * tested on version 3.2.1
 - Exonerate: to install Exonerate see the documentation at the following [GitHub repo](https://github.com/nathanweeks/exonerate).
+  * tested on version 2.2.0
 - Muscle: to install Muscle see the documentation [here](http://www.drive5.com/muscle/).
+  * tested on version muscle-3.8.1551
 - EMBOSS: to install EMBOSS see the documentation [here](http://emboss.sourceforge.net/download/#Stable/).
+  * tested on version 6.6.0
 - Erpin: to install Erpin see the documentation [here](http://rna.igmors.u-psud.fr/Software/erpin.php).
+  * tested on version 5.5.4.serv
 - tbl2asn: to install tbl2asn see the documentation [here](https://www.ncbi.nlm.nih.gov/genbank/tbl2asn2/)
 - PirObject: to install this Perl library see the documentation in this [GitHub repo](https://github.com/prioux/PirObject),
 
@@ -50,6 +56,20 @@ Further external programs and libraries that were developed in parallel to MFann
 
 MFannot needs some static data files to run; these contain data defining splice sites, reference protein sequences, HMM models, etc.
 These files are all available as a single bundle in this [GitHub repo](https://github.com/BFL-lab/MFannot_data).
+
+In order to run MFannot you should setup the following environment variable:
+
+- EGC                  to point to MFannot_data/EGC.
+- MFANNOT_EXT_CFG_PATH to point to MFannot_data/config.
+- MFANNOT_MOD_PATH     to point to MFannot_data/models.
+- ERPIN_MOD_PATH       to point to MFannot_data/models/Erpin_models.
+- MFANNOT_LIB_PATH     to point to MFannot_data/protein_collections.
+
+#### BLAST matrices
+
+Download BLAST matrices from the ncbi `ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/*` (eg: `wget -r -np -nd -P /path/to/mfannot/blast_matrices ftp://ftp.ncbi.nlm.nih.gov/blast/matrices`) 
+and set the environment variable `BLASTMAT` to point to the directory where you have download the matrices.  
+
 
 ## Docker container
 

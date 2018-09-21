@@ -162,7 +162,7 @@ my $MF2SQNPATH              = &GetPath("mf2sqn");
 ###################################################################
 
 # 1. Check for models path
-my @MOD_PATH      = (($HOME || ".") . "/models");
+my @MOD_PATH      = (($ENV{"MFANNOT_MOD_PATH"} || $HOME || ".") . "/MFannot_data/models");
 push(@MOD_PATH,split(/:/,$ENV{"MFANNOT_MOD_PATH"})) if $ENV{"MFANNOT_MOD_PATH"};
 
 my $MODEL_PATH = "";
@@ -191,7 +191,7 @@ die "File $MOTFILE give with option 'motfile' doesn't exist.\n"
 my $LISTPAT = &read_pat_file($MOTFILE) if ($LVL_MOT != 0);
 
 # 4. Check for library path
-my @LIB_PATH      = (($HOME || ".")); # You can add other search directories here
+my @LIB_PATH      = (($ENV{"MFANNOT_LIB_PATH"} || $HOME || ".")); # You can add other search directories here
 push(@LIB_PATH,split(/:/,$ENV{"MFANNOT_LIB_PATH"})) if $ENV{"MFANNOT_LIB_PATH"};
 
 
@@ -1050,7 +1050,7 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $contigname = $1 || "Unknown contig name";
     $contigname =~ s/;$//; # spurious semicolon introduced by flip
 
-    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)\s+;\s+[\w\.\!]+/);
+    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)/);
     $strand   = ($strand eq 'orig' ? 1 : -1);
 
     my $hitslist = $iteration->Iteration_hits() || return;
@@ -2762,7 +2762,7 @@ sub Choose_best_solution {
     # 2. BLAST
     my $output         = "$TMPDIR/Exonerate/out_${name}_e$i";
     unlink($output) or die "Impossible to delete $output\n" if (-f $output);
-    my $cmdblast = "nice -19 $BLASTPATH -outmft 5 -matrix $MATRIX -db $base_name -query $file_for_blast -out $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
+    my $cmdblast = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $base_name -query $file_for_blast -out $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 
