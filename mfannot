@@ -2762,7 +2762,7 @@ sub Choose_best_solution {
     # 2. BLAST
     my $output         = "$TMPDIR/Exonerate/out_${name}_e$i";
     unlink($output) or die "Impossible to delete $output\n" if (-f $output);
-    my $cmdblast = "nice -19 $BLASTPATH -outmft 5 -matrix $MATRIX -db $base_name -query $file_for_blast -out $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
+    my $cmdblast = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $base_name -query $file_for_blast -out $output 2> $TMPDIR/Exonerate/blasterr_1.txt";
     print "$cmdblast\n" if $DEBUG;
     my $resblast = system ($cmdblast);
 
