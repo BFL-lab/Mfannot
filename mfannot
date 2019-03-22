@@ -1,8 +1,8 @@
 #!/usr/bin/perl -w -- -*-Perl-*-
-
+ 
 ##############################################################################
 #
-#                                 mfannot.pl
+#                                 mfannot
 #
 # DESCRIPTION:
 # Attempts to do a quick first pass at annotating a masterfile
@@ -287,7 +287,7 @@ if (! -d $TMPDIR) {
 # Initialization of $CODON_TABLE (Hashtable with genetic code)
 my $BIOCODONTABLE   = Bio::Tools::CodonTable->new( -id => $GENCODE);
 die "Genetic id does not exist\n" if   (not $BIOCODONTABLE->id($GENCODE));
-my ($CODON_TABLE,$DEVIATION) = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); # Hashtable with genetic code
+my ($CODON_TABLE,$DEVIATION,$START_CODONS) = &CacheCodonTableWithGeneticId ($BIOCODONTABLE); # Hashtable with genetic code
 
 # LIB CREATION #
 die "'$PEPLIBRARIES' isn't a directory\n"
@@ -651,30 +651,35 @@ sub CacheCodonTableWithGeneticId {
     # Comment will begin with "!"
     my $codontable = shift;   # The bio::tools::codontable
 
-    # Parse "prot.prm"present in the current directory to take into account the deviation of the genetic code
+    # Parse "prot.prm" present in the current directory to take into account the deviation of the genetic code
     my $initial_dir   = getcwd;
-    my ($triNtToChange,$Dev_line) = ({},"");
+    my ($tri_nt_to_change,$dev_line,$start_codons) = ({},"",{});
     my $protprmFile   = "$initial_dir/prot.prm";
+    
+    # Read `prm` file to set $tri_nt_to_change 
     if (-f $protprmFile && $USEPRM == 1) {
         system("cp $protprmFile $TMPDIR");
         my $infh  = new IO::File "<$protprmFile"
              or die "Can't read from file '$protprmFile': $!\n";
+        # Read prm file to define deviation codon
         while( <$infh> ){
             my $line = $_;
             next if $line !~ m/^Deviation\s*=/;
-            $Dev_line = $line;
-            $Dev_line =~ s/^Deviation\s*=\s*//;
-            $Dev_line =~ s/\s+$//;
-            my @correspondence = split(/,/,$Dev_line);
+            $dev_line = $line;
+            $dev_line =~ s/^Deviation\s*=\s*//;
+            $dev_line =~ s/\s+$//;
+            my @correspondence = split(/,/,$dev_line);
             foreach my $cor (@correspondence) {
                 my @tab = split(/=/,$cor);
-                $triNtToChange->{uc($tab[0])} = uc($tab[1]);
+                $tri_nt_to_change->{uc($tab[0])} = uc($tab[1]);
             }
         }
         $infh->close();
-        &ChangeECGFile($triNtToChange) if (scalar(keys %$triNtToChange) != 0);
     }
 
+    $start_codons = &read_and_change_EGC_file($tri_nt_to_change);
+
+    # Cache codon table
     my $ct_cache = {};
     my @letter = qw (A T C G N);
     my $i      = 0;
@@ -689,20 +694,21 @@ sub CacheCodonTableWithGeneticId {
                 my $codon = $letter[$i].$letter[$j].$letter[$z];
                 my $aa    = $codontable->translate($codon);
                 $ct_cache->{$codon} = $aa;
-                $ct_cache->{$codon} = $triNtToChange->{$codon} if $triNtToChange->{$codon};
+                $ct_cache->{$codon} = $tri_nt_to_change->{$codon} if $tri_nt_to_change->{$codon};
                 $z++;
             }
             $j++;
         }
         $i++;
     }
-    return ($ct_cache,$Dev_line);
-} # End sub
 
-sub ChangeECGFile {
-    my $triNtToChange = shift;
+    return ($ct_cache,$dev_line,$start_codons);
+} # End sub CacheCodonTableWithGeneticId 
 
-    # Read ECG File
+sub read_and_change_EGC_file {
+    my $tri_nt_to_change = shift;
+
+    # Read EGC File
     my $infh  = new IO::File "<$EGC_FILE"
         or die "Can't read from file '$EGC_FILE': $!\n";
 
@@ -714,14 +720,16 @@ sub ChangeECGFile {
     my ($Starts_l,$Base1_l,$Base2_l,$Base3_l) = ("","","","");
     while ( my $line = <$infh> ) {
         $isHeader = 0 if ($line =~ m/^AAs  =/);
-        if ($isHeader == 1) {
-            print $outfh $line;
-        }
-        else {
-            $line =~ s/\n$//;
-            my @this_line = split(/\s*=\s*/,$line);
+        # If line is before AAs line
+        if ($isHeader) {
+          print $outfh $line;
+        # Otherwise
+        } else {
+            $line              =~ s/\n$//;
+            my @this_line      = split(/\s*=\s*/,$line);
             my $info_for_array = $this_line[-1];
-            my @this_array = split(//,$info_for_array);
+            my @this_array     = split(//,$info_for_array);
+            
             if ($line =~ m/^AAs/) {
                 $AAs = \@this_array;
             }
@@ -745,20 +753,22 @@ sub ChangeECGFile {
     }
     $infh->close();
 
-    my $triNtList = [];
+    my $tri_nt_list = [];
     for (my $i = 0; $i < @$AAs; $i++) {
-        my $triNt = $Base1->[$i].$Base2->[$i].$Base3->[$i];
-        push(@$triNtList,[$AAs->[$i],$triNt]);
+        my $AA     = $AAs->[$i];
+        my $start  = $Starts->[$i];
+        my $tri_nt = $Base1->[$i].$Base2->[$i].$Base3->[$i];
+        
+        push(@$tri_nt_list,[$AA, $start, $tri_nt]);
     }
-    my $new_AAs = "";
-    foreach my $info (@$triNtList) {
-        my ($AA,$triNt) = ($info->[0],$info->[1]);
-        if ($triNtToChange->{$triNt}) {
-            $new_AAs .= $triNtToChange->{$triNt};
-        }
-        else {
-            $new_AAs .= $AA;
-        }
+
+    my $new_AAs           = "";
+    my $start_codons = {};
+    foreach my $info (@$tri_nt_list) {
+        my ($AA,$start,$tri_nt) = ($info->[0],$info->[1],$info->[2]);
+        
+        $start_codons->{$tri_nt} = 1  if $start eq "M";
+        $new_AAs = $tri_nt_to_change->{$tri_nt} ? $tri_nt_to_change->{$tri_nt} : $AA;
     }
 
     print $outfh "\nAAs  =   $new_AAs\n";
@@ -767,6 +777,8 @@ sub ChangeECGFile {
     print $outfh "$Base2_l\n";
     print $outfh "$Base3_l\n";
     $outfh->close();
+   
+    return $start_codons;
 }
 
 sub CleanPirmaster {
@@ -7065,6 +7077,7 @@ sub AnnotationOfParticularStruc {
             my $direction   = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
             my $isMinus     = $direction eq "==>" ? 0 : 1;
             my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+            $EndOrf = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
             my $orfsize = !$isMinus ? (($EndOrf - $StartOrf + 1)/3) - 1 : (($StartOrf - $EndOrf + 1)/3) -1;
             my $GenenameORF = "orf". $orfsize;
             my $orf_annot = new PirObject::AnnotPair( type      => "O",
