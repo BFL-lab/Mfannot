@@ -728,6 +728,7 @@ sub read_and_change_EGC_file {
             $line              =~ s/\n$//;
             my @this_line      = split(/\s*=\s*/,$line);
             my $info_for_array = $this_line[-1];
+            next if !$info_for_array;
             my @this_array     = split(//,$info_for_array);
             
             if ($line =~ m/^AAs/) {
