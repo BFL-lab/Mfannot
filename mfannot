@@ -1611,9 +1611,9 @@ sub AdjustStartByHMM {
     my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
 
     # Def this_prot
-    my $prot = $hypprot->get_name();
-    my $this_prot   = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
-    my $pb          = "";
+    my $prot            = $hypprot->get_name();
+    my $this_prot       = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
+    my $pb              = "";
        ($this_prot,$pb) = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
     $hypprot->set_thisprot($this_prot);
 
@@ -1635,7 +1635,7 @@ sub AdjustStartByHMM {
 
     # Read ali and def each start in homologous
     my $ali        = &ReadStockholmMultAligns($protaln);
-    my $each_st    = &DefEachStartInHMM($ali);
+    my $each_st    = &DefEachStartInHMM($ali,$hypprot->get_homologous(),$this_fasta);
     my $hyp_st_ali = $each_st->{"myProt"};
     delete $each_st->{"myProt"};
 
@@ -1657,7 +1657,6 @@ sub AdjustStartByHMM {
     my $aa_accepted          = { "M" => 1, "v" => 1, "l" => 1};
     my $all_possible_st      = &DefineAllPossibleStart($full5,$aa_accepted);
     my ($best_start,$median) = &ChooseBestStart($st_pos_cmp_st_orf,$all_possible_st,$right_lim_for_st);
-
     # If no M or v or l was found, def by similarity !!!
     my ($firstMaj,$StartInMyProt) = &DefFirstMaj($ali,$prot);
     my $SimiStart  = ($firstMaj - $StartInMyProt);
@@ -1713,11 +1712,11 @@ sub ExtractLibSeqs {
 
     my $this_fasta = ">myProt\n";
     while ($this_prot ne "") {
-            $this_prot =~ s/[^a-zA-Z]//g;
-            $this_prot = uc($this_prot);
-            my $slice  = length($this_prot) > 60 ? 60 : length($this_prot);
-            $this_fasta    .= substr($this_prot,0,$slice)."\n";
-            $this_prot = substr($this_prot,$slice);
+            $this_prot   =~ s/[^a-zA-Z]//g;
+            $this_prot   = uc($this_prot);
+            my $slice    = length($this_prot) > 60 ? 60 : length($this_prot);
+            $this_fasta .= substr($this_prot,0,$slice)."\n";
+            $this_prot   = substr($this_prot,$slice);
     }
 
     my $homologous = $hypprot->get_homologous();
@@ -1725,14 +1724,15 @@ sub ExtractLibSeqs {
     my $homo_fasta = "";
     foreach my $prot (@$homologous) {
         my $seq = $prot->get_similarprot();
+                  $prot->set_shortname($name);
         $homo_fasta .= ">$name\n";
         $seq =~ s/>.+\n//;
         while ($seq ne "") {
-            $seq =~ s/[^a-zA-Z]//g;
-            $seq = uc($seq);
-            my $slice = length($seq) > 60 ? 60 : length($seq);
+            $seq         =~ s/[^a-zA-Z]//g;
+            $seq         = uc($seq);
+            my $slice    = length($seq) > 60 ? 60 : length($seq);
             $homo_fasta .= substr($seq,0,$slice)."\n";
-            $seq = substr($seq,$slice);
+            $seq         = substr($seq,$slice);
         }
         $name++;
     }
@@ -1944,19 +1944,39 @@ sub ReadStockholmMultAligns {
 }
 
 sub DefEachStartInHMM {
-    my $align = shift;
+    my ($align,$homologous,$this_fasta) = @_;
 
     my $each_start = {};
     my $multalign     = $align->[0];
     my $alignedSeqs   = $multalign->get_alignedSeqs();
+    
+    # Create a hash with each protein used in HMM
+    my $full_sequences = {};
+    foreach my $homo (@$homologous) {
+        my $shortname = $homo->get_shortname();
+        my $protein   = $homo->get_similarprot();
+ 
+        $protein =~ s/>.+\n//;
+        $full_sequences->{$shortname} = $protein;
+    }
+    
+    $this_fasta =~ s/>(.+)\n//;
+    $full_sequences->{$1} = $this_fasta;
+
+    # The Hash with each protein will be used to correct the start position in 
+    # each alignment it should be done due the the usage of --trim option for HMM 
     foreach my $alignedSeq (@$alignedSeqs) {
         my $id    = $alignedSeq->get_seqId();
+        my $full  = $full_sequences->{$id};
         my $seq   = $alignedSeq->get_sequence();
         my $dash_seq = $seq;
            $dash_seq =~ s/\./\-/g;
+        my $raw_seq  = $dash_seq;
+           $raw_seq  =~ s/\-//g;
         my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
         my $len_dash   = length($dash_chain);
-        $each_start->{$id} = $len_dash;
+        my $trim_index = index(uc($full),uc($raw_seq));
+        $each_start->{$id} = $len_dash + $trim_index;
     }
     return $each_start;
 }
