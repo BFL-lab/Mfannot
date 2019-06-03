@@ -1635,7 +1635,7 @@ sub AdjustStartByHMM {
 
     # Read ali and def each start in homologous
     my $ali        = &ReadStockholmMultAligns($protaln);
-    my $each_st    = &DefEachStartInHMM($ali,$hypprot->get_homologous(),$this_fasta);
+    my $each_st    = &DefEachStartInHMM($ali,$hypprot);
     my $hyp_st_ali = $each_st->{"myProt"};
     delete $each_st->{"myProt"};
 
@@ -1944,7 +1944,7 @@ sub ReadStockholmMultAligns {
 }
 
 sub DefEachStartInHMM {
-    my ($align,$homologous,$this_fasta) = @_;
+    my ($align,$hypprot) = @_;
 
     my $each_start = {};
     my $multalign     = $align->[0];
@@ -1952,6 +1952,7 @@ sub DefEachStartInHMM {
     
     # Create a hash with each protein used in HMM
     my $full_sequences = {};
+    my $homologous     = $hypprot->get_homologous();
     foreach my $homo (@$homologous) {
         my $shortname = $homo->get_shortname();
         my $protein   = $homo->get_similarprot();
@@ -1960,14 +1961,12 @@ sub DefEachStartInHMM {
         $full_sequences->{$shortname} = $protein;
     }
     
-    $this_fasta =~ s/>(.+)\n//;
-    $full_sequences->{$1} = $this_fasta;
-
     # The Hash with each protein will be used to correct the start position in 
     # each alignment it should be done due the the usage of --trim option for HMM 
     foreach my $alignedSeq (@$alignedSeqs) {
         my $id    = $alignedSeq->get_seqId();
-        my $full  = $full_sequences->{$id};
+        my $full  = $full_sequences->{$id} || $hypprot->get_thisprot();
+
         my $seq   = $alignedSeq->get_sequence();
         my $dash_seq = $seq;
            $dash_seq =~ s/\./\-/g;
@@ -1976,6 +1975,7 @@ sub DefEachStartInHMM {
         my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
         my $len_dash   = length($dash_chain);
         my $trim_index = index(uc($full),uc($raw_seq));
+        $hypprot->set_trimIndex($trim_index) if !$full_sequences->{$id};
         $each_start->{$id} = $len_dash + $trim_index;
     }
     return $each_start;
@@ -2256,6 +2256,10 @@ sub ChangeHypProtVal {
        $nt_seq   =~ tr/ACGT/TGCA/    if $isMinus;
        $nt_seq   = reverse $nt_seq   if $isMinus;
     my $tri_nt   = uc (substr($nt_seq, 0 , 3));
+    
+    my $prot    = $hypprot->get_thisprot();
+    $hypprot->set_thisprot(substr($prot,int(($start-$old_start)/3)));
+
     $START_COUNT->{$tri_nt}++;
 }
 
@@ -3152,13 +3156,16 @@ sub AnnotateMiniExonsByHMM {
         # Def control var.
         my ($GroupI,$GroupII) = ({},{});
         my ($NbChange,$MakeAli,$DefIntron) = (0,1,1);
-        my ($ThisProt,$Align,$PP,$PercentId,$AliSeq) = ("","","","","");
+        my ($ThisProt,$Align,$PP,$PercentId,$AliSeq,$protaln) = ("","","","","","");
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
             my $ShortName  = "${Name}_$Flag";
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
-                ($Align,$PP,$PercentId,$AliSeq) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
+                ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
+                # To redefine get_trimIndex
+                &DefEachStartInHMM(&ReadStockholmMultAligns($protaln),$hypprot);
+                
                 next if $Align eq "Frame-Shift-Detected";
                 $MakeAli = 0;
             }
@@ -3168,7 +3175,7 @@ sub AnnotateMiniExonsByHMM {
             my $isMinus   = $Intron->get_strand() eq "+" ? 0 : 1;
             my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
             my $LenSeq    = length($Seq);
-            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos);
+            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndex());
 
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
@@ -3291,7 +3298,7 @@ sub CreateAlignForMiniEx {
 
     my $Align     = $Alignio->next_aln();
     my $PercentId = $Align->percentage_identity();
-    return ($Align,$PP_Info,$PercentId,$AliSeq);
+    return ($Align,$PP_Info,$PercentId,$AliSeq,$ProtAln);
 }
 
 sub CreateFileForHMMBuild {
@@ -3521,7 +3528,8 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
     # and to define the position of intron on the alignment.
     my $align              = shift;
     my $intron_pos_hypprot = shift;
-
+    my $trim_index         = shift;
+    
     my $hypprot_seq        = undef;
     my $pos_in_alignment   = undef;
     my $length_ali         = undef;
@@ -3529,8 +3537,8 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
         my $id = $seq->display_id();
         next if $id ne "myProt";
         $hypprot_seq      = $seq;
-        $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot);
-        $length_ali = length($seq->seq());
+        $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index);
+        $length_ali       = length($seq->seq());
         last;
     }
     return ($hypprot_seq,$pos_in_alignment,$length_ali);
@@ -3588,13 +3596,18 @@ sub MakeSubAlignment {
     my ($En_start,$En_End) = ($En->get_protstart(),$En->get_protend());
 
     my $num1      = $Ep_End-$Ep_start;
-    my $num2      = $En_End-$En_start+1;
-    my $sub_align = $align->slice($pos - $num1 , $pos + $num2);
-    my $Len       = ($pos + $num2) - ($pos - $num1) + 1;
-    my $Sub_PP    = substr($PP,$pos-$num1-1,$Len);
-    my $Sub_Ali   = substr($AliSeq,$pos-$num1-1,$Len);
+    my $start     = $pos - $num1;
+       $start     = 1 if $start < 1;
 
-    return ($sub_align,$num1,$Sub_PP,$Sub_Ali) ;
+    my $num2      = $En_End-$En_start+1;
+    my $end       = $pos + $num2;
+
+    my $sub_align = $align->slice($start, $end);
+    my $Len       = $end - $start + 1;
+    my $Sub_PP    = substr($PP, $start - 1,$Len);
+    my $Sub_Ali   = substr($AliSeq, $start - 1,$Len);
+
+    return ($sub_align,$num1,$Sub_PP,$Sub_Ali);
 }
 
 sub RemoveHypprotInAlignment {
