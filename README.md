@@ -50,6 +50,7 @@ Further external programs and libraries that were developed in parallel to MFann
 - HMMSearchWC: to install HMMSearchWC see the documentation in this [GitHub repo](https://github.com/BFL-lab/HMMSearchWC)
 - RNAfinder: to install RNAfinder see the documentation in this [GitHub repo](https://github.com/BFL-lab/RNAfinder)
 - Mf2sqn: to install Mf2sqn see the documentation in this [GitHub repo](https://github.com/BFL-lab/mf2sqn)
+- grab-seq and grab-fasta: to install this two tools see the documentation in this [GitHub repo](https://github.com/BFL-lab/grab-fasta)
 - MFannot: to install MFannot see the documentation in this [GitHub repo](https://github.com/BFL-lab/MFannot)
 
 #### Static Data
