@@ -1,5 +1,5 @@
 #!/usr/bin/perl -w -- -*-Perl-*-
- 
+
 ##############################################################################
 #
 #                                 mfannot
@@ -655,8 +655,8 @@ sub CacheCodonTableWithGeneticId {
     my $initial_dir   = getcwd;
     my ($tri_nt_to_change,$dev_line,$start_codons) = ({},"",{});
     my $protprmFile   = "$initial_dir/prot.prm";
-    
-    # Read `prm` file to set $tri_nt_to_change 
+
+    # Read `prm` file to set $tri_nt_to_change
     if (-f $protprmFile && $USEPRM == 1) {
         system("cp $protprmFile $TMPDIR");
         my $infh  = new IO::File "<$protprmFile"
@@ -703,7 +703,7 @@ sub CacheCodonTableWithGeneticId {
     }
 
     return ($ct_cache,$dev_line,$start_codons);
-} # End sub CacheCodonTableWithGeneticId 
+} # End sub CacheCodonTableWithGeneticId
 
 sub read_and_change_EGC_file {
     my $tri_nt_to_change = shift;
@@ -729,7 +729,7 @@ sub read_and_change_EGC_file {
             my @this_line      = split(/\s*=\s*/,$line);
             my $info_for_array = $this_line[-1];
             my @this_array     = split(//,$info_for_array);
-            
+
             if ($line =~ m/^AAs/) {
                 $AAs = \@this_array;
             }
@@ -758,7 +758,7 @@ sub read_and_change_EGC_file {
         my $AA     = $AAs->[$i];
         my $start  = $Starts->[$i];
         my $tri_nt = $Base1->[$i].$Base2->[$i].$Base3->[$i];
-        
+
         push(@$tri_nt_list,[$AA, $start, $tri_nt]);
     }
 
@@ -766,7 +766,7 @@ sub read_and_change_EGC_file {
     my $start_codons = {};
     foreach my $info (@$tri_nt_list) {
         my ($AA,$start,$tri_nt) = ($info->[0],$info->[1],$info->[2]);
-        
+
         $start_codons->{$tri_nt} = 1  if $start eq "M";
         $new_AAs = $tri_nt_to_change->{$tri_nt} ? $tri_nt_to_change->{$tri_nt} : $AA;
     }
@@ -777,7 +777,7 @@ sub read_and_change_EGC_file {
     print $outfh "$Base2_l\n";
     print $outfh "$Base3_l\n";
     $outfh->close();
-   
+
     return $start_codons;
 }
 
