@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 # File Author / Maintainer MAINTAINER
 MAINTAINER Natacha Beck <natabeck@gmail.com>
@@ -14,16 +14,21 @@ RUN apt-get install -y git \
                        expat \
                        libexpat-dev \
                        cpanminus \
-                       wget\
-                       libglib2.0-dev\
-                       automake\
-                       autotools-dev
+                       wget \
+                       libgd-dev \
+                       automake \
+                       autotools-dev \
+                       libxml-dom-xpath-perl \
+                       libidn11
 
 
 ############################
 # Install perl dependency  #
 ############################
+RUN cpanm XML::DOM
+RUN cpanm XML::DOM::XPath
 RUN cpanm LWP::UserAgent.pm
+RUN cpanm GD
 RUN cpanm Bio::AlignIO
 
 ############################
@@ -87,7 +92,7 @@ RUN git clone https://github.com/BFL-lab/mf2sqn.git; cp mf2sqn/mf2sqn /usr/local
 RUN git clone https://github.com/BFL-lab/grab-fasta.git; cp grab-fasta/grab-fasta /usr/local/bin/;cp grab-fasta/grab-seq /usr/local/bin/
 
 # Install MFannot
-RUN git clone https://github.com/BFL-lab/mfannot.git; cp mfannot/mfannot /usr/local/bin/;cp -r mfannot/examples /
+RUN git clone https://github.com/BFL-lab/mfannot.git; cd /mfannot/; git checkout dev; cd /;cp -r mfannot/examples /
 
 ################
 # Install data #
