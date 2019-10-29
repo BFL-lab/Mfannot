@@ -44,6 +44,7 @@ RUN apt-get install -y ncbi-blast+
 RUN apt-get install -y hmmer
 
 # Install Exonerate
+RUN apt-get install -y libglib2.0-dev
 RUN cd git_repositories
 RUN git clone https://github.com/nathanweeks/exonerate.git; cd exonerate; git checkout v2.4.0; ./configure; make; make check;autoreconf -f -i; make install
 RUN cd ..
