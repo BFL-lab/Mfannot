@@ -19,7 +19,8 @@ RUN apt-get install -y git \
                        automake \
                        autotools-dev \
                        libxml-dom-xpath-perl \
-                       libidn11
+                       libidn11 \
+                       libglib2.0-dev
 
 
 ############################
@@ -31,7 +32,7 @@ RUN cpanm LWP::UserAgent.pm
 RUN cpanm GD
 RUN cpanm Bio::AlignIO
 
-############################
+###########################
 # Install external progam  #
 ############################
 # Create a directory for all git directories
@@ -72,7 +73,7 @@ RUN cd git_repositories
 RUN git clone https://github.com/prioux/PirObject.git; cp PirObject/lib/PirObject.pm /etc/perl/;
 
 # Install all PirModels
-RUN git clone https://github.com/BFL-lab/PirModels.git; mv PirModels /root/
+RUN git clone https://github.com/natacha-beck/PirModels.git; cd /PirModels/; git checkout mini_exons_cox2; cd /;  mv PirModels /root/
 
 # Install flip
 RUN git clone https://github.com/BFL-lab/flip.git; cd flip/src/; gcc -o /usr/local/bin/flip flip.c;
@@ -108,7 +109,7 @@ RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices
 RUN cp ~/.RNAfinder.cfg /
 
 #mv PirModels 
-RUN mv /root/PirModels / 
+RUN mv /root/PirModels /
 
 ####################
 # Set ENV variable #
@@ -123,3 +124,4 @@ ENV BLASTMAT /BLASTMAT/
 ENV EGC /MFannot_data/EGC/
 ENV ERPIN_MOD_PATH /MFannot_data/models/Erpin_models/
 ENV PIR_DATAMODEL_PATH /PirModels
+ENV PATH="/mfannot:${PATH}"
