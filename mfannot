@@ -1626,7 +1626,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
-        if ($newhypprot->get_trimIndexThree > 15) {
+        if ($newhypprot->get_trimIndexThree && $newhypprot->get_trimIndexThree > 15) {
            my $info = [
                         $newhypprot->get_name(),
                         $newhypprot->get_contigname(),
@@ -7173,94 +7173,6 @@ sub CreateAllHMMAnnot {
     return $AllHMMAnnot;
 }
 
-<<<<<<< HEAD
-=======
-sub AnnotationOfParticularStruc {
-    my ($AllHMMAnnot,$contigname) = @_;
-
-    foreach my $name (keys %$AllHMMAnnot) {
-        my $genename = $1 if $name =~ m/^(.+)_/;
-        next if scalar(grep( /^$genename$/, @$JUST_SIMI)) == 0;
-        if ($LIGHT) {
-          delete $AllHMMAnnot->{$name};
-          next;
-        }
-        my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
-        my $simi_annot_by_cg = {};
-        foreach my $Orf (keys %$AllHMMAnnotByGene) {
-            # ORF Annotation
-            my $resume      = $AllHMMAnnotByGene->{$Orf}->[1];
-            my $description = $resume->get_Description();
-            my $direction   = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
-            my $isMinus     = $direction eq "==>" ? 0 : 1;
-            my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-            $EndOrf = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
-
-            # Search start according to genetic code
-            my $contig     = $pirmaster->GetContigByName($contigname);
-            my $seq        = $contig->get_sequence();
-            my $nt_seq     = &Get_nt_seq($seq,$StartOrf,$EndOrf,$isMinus);
-
-            my $start = 0;
-            for (my $start = 0;$start <= length($nt_seq) - 3; $start += 3) {
-                my $tri_nt  = uc (substr($nt_seq, $start, 3));
-                if ($START_CODONS->{$tri_nt}) {
-                    $StartOrf = !$isMinus ? $StartOrf + $start : $StartOrf - $start;
-                    last;
-                }
-            }
-
-            my $orfsize = !$isMinus ? (($EndOrf - $StartOrf + 1)/3) - 1 : (($StartOrf - $EndOrf + 1)/3) -1;
-            my $GenenameORF = "orf". $orfsize;
-
-            my $orf_annot = new PirObject::AnnotPair( type      => "O",
-                                                  genename  => $GenenameORF,
-                                                  startpos  => $StartOrf,
-                                                  endpos    => $EndOrf,
-                                                  direction => $direction,
-                                                  containStruc => 1,
-                                                  startline => "; G-$GenenameORF $direction start ;; contain $genename",
-                                                  endline   => "; G-$GenenameORF $direction end");
-
-            &AddAnnotToPirMaster($contigname,$orf_annot);
-
-            # Similarity annotation
-            my $annots      = $AllHMMAnnotByGene->{$Orf}->[0];
-            foreach my $key(keys %$annots) {
-                my $annot = $annots->{$key};
-                # Two annot cannot have same startpos.
-                $simi_annot_by_cg->{$contigname}->{$annot->get_startpos} = $annot;
-            }
-        }
-        foreach my $contig (keys %$simi_annot_by_cg) {
-            my $all_simi_annot = $simi_annot_by_cg->{$contig};
-            my $cnt = 1;
-            foreach my $key (sort { $a <=> $b } keys(%$all_simi_annot)) {
-                my $annot      = $all_simi_annot->{$key};
-                my $startline  = $annot->get_startline;
-                $startline     =~ s/(G-$genename)/${1}_$cnt/;
-                $startline    .= " ;; HMM match pos. " . $annot->get_HMMmatch . " score " . $annot->get_score;
-                my $endline    = $annot->get_endline;
-                $endline       =~ s/(G-$genename)/${1}_$cnt/;
-                my $simi_annot = new PirObject::AnnotPair( type      => "C",
-                                                         genename  => "ORF",
-                                                         startpos  => $annot->get_startpos,
-                                                         endpos    => $annot->get_endpos,
-                                                         direction => $annot->get_direction,
-                                                         startline => $startline,
-                                                         endline   => $endline
-                                                         );
-                &AddAnnotToPirMaster($contigname,$simi_annot);
-                $cnt++
-            }
-        }
-        delete $AllHMMAnnot->{$name};
-    }
-
-    return $AllHMMAnnot;
-}
-
->>>>>>> 504671f... Fixed trailing exons by using exonerate if needed
 sub CheckForFalseIntrons {
     my ($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen) = @_;
 
