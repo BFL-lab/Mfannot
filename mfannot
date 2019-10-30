@@ -1393,7 +1393,7 @@ sub SelectProteinForExo {
 
                 @start_end_orf  = sort { $a->[0] <=> $b->[0] } @start_end_orf if $strand ==  1; # Sort @start_end_orf by start for strand +
                 @start_end_orf  = sort { $b->[0] <=> $a->[0] } @start_end_orf if $strand == -1; # Sort @start_end_orf by start for strand -
- 
+
                 for (my $i=0; $i < @start_end_orf - 1; $i++) {
                     my $diff = abs($start_end_orf[$i]->[1]-$start_end_orf[$i+1]->[0]);
                     if ( 142 <= $diff ) {
@@ -1626,7 +1626,21 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
-        push (@$HYPPROTS,  $newhypprot);
+        if ($newhypprot->get_trimIndexThree > 15) {
+           my $info = [
+                        $newhypprot->get_name(),
+                        $newhypprot->get_contigname(),
+                        $newhypprot->get_protein(),
+                        $newhypprot->get_strand(),
+                        $newhypprot->get_homologous(),
+                        $newhypprot->get_namefusiongene(),
+                        $newhypprot->get_origine(),
+                        [$newhypprot->get_start(), $newhypprot->get_end()]
+                      ];
+           push(@PROT_FOR_EXONERATE, $info);
+        } else {
+            push (@$HYPPROTS,  $newhypprot);
+        }
     } # End for each Flip Blast Prot
 } # End sub
 
@@ -1985,20 +1999,20 @@ sub DefEachStartInHMM {
     my $each_start = {};
     my $multalign     = $align->[0];
     my $alignedSeqs   = $multalign->get_alignedSeqs();
-    
+
     # Create a hash with each protein used in HMM
     my $full_sequences = {};
     my $homologous     = $hypprot->get_homologous();
     foreach my $homo (@$homologous) {
         my $shortname = $homo->get_shortname();
         my $protein   = $homo->get_similarprot();
- 
+
         $protein =~ s/>.+\n//;
         $full_sequences->{$shortname} = $protein;
     }
-    
-    # The Hash with each protein will be used to correct the start position in 
-    # each alignment it should be done due the the usage of --trim option for HMM 
+
+    # The Hash with each protein will be used to correct the start position in
+    # each alignment it should be done due the the usage of --trim option for HMM
     foreach my $alignedSeq (@$alignedSeqs) {
         my $id    = $alignedSeq->get_seqId();
         my $full  = $full_sequences->{$id} || $hypprot->get_thisprot();
@@ -2011,8 +2025,14 @@ sub DefEachStartInHMM {
         my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
         my $len_dash   = length($dash_chain);
         my $trim_index = index(uc($full),uc($raw_seq));
-        $hypprot->set_trimIndex($trim_index) if !$full_sequences->{$id};
+        $hypprot->set_trimIndexFive($trim_index) if !$full_sequences->{$id};
         $each_start->{$id} = $len_dash + $trim_index;
+
+        if ($id eq "myProt") {
+            my $ending_dash = $1 if $seq =~ m/(-+)$/;
+            my $trim_three  = length($ending_dash);
+            $hypprot->set_trimIndexThree($trim_three);
+        }
     }
     return $each_start;
 }
@@ -2071,7 +2091,7 @@ sub GetProteinForGeneWithoutIntrons {
     return $protein;
 }
 
-sub Get_nt_seq {   
+sub Get_nt_seq {
     my ($seq, $start, $end, $isMinus) = @_;
 
     my $g_length =  !$isMinus ? $end - $start + 1 : $start - $end + 1;
@@ -2292,7 +2312,7 @@ sub ChangeHypProtVal {
        $nt_seq   =~ tr/ACGT/TGCA/    if $isMinus;
        $nt_seq   = reverse $nt_seq   if $isMinus;
     my $tri_nt   = uc (substr($nt_seq, 0 , 3));
-    
+
     my $prot    = $hypprot->get_thisprot();
     $hypprot->set_thisprot(substr($prot,int(($start-$old_start)/3)));
 
@@ -3200,8 +3220,8 @@ sub AnnotateMiniExonsByHMM {
                 # Make Ali with HMMalign, remake ali if exon was add
                 ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
                 next if $Align eq "Frame-Shift-Detected";
-                
-                # To redefine get_trimIndex
+
+                # To redefine get_trimIndexFive
                 &DefEachStartInHMM(&ReadStockholmMultAligns($protaln),$hypprot);
                 $MakeAli = 0;
             }
@@ -3211,7 +3231,7 @@ sub AnnotateMiniExonsByHMM {
             my $isMinus   = $Intron->get_strand() eq "+" ? 0 : 1;
             my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
             my $LenSeq    = length($Seq);
-            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndex());
+            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive());
 
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
@@ -3565,7 +3585,7 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
     my $align              = shift;
     my $intron_pos_hypprot = shift;
     my $trim_index         = shift;
-    
+
     my $hypprot_seq        = undef;
     my $pos_in_alignment   = undef;
     my $length_ali         = undef;
@@ -7153,6 +7173,94 @@ sub CreateAllHMMAnnot {
     return $AllHMMAnnot;
 }
 
+<<<<<<< HEAD
+=======
+sub AnnotationOfParticularStruc {
+    my ($AllHMMAnnot,$contigname) = @_;
+
+    foreach my $name (keys %$AllHMMAnnot) {
+        my $genename = $1 if $name =~ m/^(.+)_/;
+        next if scalar(grep( /^$genename$/, @$JUST_SIMI)) == 0;
+        if ($LIGHT) {
+          delete $AllHMMAnnot->{$name};
+          next;
+        }
+        my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
+        my $simi_annot_by_cg = {};
+        foreach my $Orf (keys %$AllHMMAnnotByGene) {
+            # ORF Annotation
+            my $resume      = $AllHMMAnnotByGene->{$Orf}->[1];
+            my $description = $resume->get_Description();
+            my $direction   = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+            my $isMinus     = $direction eq "==>" ? 0 : 1;
+            my ($StartOrf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+            $EndOrf = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
+
+            # Search start according to genetic code
+            my $contig     = $pirmaster->GetContigByName($contigname);
+            my $seq        = $contig->get_sequence();
+            my $nt_seq     = &Get_nt_seq($seq,$StartOrf,$EndOrf,$isMinus);
+
+            my $start = 0;
+            for (my $start = 0;$start <= length($nt_seq) - 3; $start += 3) {
+                my $tri_nt  = uc (substr($nt_seq, $start, 3));
+                if ($START_CODONS->{$tri_nt}) {
+                    $StartOrf = !$isMinus ? $StartOrf + $start : $StartOrf - $start;
+                    last;
+                }
+            }
+
+            my $orfsize = !$isMinus ? (($EndOrf - $StartOrf + 1)/3) - 1 : (($StartOrf - $EndOrf + 1)/3) -1;
+            my $GenenameORF = "orf". $orfsize;
+
+            my $orf_annot = new PirObject::AnnotPair( type      => "O",
+                                                  genename  => $GenenameORF,
+                                                  startpos  => $StartOrf,
+                                                  endpos    => $EndOrf,
+                                                  direction => $direction,
+                                                  containStruc => 1,
+                                                  startline => "; G-$GenenameORF $direction start ;; contain $genename",
+                                                  endline   => "; G-$GenenameORF $direction end");
+
+            &AddAnnotToPirMaster($contigname,$orf_annot);
+
+            # Similarity annotation
+            my $annots      = $AllHMMAnnotByGene->{$Orf}->[0];
+            foreach my $key(keys %$annots) {
+                my $annot = $annots->{$key};
+                # Two annot cannot have same startpos.
+                $simi_annot_by_cg->{$contigname}->{$annot->get_startpos} = $annot;
+            }
+        }
+        foreach my $contig (keys %$simi_annot_by_cg) {
+            my $all_simi_annot = $simi_annot_by_cg->{$contig};
+            my $cnt = 1;
+            foreach my $key (sort { $a <=> $b } keys(%$all_simi_annot)) {
+                my $annot      = $all_simi_annot->{$key};
+                my $startline  = $annot->get_startline;
+                $startline     =~ s/(G-$genename)/${1}_$cnt/;
+                $startline    .= " ;; HMM match pos. " . $annot->get_HMMmatch . " score " . $annot->get_score;
+                my $endline    = $annot->get_endline;
+                $endline       =~ s/(G-$genename)/${1}_$cnt/;
+                my $simi_annot = new PirObject::AnnotPair( type      => "C",
+                                                         genename  => "ORF",
+                                                         startpos  => $annot->get_startpos,
+                                                         endpos    => $annot->get_endpos,
+                                                         direction => $annot->get_direction,
+                                                         startline => $startline,
+                                                         endline   => $endline
+                                                         );
+                &AddAnnotToPirMaster($contigname,$simi_annot);
+                $cnt++
+            }
+        }
+        delete $AllHMMAnnot->{$name};
+    }
+
+    return $AllHMMAnnot;
+}
+
+>>>>>>> 504671f... Fixed trailing exons by using exonerate if needed
 sub CheckForFalseIntrons {
     my ($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen) = @_;
 
