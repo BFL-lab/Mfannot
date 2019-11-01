@@ -108,9 +108,6 @@ RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices
 #Copy RNAfinder config file
 RUN cp ~/.RNAfinder.cfg /
 
-#mv PirModels 
-RUN mv /root/PirModels /
-
 ####################
 # Set ENV variable #
 ####################
