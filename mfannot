@@ -1762,6 +1762,7 @@ sub ExtractLibSeqs {
 
     my $this_fasta = ">myProt\n";
     while ($this_prot ne "") {
+            $this_prot   =~ s/\*/X/;
             $this_prot   =~ s/[^a-zA-Z]//g;
             $this_prot   = uc($this_prot);
             my $slice    = length($this_prot) > 60 ? 60 : length($this_prot);
@@ -1778,6 +1779,7 @@ sub ExtractLibSeqs {
         $homo_fasta .= ">$name\n";
         $seq =~ s/>.+\n//;
         while ($seq ne "") {
+            $seq         =~ s/\*/X/;
             $seq         =~ s/[^a-zA-Z]//g;
             $seq         = uc($seq);
             my $slice    = length($seq) > 60 ? 60 : length($seq);
@@ -2017,18 +2019,20 @@ sub DefEachStartInHMM {
         my $id    = $alignedSeq->get_seqId();
         my $full  = $full_sequences->{$id} || $hypprot->get_thisprot();
 
-        my $seq   = $alignedSeq->get_sequence();
-        my $dash_seq = $seq;
-           $dash_seq =~ s/\./\-/g;
-        my $raw_seq  = $dash_seq;
-           $raw_seq  =~ s/\-//g;
+        my $seq        = $alignedSeq->get_sequence();
+        my $dash_seq   = $seq;
+           $dash_seq   =~ s/\./\-/g;
+        my $raw_seq    = $dash_seq;
+           $raw_seq    =~ s/\-//g;
         my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
         my $len_dash   = length($dash_chain);
-        my $trim_index = index(uc($full),uc($raw_seq));
-        $hypprot->set_trimIndexFive($trim_index) if !$full_sequences->{$id};
+        my $full_without_stop = $full;
+           $full_without_stop =~ s/\*/X/g;
+        my $trim_index = index(uc($full_without_stop),uc($raw_seq));
         $each_start->{$id} = $len_dash + $trim_index;
 
         if ($id eq "myProt") {
+            $hypprot->set_trimIndexFive($trim_index);
             my $ending_dash = $1 if $seq =~ m/(-+)$/;
             my $trim_three  = length($ending_dash);
             $hypprot->set_trimIndexThree($trim_three);
@@ -3235,9 +3239,10 @@ sub AnnotateMiniExonsByHMM {
 
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
+
             # Make sub-alignement
             my ($SubAliHomo,$IntronPosSub,$Sub_PP,$Sub_Ali)  = &MakeSubAlignment($Align,$HypprotSeq,$IntronPosAli,$Exon_p,$Exon_n,$PP,$AliSeq);
-            # Use HMM in order to def missing exons.
+            # Use HMM in order to def missing exons
             my ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n,$id_HMM) = &DefAdjIntronByHMM($Sub_PP,$Sub_Ali,$IntronPosSub);
 
             # Locate Intron by RNAweasel.
@@ -3255,7 +3260,7 @@ sub AnnotateMiniExonsByHMM {
                 # compare hypprot aa with the other aa in alignment
                 my $ConservedSeq = &CompareEachPosOfHypprotWithHomologous($SubAliProt,$Percent);
                 # Use old method in order to def missing exons.
-                ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n) = &DefineAdjustIntron($ConservedSeq,$IntronPosSub,$PercentId);
+                ($LenAdj_p,$LenAdj_n) = &DefineAdjustIntron($ConservedSeq,$IntronPosSub,$PercentId);
             }
 
             my $LenAdj_f = $LenAdj_p + $LenAdj_n;
@@ -3739,13 +3744,12 @@ sub DefineAdjustIntron {
     my $right        = substr($string,$intron_pos+1);
     my $one_aa_right = substr($string,$intron_pos+1,1);
 
-    my ($missing_left,$dash_p)  = &DefineMissingLeft($left);
-    my ($missing_right,$dash_n) = &DefineMissingRight($right);
+    my $missing_left  = &DefineMissingLeft($left);
+    my $missing_right = &DefineMissingRight($right);
 
     my $length_left   = length($missing_left);
     my $length_right  = length($missing_right);
-    my $length_tot    = $length_left + $length_right;
-    return($length_left,$dash_p,$length_right,$dash_n);
+    return($length_left,$length_right);
 }
 
 sub DefineMissingLeft {
@@ -3764,22 +3768,16 @@ sub DefineMissingLeft {
         $aa = chop($aa) if $i != $max_similarity_accepted;
         $missing_left = $aa . $missing_left;
     }
-    # Remove beginning -
-    $missing_left =~ s/^-//;
-    my $X = $missing_left;
-    # Keep only the X (unknown AA)
-       $X =~ s/[^X]//g;
-    my $nb_X = length($X);
-    return ($missing_left,$nb_X);
+    return $missing_left;
 }
 
 sub DefineMissingRight {
     my $substring = shift;
 
-     my $length = length($substring);
-    my $missing_right = "";
+    my $length                  = length($substring);
+    my $missing_right           = "";
     my $max_similarity_accepted = 2;
-    my $max_similarity_string = "";
+    my $max_similarity_string   = "";
     for (my $i = 0; $i < $max_similarity_accepted; $i++){
          $max_similarity_string .= "-";
     }
@@ -3789,11 +3787,7 @@ sub DefineMissingRight {
         $aa = substr($substring,$i,1) if $i != $length - $max_similarity_accepted;
         $missing_right .= $aa;
     }
-    $missing_right =~ s/-$//;
-    my $X = $missing_right;
-       $X =~ s/[^X]//g;
-    my $nb_X = length($X);
-    return ($missing_right,$nb_X);
+    return $missing_right;
 }
 
 sub AdjustExonsIntron {
