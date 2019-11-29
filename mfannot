@@ -1626,7 +1626,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
-        if ($newhypprot->get_trimIndexThree && $newhypprot->get_trimIndexThree > 15) {
+        if ($newhypprot->get_trimIndexThree && $newhypprot->get_trimIndexThree > 10) {
            my $info = [
                         $newhypprot->get_name(),
                         $newhypprot->get_contigname(),
@@ -2748,7 +2748,7 @@ sub SortAndGroupC4Report {
 
     my $Group_ER      = [];
     foreach my $ER (@$ExoReports) {
-        next if $ER->get_raw_score() < 500;
+        next if $ER->get_raw_score() < 300;
         push(@$Group_ER,[$ER])
     }
 
