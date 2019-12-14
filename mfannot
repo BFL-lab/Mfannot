@@ -2748,7 +2748,7 @@ sub SortAndGroupC4Report {
 
     my $Group_ER      = [];
     foreach my $ER (@$ExoReports) {
-        next if $ER->get_raw_score() < 300;
+        next if $ER->get_raw_score() < 200;
         push(@$Group_ER,[$ER])
     }
 
