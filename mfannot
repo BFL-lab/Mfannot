@@ -2916,7 +2916,7 @@ sub CheckRealIntrons {
            $intron_end   = $intron_end - 2 if $isMinus;
         my $intron_len   = !$isMinus ? ($intron_end - $intron_start + 1 ) : ($intron_start - $intron_end - 1 );
 
-        &LocateIntrons($seq,$intron,undef,$name,$contigname,$isMinus);
+        &LocateIntrons($seq,$intron,undef,$name,$contigname,$isMinus) if $LVL_INTRON != 2;
         my $intron_type = $intron->get_type();
         next if $intron_type;
 
