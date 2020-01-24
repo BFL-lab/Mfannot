@@ -575,7 +575,7 @@ sub CreatePepfileWithLibrary {
     # Concatenate all the file from the library
     my $desc = "";
     foreach my $file (@files) {
-	      my $loc_file = "$library/$file";
+        my $loc_file = "$library/$file";
 
         my $PEP_F = new IO::File "<$loc_file" or die "Cannot open the pepfile '$loc_file': $!\n";
         my $to_annot = 0;
@@ -2677,39 +2677,6 @@ sub FindExonsInHypProtArray {
                                                           );
                 push (@$hypprotintronarray, $hypprotintron);
             }
-            &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
-            my $msg = &AdjustStartByHMM($hypprot, $dna_seq, $contigname);
-
-            if ($msg && $msg eq "Frame-Shift-Detected-Length") {
-				my $arrow = $strand == 1 ? "==>" : "<==";
-
-				my $exons = $hypprot->get_exons();
-				for (my $i = 0; $i < @$exons; $i++) {
-					my $idx = $i + 1;
-					my $exon = new PirObject::AnnotPair(
-												type      => "C",
-												genename  => $name,
-												startpos  => $exons->[$i]->get_dnastart(),
-												endpos    => $exons->[$i]->get_dnaend(),
-												startline => ";; $name-E$idx $arrow start ;; mfannot: potential frameshift" ,
-												endline   => ";; $name-E$idx $arrow end"
-												);
-					&AddAnnotToPirMaster($contigname,$exon);
-				}
-
-				my $hyp_prot = new PirObject::AnnotPair(
-                                                 type      => "C",
-                                                 genename  => $name,
-                                                 startpos  => $start,
-                                                 endpos    => $exons->[-1]->get_dnaend(),
-                                                 direction => $arrow,
-                                                 startline => ";; $name $arrow start ;; mfannot: potential frameshift",
-                                                 endline   => ";; $name $arrow end",
-                                                 );
-			    &AddAnnotToPirMaster($contigname,$hyp_prot);
-			    pop @$HYPPROTS;
-			    next;
-			}
 
             my $introns = $hypprot->get_introns();
             for (my $i = 0; $i < @$introns; $i++) {
@@ -2729,6 +2696,40 @@ sub FindExonsInHypProtArray {
                  }
                  next if $intron->get_type() || $LVL_INTRON == 2;
                  &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
+            }
+
+            &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
+            my $msg = &AdjustStartByHMM($hypprot, $dna_seq, $contigname);
+
+            if ($msg && $msg eq "Frame-Shift-Detected-Length") {
+                my $arrow = $strand == 1 ? "==>" : "<==";
+
+                my $exons = $hypprot->get_exons();
+                for (my $i = 0; $i < @$exons; $i++) {
+                    my $idx = $i + 1;
+                    my $exon = new PirObject::AnnotPair(
+                        type      => "C",
+                        genename  => $name,
+                        startpos  => $exons->[$i]->get_dnastart(),
+                        endpos    => $exons->[$i]->get_dnaend(),
+                        startline => ";; $name-E$idx $arrow start ;; mfannot: potential frameshift" ,
+                        endline   => ";; $name-E$idx $arrow end"
+                        );
+                    &AddAnnotToPirMaster($contigname,$exon);
+                }
+
+                my $hyp_prot = new PirObject::AnnotPair(
+                                                 type      => "C",
+                                                 genename  => $name,
+                                                 startpos  => $start,
+                                                 endpos    => $exons->[-1]->get_dnaend(),
+                                                 direction => $arrow,
+                                                 startline => ";; $name $arrow start ;; mfannot: potential frameshift",
+                                                 endline   => ";; $name $arrow end",
+                                                 );
+                &AddAnnotToPirMaster($contigname,$hyp_prot);
+                pop @$HYPPROTS;
+                next;
             }
 
             my $hypprot_list = &CheckLenIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
@@ -4898,7 +4899,7 @@ sub ReadFamilyList {
     my $infh  = new IO::File "<$family_lib"
         or die "Can't read from file '$family_lib': $!\n";
 
-	while( <$infh> ){
+  while( <$infh> ){
         my $line = $_;
         next if $line =~ m/^#/ || $line =~ m/^\s+$/;
         $line =~ s/\n$//;
@@ -6681,11 +6682,11 @@ sub AnnotateIntronicOrfs {
                     my $orf_end    = $selected_orf->get_end();
 
                     my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$direction,
-                    	                                      $endo_start,$endo_end,$direction);
+                                                            $endo_start,$endo_end,$direction);
                     next if !$isOV;
                     my $isMinus  = ($direction eq "==>" ? 0 : 1);
                     my ($first_start,$second_start)
-                    	         = $endo_start < $orf_start ? ( $endo_start, $orf_start) : ($orf_start, $endo_start);
+                               = $endo_start < $orf_start ? ( $endo_start, $orf_start) : ($orf_start, $endo_start);
                     my $distance = $second_start - $first_start;
 
                     next if ($distance % 3 != 0);
@@ -6743,7 +6744,7 @@ sub choice_orf {
 
             # RUN FOR BLAST : run blast with the db created and the flip results
             # XXX
-	    #  nice -19 /usr/bin/blastn -outfmt 5 -db /tmp/mfannot.242/mf_intronic_orf -query /mfannot/protein_collections/intronic/intronic_orfs.pep -out /tmp/mfannot.242/mf_intronic_orf.xml
+      #  nice -19 /usr/bin/blastn -outfmt 5 -db /tmp/mfannot.242/mf_intronic_orf -query /mfannot/protein_collections/intronic/intronic_orfs.pep -out /tmp/mfannot.242/mf_intronic_orf.xml
             my $cmdblast = "nice -19 $BLASTNPATH -outfmt 5 -db $TMPDIR/mf_intronic_orf -query $name_of_file -out $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
@@ -6987,60 +6988,60 @@ sub RunHMMSearchForLowConservedGenes {
     my $ongoing = scalar(keys %pidsprots);
     last if !@prots_todo && !$ongoing;
     if ($ongoing >= $NB_PROC || !@prots_todo) {
-	    my $donepid = wait;
-	    next if $donepid < 0; # should never happen?
-	    my $prot  = delete($pidsprots{$donepid}) || next;
-	    my $start = $protstarttime{$prot};
-	    info "INFO: Processing of protein '$prot' completed in ",(time-$start)," seconds.\n" if $DEBUG;
-	    next;
+      my $donepid = wait;
+      next if $donepid < 0; # should never happen?
+      my $prot  = delete($pidsprots{$donepid}) || next;
+      my $start = $protstarttime{$prot};
+      info "INFO: Processing of protein '$prot' completed in ",(time-$start)," seconds.\n" if $DEBUG;
+      next;
     }
 
     my $prot = shift(@prots_todo);
 
     # Manage child subprocesses.
-	  if (my $pid = fork()) {
-		  $pidsprots{$pid}=$prot;
-		  $protstarttime{$prot}=time;
-		  info "INFO: Starting processing of '$prot'\n" if $DEBUG;
-		  next;
-	  }
+    if (my $pid = fork()) {
+      $pidsprots{$pid}=$prot;
+      $protstarttime{$prot}=time;
+      info "INFO: Starting processing of '$prot'\n" if $DEBUG;
+      next;
+    }
 
-	  # Count to know how many models available
-	  my $cnt = 0;
-	  $cnt++ if (-f "$HMM_model_path/$prot.hmm");
-	  foreach my $add (@$add_name) {
-	    next if $add eq "";
-	    $cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
-	  }
+    # Count to know how many models available
+    my $cnt = 0;
+    $cnt++ if (-f "$HMM_model_path/$prot.hmm");
+    foreach my $add (@$add_name) {
+      next if $add eq "";
+      $cnt++ if (-f "$HMM_model_path/${prot}$add.hmm");
+    }
 
-	  if ($cnt == 0) {
-	 	  print "No HMM model found for $prot in $HMM_model_path, $prot is not searched\n"; next;
- 	  }
-	  if (   scalar(@$add_name) == 1 && $cnt == 2) {
-		  print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
-	  }
-	  elsif (scalar(@$add_name) == 2 && $cnt == 3) {
-		  print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
-	  }
+    if ($cnt == 0) {
+      print "No HMM model found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+    }
+    if (   scalar(@$add_name) == 1 && $cnt == 2) {
+      print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+    }
+    elsif (scalar(@$add_name) == 2 && $cnt == 3) {
+      print "Too many HMM models found for $prot in $HMM_model_path, $prot is not searched\n"; next;
+    }
 
-	  foreach my $add (@$add_name) {
-		  my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
+    foreach my $add (@$add_name) {
+      my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 
-		  my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-		  my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
-		  print "$cmd\n" if $DEBUG;
+      my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
+      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+      print "$cmd\n" if $DEBUG;
 
-		  my $resultat = system("$cmd >/dev/null 2>/dev/null");
+      my $resultat = system("$cmd >/dev/null 2>/dev/null");
 
-		  my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-		  my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-		  my $returncode  = $resultat >> 8;   # exit status of subprogram
-	  	if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
-		  	print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
-		  }
-		  last if (-f "$HMM_model_path/$prot.hmm");
-	  }
-	  exit 0;
+      my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+      my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+      my $returncode  = $resultat >> 8;   # exit status of subprogram
+      if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
+      }
+      last if (-f "$HMM_model_path/$prot.hmm");
+    }
+    exit 0;
   }
 }
 
@@ -7493,8 +7494,8 @@ sub MakeSelectionForSimpleCase {
                   || ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc)) {   # First or last exon
 
                     if ($feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc) {
-		                $to_add++;
-		            } elsif ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
+                    $to_add++;
+                } elsif ( ( $feature_annot_type eq "G" )                                    # Gene whithout intron
                          || ( ($features_who_overlap->[4] eq "FIRST" || $features_who_overlap->[4] eq "LAST")
                          && ( ! ($max_annot < $features_min || $min_annot > $features_max)))) {
 
@@ -7696,7 +7697,7 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
     }
 
     if ($direction eq "==>" && ($EndOrf + 3) > $contiglen) {
-    	$end = $EndOrf;
+      $end = $EndOrf;
     }
     elsif ($direction eq "<==" && $EndOrf - 3 < 1) {
         $end = $EndOrf;
@@ -7893,10 +7894,10 @@ sub CreateAllEndoAnnotFindByHMM {
             my $best_score = $annots->{1}->get_score();
             if (scalar(keys %$annots) != 1) {
                 foreach my $key (keys %$annots) {
-              	    my $annot  = $annots->{$key};
-              	    my $this_score = $annot->get_score();
-              	    $best_score = $this_score if &CompareHighPrecisionFloats($this_score,$best_score) == 1;
-              	}
+                    my $annot  = $annots->{$key};
+                    my $this_score = $annot->get_score();
+                    $best_score = $this_score if &CompareHighPrecisionFloats($this_score,$best_score) == 1;
+                }
             }
 
             # Extract information
@@ -7912,18 +7913,18 @@ sub CreateAllEndoAnnotFindByHMM {
 
             # Create new annot
             my $new_annot = new PirObject::AnnotPair( type      => "G",
-          		  			  IdORF     => $idORF,
-          		  			  genename  => "orf${orfsize}",
-          		  			  startpos  => $start,
-          		  			  endpos    => $end,
-          		  			  direction => $direction,
-          		  			  startline => ";     G-orf${orfsize} $direction start /note=$name ;; evalue:$best_score",
-          		  			  endline   => ";     G-orf${orfsize} $direction end",
-          		  			  score     => $best_score,
-          		  			  );
+                        IdORF     => $idORF,
+                        genename  => "orf${orfsize}",
+                        startpos  => $start,
+                        endpos    => $end,
+                        direction => $direction,
+                        startline => ";     G-orf${orfsize} $direction start /note=$name ;; evalue:$best_score",
+                        endline   => ";     G-orf${orfsize} $direction end",
+                        score     => $best_score,
+                        );
 
             push(@$sort_annots_simple,$new_annot)
-       	 }
+         }
     }
 
     # Make selection which orf need to be annot
@@ -8038,11 +8039,11 @@ sub read_pat_file{
   my($name, $regexp);
   my $list_of_mot = ();
 
-	while( <$infh> ){
-	  chomp;
+  while( <$infh> ){
+    chomp;
     my $line = $_;
-	  next if $line =~ m/^\s*$/ || $line =~ m/^#/ ; # skip blank lines
-	  # A pattern line
+    next if $line =~ m/^\s*$/ || $line =~ m/^#/ ; # skip blank lines
+    # A pattern line
     if ( $line =~ m/^\s*\S+\s+(\S+)\s+(\S+)\s*$/ ){
       ($name, $regexp) = ($1,$2);
       die "Multiple patterns have the same name $name, please fix in $pfile"
@@ -8060,14 +8061,14 @@ sub read_pat_file{
       &PrintError("regexp",$regexp,$pfile) if '' =~ /$regexp/;
       &PrintError("regexp",$regexp,$pfile) if $regexp =~ / \*\? | \}\? | \+\? | \?\? /x;
       $list_of_mot->{$name} = $regexp;
-	  }
-	  # Line is invalid
-	  else {
+    }
+    # Line is invalid
+    else {
       print "File $pfile contains syntax errors on line $..\n";
-		  print "Please correct them and rerun $BASENAME.\n";
-		  return 1;
-	  }
-	}
+      print "Please correct them and rerun $BASENAME.\n";
+      return 1;
+    }
+  }
   $infh->close();
   return $list_of_mot;
 }
@@ -8710,13 +8711,13 @@ sub CreateTBLoutput {
     my $mf2sqnOut   = "$TMPDIR/mf2sqnOut1";
     my $cmd = "$MF2SQNPATH -a Generic -m $filename -t";
     print STDERR $cmd if $DEBUG;
-  	my $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
+    my $ret = system("$cmd > $mf2sqnOut 2> $mf2sqnErr");
 
-	if (($ret >> 8) > 1) {
-	    print STDERR "There was an error running mf2sqn.\n";
-		print STDERR "Content of STDERR output:\n";
-		system("cat",$mf2sqnErr);
-	}
+  if (($ret >> 8) > 1) {
+      print STDERR "There was an error running mf2sqn.\n";
+    print STDERR "Content of STDERR output:\n";
+    system("cat",$mf2sqnErr);
+  }
 
     # Changed param into SubInfo.
     my $basename     = basename($filename);
@@ -8747,8 +8748,8 @@ sub CreateTBLoutput {
 
     if (($ret >> 8) > 1) {
         print STDERR "There was an error running mf2sqn.\n";
-	print STDERR "Content of STDERR output:\n";
-	system("cat",$mf2sqnErr);
+  print STDERR "Content of STDERR output:\n";
+  system("cat",$mf2sqnErr);
     }
 
     if ($SQN_FORMAT) {
