@@ -73,8 +73,8 @@ RUN cd git_repositories
 RUN git clone https://github.com/prioux/PirObject.git; cp PirObject/lib/PirObject.pm /etc/perl/;
 
 # Install all PirModels
- RUN git clone https://github.com/BFL-lab/PirModels.git; mv PirModels /root/ 
- 
+ RUN git clone https://github.com/BFL-lab/PirModels.git; mv PirModels /root/
+
 # Install flip
 RUN git clone https://github.com/BFL-lab/flip.git; cd flip/src/; gcc -o /usr/local/bin/flip flip.c;
 
@@ -85,7 +85,7 @@ RUN git clone https://github.com/BFL-lab/umac.git; cp umac/umac /usr/local/bin/
 RUN git clone https://github.com/BFL-lab/HMMsearchWC.git; cp HMMsearchWC/HMMsearchCombiner /usr/local/bin/; cp HMMsearchWC/HMMsearchWrapper /usr/local/bin/
 
 # Install RNAfinder
-RUN git clone https://github.com/BFL-lab/RNAfinder.git; cp RNAfinder/RNAfinder /usr/local/bin/; cp RNAfinder/DOT_RNAfinder.cfg ~/.RNAfinder.cfg
+RUN git clone https://github.com/BFL-lab/RNAfinder.git; cp RNAfinder/RNAfinder /usr/local/bin/; cp RNAfinder/DOT_RNAfinder.cfg /.RNAfinder.cfg
 
 # Install mf2sqn
 RUN git clone https://github.com/BFL-lab/mf2sqn.git; cp mf2sqn/mf2sqn /usr/local/bin/; cp mf2sqn/qualifs.pl /usr/share/perl5/
@@ -105,8 +105,6 @@ RUN git clone https://github.com/BFL-lab/MFannot_data.git
 #Install BLAST matrix
 RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/* ; cd ..
 
-#Copy RNAfinder config file
-RUN cp ~/.RNAfinder.cfg /
 
 ####################
 # Set ENV variable #
@@ -120,5 +118,5 @@ ENV MFANNOT_MOD_PATH /MFannot_data/models/
 ENV BLASTMAT /BLASTMAT/
 ENV EGC /MFannot_data/EGC/
 ENV ERPIN_MOD_PATH /MFannot_data/models/Erpin_models/
-ENV PIR_DATAMODEL_PATH /PirModels
+ENV PIR_DATAMODEL_PATH /root/PirModels
 ENV PATH="/mfannot:${PATH}"
