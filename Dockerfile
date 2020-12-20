@@ -73,7 +73,7 @@ RUN cd git_repositories
 RUN git clone https://github.com/prioux/PirObject.git; cp PirObject/lib/PirObject.pm /etc/perl/;
 
 # Install all PirModels
- RUN git clone https://github.com/BFL-lab/PirModels.git; mv PirModels /root/
+RUN git clone https://github.com/BFL-lab/PirModels.git /PirModels
 
 # Install flip
 RUN git clone https://github.com/BFL-lab/flip.git; cd flip/src/; gcc -o /usr/local/bin/flip flip.c;
@@ -118,5 +118,5 @@ ENV MFANNOT_MOD_PATH /MFannot_data/models/
 ENV BLASTMAT /BLASTMAT/
 ENV EGC /MFannot_data/EGC/
 ENV ERPIN_MOD_PATH /MFannot_data/models/Erpin_models/
-ENV PIR_DATAMODEL_PATH /root/PirModels
+ENV PIR_DATAMODEL_PATH /PirModels
 ENV PATH="/mfannot:${PATH}"
