@@ -105,7 +105,6 @@ RUN git clone https://github.com/BFL-lab/MFannot_data.git
 #Install BLAST matrix
 RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/* ; cd ..
 
-
 ####################
 # Set ENV variable #
 ####################
