@@ -3245,6 +3245,7 @@ sub AnnotateMiniExonsByHMM {
             my $LenSeq    = length($Seq);
             my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive());
 
+            next if !$IntronPosAli;
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
 
@@ -3606,7 +3607,8 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
         my $id = $seq->display_id();
         next if $id ne "myProt";
         $hypprot_seq      = $seq;
-        $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index);
+        my $pos           = $intron_pos_hypprot - $trim_index; 
+        $pos_in_alignment = ($pos <= 0 || $pos >= $seq->end()) ? undef : $align->column_from_residue_number( $id, $pos);
         $length_ali       = length($seq->seq());
         last;
     }
