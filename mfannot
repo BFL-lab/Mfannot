@@ -81,12 +81,22 @@ BEGIN {
 umask 027;
 
 # Program's name and version number.
+our $MFANNOT_COMMIT_DATE = "Unknown";
+my $resultat     = system("git -C /mfannot/ show --summary | grep Date  > /dev/null 2>&1");
+my $hascoredump  = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+my $signal       = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+my $returncode   = $resultat >> 8;   # exit status of subprogram
+if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
+    $MFANNOT_COMMIT_DATE =  `git -C /mfannot/ show --summary | grep Date`;
+    chomp($MFANNOT_COMMIT_DATE);
+}
+
 our $VERSION    = "Unknown";
 my $MFANNOT_PATH = $FindBin::Bin;
-my $resultat    = system("git -C $MFANNOT_PATH tag > /dev/null 2>&1");
-my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-my $returncode  = $resultat >> 8;   # exit status of subprogram
+$resultat    = system("git -C $MFANNOT_PATH tag > /dev/null 2>&1");
+$hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+$signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+$returncode  = $resultat >> 8;   # exit status of subprogram
 if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
     $VERSION =  `git -C $MFANNOT_PATH tag | head -1`;
     chomp($VERSION);
@@ -111,7 +121,6 @@ if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
     $PIR_COMMIT =  `git -C $ENV{'PIR_DATAMODEL_PATH'} log | head -1`;
     chomp($PIR_COMMIT);
 }
-
 
 our ($BASENAME) = ($0 =~ /([^\/]+)$/);
 our $MAINPROGRAM_PID = $$;
@@ -285,9 +294,10 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                         \n".
              "\n".
+	     "MFANNOT $MFANNOT_COMMIT_DATE                                           \n".
              "MFANNOT:  version $VERSION                                             \n".
              "MFANNOT:  $COMMIT                                                      \n".
-             "PirModel: $PIR_COMMIT                                                 \n".
+             "PirModel: $PIR_COMMIT                                                  \n".
              "\n".
              "Programmed by N. Beck and P. Rioux                                    \n".
              "######################################################################\n\n";
@@ -3228,6 +3238,7 @@ sub AnnotateMiniExonsByHMM {
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
             my $ShortName  = "${Name}_$Flag";
+            
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
                 ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
@@ -3316,7 +3327,8 @@ sub AnnotateMiniExonsByHMM {
                 &ReajustExonAndIntron($Introns,$Exons,$i,$BestSol,$isMinus)
             }
             else {
-                &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
+               print "\nAdd Mini Exons\n"; 
+&AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
                 ($DefIntron,$MakeAli) = (0,1);
                 $NbChange++;
                 $i--;
