@@ -8705,7 +8705,9 @@ sub LogInfo {
     }
     push(@report, $rep) if $cnt;
 
-    push(@$header, ";; Masterfile modified automatically by $BASENAME version $VERSION");
+    push(@$header, ";; Masterfile modified automatically by $BASENAME");
+    push(@$header, ";; version $VERSION") if $VERSION;
+    push(@$header, ";; version $MFANNOT_COMMIT_DATE") if $MFANNOT_COMMIT_DATE;
     push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
     push(@$header, @report, ";;",);
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
