@@ -87,7 +87,7 @@ my $hascoredump  = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
 my $signal       = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
 my $returncode   = $resultat >> 8;   # exit status of subprogram
 if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
-    $MFANNOT_COMMIT_DATE =  `git -C /mfannot/ show --summary | grep Date`;
+    $MFANNOT_COMMIT_DATE =  `git -C /mfannot/ show --summary | grep Date | head -1`;
     chomp($MFANNOT_COMMIT_DATE);
 }
 
