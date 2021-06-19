@@ -3327,8 +3327,7 @@ sub AnnotateMiniExonsByHMM {
                 &ReajustExonAndIntron($Introns,$Exons,$i,$BestSol,$isMinus)
             }
             else {
-               print "\nAdd Mini Exons\n"; 
-&AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
+		&AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
                 ($DefIntron,$MakeAli) = (0,1);
                 $NbChange++;
                 $i--;
