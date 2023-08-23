@@ -6143,61 +6143,54 @@ sub AddCommentForFusion {
 #---------------------------------#
 
 sub AnnotateEmptyOrfs {
-   # This function takes the empty array of ORF and annotate it as ORFs
-   # It means ORF having non corresponding gene in a pepfile
+    # This function takes the empty array of ORF and annotate it as ORFs
+    # It means ORF having non corresponding gene in a pepfile
     foreach my $emptyorf (@$EMPTYORFS) {
-         # Process each non corresponding orf
-         # Get informations  about empty ORF
-         my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
-         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
-         my $strand_orf = $emptyorf->get_strand();
+        # Process each non corresponding orf
+        # Get informations  about empty ORF
+        my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
+        my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        my $strand_orf = $emptyorf->get_strand();
 
-         my $arrow   = $strand_orf == 1 ? '==>' : '<==';
-         my $isMinus   = $strand_orf == 1 ?  0 : 1;
-         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
+        my ($arrow,$isMinus,$step) = ($strand_orf == 1 ? ('==>',0,3) : ('<==',1,-3));
+        my ($start_orf,$end_orf)  = ($emptyorf->get_start(),$emptyorf->get_end());
 
-         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
-         # Keep only RNA
-         my $list_of_pos = [];
-         foreach my $list_who_overlap (@$annot_who_overlap) {
-             foreach my $AP_who_overlap (@$list_who_overlap ) {
-                 my $annot = $AP_who_overlap->[2];
-                 my $name  = $annot->get_genename();
-                 next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i;
-                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
-             }
-         }
-         @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
-             if (scalar(@$list_of_pos) != 0 ) {
-             my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
-             if ($isMinus) {
-                 while ($start_orf > $retain_val) {
-                     $start_orf = $start_orf - 3;
-                 }
-             }
-             else {
-                 while ($start_orf < $retain_val) {
-                     $start_orf = $start_orf + 3;
-                 }
-             }
-         }
+        my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+        # Keep only RNA
+        my $list_of_pos = [];
+        foreach my $list_who_overlap (@$annot_who_overlap) {
+            foreach my $AP_who_overlap (@$list_who_overlap ) {
+                my $annot = $AP_who_overlap->[2];
+                my $name  = $annot->get_genename();
+                next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i;
+                push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
+            }
+        }
 
-         my $minimumlengthorf  = $MINLENEMPTYORF;    # Minimum Orf size, below this size, the ORF is no more kept
+        @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
+        if (scalar(@$list_of_pos) != 0 ) {
+            my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
+            if ($isMinus) {
+                while ($start_orf > $retain_val) { $start_orf = $start_orf - 3;}
+            } else {
+                while ($start_orf < $retain_val) { $start_orf = $start_orf + 3;}
+            }
+        }
+
+        my $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
+        next if  ($length_orf < $MINLENEMPTYORF);  #  Size Verification
+
          my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
          my $seq               = $contig->get_sequence();    # Get the sequence
             $seq               =~ s/!//g;                    # Remove ! from the sequence
 
-        my $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-        next if  ($length_orf < $minimumlengthorf);  #  Size Verification
-
         my $possible_start = ();
         my $start_info     = ();
         # Other checking, such as overlapping..........
-        my $posOffset = $isMinus         ? -3 : 3;
-        for (;;$start_orf += $posOffset) {
+        for (;;$start_orf += $step) {
             my $start_info = undef;
             $length_orf    = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-            last if  ($length_orf < $minimumlengthorf);  #  Size Verification
+            last if  ($length_orf < $MINLENEMPTYORF);  #  Size Verification
 
             my $tri_nt = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
                $tri_nt = uc (substr($seq, $start_orf - 3, 3)) if  $isMinus;
