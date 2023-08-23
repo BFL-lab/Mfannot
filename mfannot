@@ -92,12 +92,13 @@ if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
     chomp($MFANNOT_COMMIT_DATE);
 }
 
-our $VERSION    = "Unknown";
+
+our $VERSION     = "Unknown";
 my $MFANNOT_PATH = $FindBin::Bin;
-$resultat    = system("git -C $MFANNOT_PATH tag > /dev/null 2>&1");
-$hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-$signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-$returncode  = $resultat >> 8;   # exit status of subprogram
+$resultat        = system("git -C $MFANNOT_PATH tag > /dev/null 2>&1");
+$hascoredump     = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+$signal          = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+$returncode      = $resultat >> 8;   # exit status of subprogram
 if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
     $VERSION =  `git -C $MFANNOT_PATH tag | head -1`;
     chomp($VERSION);
@@ -122,6 +123,7 @@ if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
     $PIR_COMMIT =  `git -C $ENV{'PIR_DATAMODEL_PATH'} log | head -1`;
     chomp($PIR_COMMIT);
 }
+
 
 our ($BASENAME) = ($0 =~ /([^\/]+)$/);
 our $MAINPROGRAM_PID = $$;
@@ -296,7 +298,7 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                         \n".
              "\n".
-	     "MFANNOT $MFANNOT_COMMIT_DATE                                           \n".
+	         "MFANNOT   $MFANNOT_COMMIT_DATE                                         \n".
              "MFANNOT:  version $VERSION                                             \n".
              "MFANNOT:  $COMMIT                                                      \n".
              "PirModel: $PIR_COMMIT                                                  \n".
@@ -2391,7 +2393,7 @@ sub ChangeHypProtVal {
     my $prot    = $hypprot->get_thisprot();
     $hypprot->set_thisprot(substr($prot,int(($start-$old_start)/3)));
 
-    $TRI_NT_START_COUNT->{$tri_nt}++;
+    $TRI_NT_START_COUNT ->{$tri_nt}++;
 }
 
 sub SearchForEndIfGeneHaveIntron {
@@ -3299,7 +3301,6 @@ sub AnnotateMiniExonsByHMM {
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
             my $ShortName  = "${Name}_$Flag";
-            
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
                 ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
@@ -3386,7 +3387,7 @@ sub AnnotateMiniExonsByHMM {
                 &ReajustExonAndIntron($Introns,$Exons,$i,$BestSol,$isMinus)
             }
             else {
-		&AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
+                &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
                 ($DefIntron,$MakeAli) = (0,1);
                 $NbChange++;
                 $i--;
@@ -3669,8 +3670,7 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
         my $id = $seq->display_id();
         next if $id ne "myProt";
         $hypprot_seq      = $seq;
-        my $pos           = $intron_pos_hypprot - $trim_index; 
-        $pos_in_alignment = ($pos <= 0 || $pos >= $seq->end()) ? undef : $align->column_from_residue_number( $id, $pos);
+        $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index);
         $length_ali       = length($seq->seq());
         last;
     }
@@ -5309,7 +5309,7 @@ sub ReconstructFullRNA {
             next if $idbyHMM == 1 && &CompareHighPrecisionFloats($annot->get_score(), $HMMVALUECUTOFF) == 1; # score > $HMMVALUECUTOFF
             my $type       = $annot->get_type()     || "G";
             my $a_genename = $annot->get_genename() || $genename;
-            my $startpos   = $annot->get_startpos() == 0 ? $annot->get_startpos() : $annot->get_startpos()
+            my $startpos   = $annot->get_startpos()
                || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
 
@@ -5451,7 +5451,7 @@ sub AnnotateFromExternalAPC {
 
             my $type       = $annot->get_type()     || "G";
             my $a_genename = $annot->get_genename() || $genename;
-            my $startpos   = $annot->get_startpos() == 0 ? $annot->get_startpos() : $annot->get_startpos()
+            my $startpos   = $annot->get_startpos()
                || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
 
@@ -6794,8 +6794,8 @@ sub AnnotateIntronicOrfs {
                     my $distance = $second_start - $first_start;
 
                     next if ($distance % 3 != 0);
-                    my $uc_name    = uc($endo->get_genename());
-                    $add_to_startline = " /note=$uc_name ;; evalue:$fEvalue";
+                    my $name          = $endo->get_genename();
+                    $add_to_startline = " /note=$name ;; evalue:$fEvalue";
                 }
             }
         }
@@ -6974,9 +6974,8 @@ sub FindEndo {
     return {} if ($LIGHT);
 
     my $endo = {};
-    $endo->{"HNH"}++;
-    $endo->{"GIY-YIG"}++ ;
-    $endo->{"LAGLIDADG"}++;
+    $endo->{"HNH"}++; $endo->{"GIY-YIG"}++ ;$endo->{"LAGLIDADG"}++;
+    $endo->{"ReverseTranscriptase"}++; $endo->{"matR"}++; $endo->{"matK"}++;
     &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
     my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
 
@@ -8013,10 +8012,10 @@ sub CreateAllEndoAnnotFindByHMM {
             my $annot              = $annots->{1};
             my $idORF              = $annot->get_IdORF();
             my $direction          = $annot->get_direction();
-            my $name               = uc($annot->get_genename());
+            my $name               = $annot->get_genename();
             my $isMinus            = $direction eq "==>" ? 0 : 1;
             my ($StartOrf,$EndOrf) = ($1,$2) if $idORF =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-            my $start              = $isMinus ? $StartOrf - 3 : $StartOrf + 3 ;
+            my $start              = $StartOrf; ;
             my $end                = $isMinus ? $EndOrf   - 3 : $EndOrf   + 3;
             my $orfsize            = !$isMinus ? (($end - $start + 1)/3) - 1 : (($start - $end + 1)/3) -1;
 
@@ -8820,8 +8819,7 @@ sub LogInfo {
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
     push(@$header, ";; end mfannot\n;;");
     push(@$header, @$comment);
-    $pirmaster->set_header($header);
-}
+    $pirmaster->set_header($header);}
 
 sub CreateTBLoutput {
     my $filename = shift;
