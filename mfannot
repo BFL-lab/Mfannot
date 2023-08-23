@@ -6212,7 +6212,7 @@ sub AnnotateEmptyOrfs {
         next if !$possible_starts || scalar(@$possible_starts) == 0;
 
         my $strand_orf           = $emptyorf->get_strand();
-        my ($arrow,$isMinus)     = ($strand_orf == 1 ? ('==>',0) : ('<==',1)
+        my ($arrow,$isMinus)     = ($strand_orf == 1 ? ('==>',0) : ('<==',1));
 
         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
@@ -6235,7 +6235,7 @@ sub AnnotateEmptyOrfs {
 
             $start_orf    = $possible_start->[1];
             # Use the strand of the ORF to define the min and max of the ORF
-            my ($min_orf,$max_orf) = ($strand_orf == 1 ? ($start_orf,$end_orf) : ($end_orf,$start_orf)
+            my ($min_orf,$max_orf) = ($strand_orf == 1 ? ($start_orf,$end_orf) : ($end_orf,$start_orf));
 
             # Special case annotate if the ORF is long enough even if it overlaps a gene
             my $isLongOrf = ((($max_orf-$min_orf+1)/3)-1 >= $OVERLAPORFOVGENE) ? 1 : 0;
