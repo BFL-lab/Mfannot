@@ -6152,8 +6152,8 @@ sub AnnotateEmptyOrfs {
         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
         my $strand_orf = $emptyorf->get_strand();
 
-        my ($arrow,$isMinus,$step) = ($strand_orf == 1 ? ('==>',0,3) : ('<==',1,-3));
-        my ($start_orf,$end_orf)  = ($emptyorf->get_start(),$emptyorf->get_end());
+        my ($isMinus,$step)      = ($strand_orf == 1 ? (0,3) : (1,-3));
+        my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
         # Keep only RNA
@@ -6169,16 +6169,13 @@ sub AnnotateEmptyOrfs {
 
         @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
         if (scalar(@$list_of_pos) != 0 ) {
-            my $retain_val   = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
-            if ($isMinus) {
-                while ($start_orf > $retain_val) { $start_orf = $start_orf - 3;}
-            } else {
-                while ($start_orf < $retain_val) { $start_orf = $start_orf + 3;}
-            }
+            my $retain_val = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
+            $start_orf    += $step while (($isMinus ? ($start_orf > $retain_val) : ($start_orf < $retain_val)));
         }
 
+        # Do not consider too short ORF
         my $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-        next if  ($length_orf < $MINLENEMPTYORF);  #  Size Verification
+        next if  ($length_orf < $MINLENEMPTYORF);
 
          my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
          my $seq               = $contig->get_sequence();    # Get the sequence
@@ -6189,11 +6186,11 @@ sub AnnotateEmptyOrfs {
         # Other checking, such as overlapping..........
         for (;;$start_orf += $step) {
             my $start_info = undef;
+            # Do not consider too short ORF
             $length_orf    = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-            last if  ($length_orf < $MINLENEMPTYORF);  #  Size Verification
+            last if  ($length_orf < $MINLENEMPTYORF);
 
-            my $tri_nt = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
-               $tri_nt = uc (substr($seq, $start_orf - 3, 3)) if  $isMinus;
+            my $tri_nt = $isMinus ? uc (substr($seq, $start_orf - 3, 3)) : uc (substr($seq, $start_orf - 1, 3));
                $tri_nt =~ tr/ACGT/TGCA/  if $isMinus;
                $tri_nt = reverse $tri_nt if $isMinus;
 
@@ -6214,7 +6211,7 @@ sub AnnotateEmptyOrfs {
         my $possible_starts   = $emptyorf->get_possible_start();
         next if !$possible_starts || scalar(@$possible_starts) == 0;
         my $strand_orf = $emptyorf->get_strand();
-        my $arrow = $strand_orf == 1 ? '==>' : '<==';
+        my $arrow      = $strand_orf == 1 ? '==>' : '<==';
 
         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
