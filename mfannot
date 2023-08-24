@@ -1407,7 +1407,7 @@ sub SelectProteinForExo {
             my $prot = $prot_score[0]->[1];                         # Protein who have bigger score
 
             if ($strand{1} && $strand{-1}) {
-                my $info = [$name, $contigname, $prot, 2, $homologous, $genefusionname, $origine];
+                my $info = [$name, $contigname, $prot, 2, $homologous, $genefusionname, $origine, ];
                 push(@PROT_FOR_EXONERATE, $info);
                 push(@index, $compt);
             }
@@ -1694,7 +1694,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                         $newhypprot->get_origine(),
                         [$newhypprot->get_start(), $newhypprot->get_end()]
                       ];
-           push(@PROT_FOR_EXONERATE, $info);
+            push(@PROT_FOR_EXONERATE, $info);
         } else {
             push (@$HYPPROTS,  $newhypprot);
         }
@@ -2446,7 +2446,11 @@ sub FindExonsInHypProtArray {
     for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
 
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
-        my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine) = @$info;
+        print Data::Dumper->Dump([$info], [qw(*info)]), "\n";
+        my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine, $ORF_start_end) = @$info;
+        my ($ORF_start, $ORF_end) = @$ORF_start_end;
+        print "Exonerate for $name\n";
+
 
         # In order to have the contig sequence
         my $contig  = $pirmaster->GetContigByName($contigname)
@@ -2510,6 +2514,19 @@ sub FindExonsInHypProtArray {
         my $ExoReports      = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
         my $grouped_reports = &SortAndGroupC4Report($ExoReports,$overlappe_authorized);
 
+        # In case of low score, we create an empty ORF
+        if (scalar(@$grouped_reports) == 0) {
+            my $emptyorf = new PirObject::EmptyOrf(
+                start        => $ORF_start,
+                end          => $ORF_end,
+                strand       => $strand,
+                evalue       => 9999,
+                contigname   => $contigname,
+                similar_prot => $name,
+            );
+            push(@$EMPTYORFS,$emptyorf);
+        }
+
         my %group_len_covered = ();
         foreach my $groupref (@$grouped_reports) {
            my $covered = 0;
@@ -2561,6 +2578,8 @@ sub FindExonsInHypProtArray {
                      $count_exon++;
                  }
              }
+
+            print "1\n";
 
              if ($strand{1} && $strand{-1}) {
                  # If we have a transpliced gene
@@ -2652,6 +2671,7 @@ sub FindExonsInHypProtArray {
                 splice(@exon_start_end,$exon_start_end_cor[$i]->[3],2); # Splice information about overlapping exons
             }
 
+            print "2\n";
             for (my $i=0; $i < @exon_start_end_cor; $i++) {  # Push information about the new exon
                 my $start       = $exon_start_end_cor[$i]->[0];
                 my $end         = $exon_start_end_cor[$i]->[1];
