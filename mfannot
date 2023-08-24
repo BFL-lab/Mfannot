@@ -2521,7 +2521,6 @@ sub FindExonsInHypProtArray {
                 contigname   => $contigname,
                 similar_prot => $name,
             );
-            print Data::Dumper->Dump([$emptyorf], [qw(*emptyorf)]), "\n";
             push(@$EMPTYORFS,$emptyorf);
         }
 
