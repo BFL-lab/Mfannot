@@ -2576,8 +2576,6 @@ sub FindExonsInHypProtArray {
                  }
              }
 
-            print "1\n";
-
              if ($strand{1} && $strand{-1}) {
                  # If we have a transpliced gene
                  &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
@@ -2668,7 +2666,6 @@ sub FindExonsInHypProtArray {
                 splice(@exon_start_end,$exon_start_end_cor[$i]->[3],2); # Splice information about overlapping exons
             }
 
-            print "2\n";
             for (my $i=0; $i < @exon_start_end_cor; $i++) {  # Push information about the new exon
                 my $start       = $exon_start_end_cor[$i]->[0];
                 my $end         = $exon_start_end_cor[$i]->[1];
