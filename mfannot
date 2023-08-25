@@ -1397,8 +1397,7 @@ sub SelectProteinForExo {
         if ($number_orfs > 1) {
             my @prot_score; # Tab for score of blast and protein
             foreach my $orf(@$orfs) {
-                $strand{1}++  if $orf->strand == 1;
-                $strand{-1}++ if $orf->strand == -1;
+                $orf->strand == 1 ? $strand{1}++ : $strand{-1}++;
                 my $info_prot_score = [$orf->evalue(), $orf->protein()];
                 push (@prot_score, $info_prot_score);
             }
@@ -1417,29 +1416,42 @@ sub SelectProteinForExo {
                    $strand = -1 if $strand{-1};
                 foreach my $orf(@$orfs){
                     my (@start_hsp,@end_hsp) = ((),());
-                    my $hsps   = $orf->get_hsps();
-                    my $evalue = $orf->get_evalue();
+                    my $hsps          = $orf->get_hsps();
+                    my $evalue        = $orf->get_evalue();
+                    my $orf_start_end = [$orf->start,$orf->end];
+
                     foreach my $hsp(@$hsps){
                         push (@start_hsp, $hsp->start_q);
                         push (@end_hsp, $hsp->end_q);
                     }
+
                     my ($min_start_hsp,$max_end_hsp)  = (min(@start_hsp),max(@end_hsp)); # Give the lower start and the bigger end of hsp
                     my $cor_start = $orf->start + (3 * $min_start_hsp) if $strand ==  1; # The really start of orf if strand +
                        $cor_start = $orf->start - (3 * $min_start_hsp) if $strand == -1; # The really start of orf if strand -
                     my $cor_end   = $orf->start + (3 * $max_end_hsp)   if $strand ==  1; # The really end of orf if strand +
                        $cor_end   = $orf->start - (3 * $max_end_hsp)   if $strand == -1; # The really end of orf if strand -
                     my $pair_start_end = [ $cor_start, $cor_end, $evalue ];
-                    push (@start_end_orf, $pair_start_end);
+                    push (@start_end_orf, [$pair_start_end, $orf_start_end]);
                 }
 
-                @start_end_orf  = sort { $a->[0] <=> $b->[0] } @start_end_orf if $strand ==  1; # Sort @start_end_orf by start for strand +
-                @start_end_orf  = sort { $b->[0] <=> $a->[0] } @start_end_orf if $strand == -1; # Sort @start_end_orf by start for strand -
+                @start_end_orf  = sort { $a->[0]->[0] <=> $b->[0]->[0] } @start_end_orf if $strand ==  1; # Sort @start_end_orf by start for strand +
+                @start_end_orf  = sort { $b->[0]->[0] <=> $a->[0]->[0] } @start_end_orf if $strand == -1; # Sort @start_end_orf by start for strand -
 
                 for (my $i=0; $i < @start_end_orf - 1; $i++) {
-                    my $diff = abs($start_end_orf[$i]->[1]-$start_end_orf[$i+1]->[0]);
+                    my $current_cor_start_end = $start_end_orf[$i]->[0];
+                    my $next_cor_start_end    = $start_end_orf[$i+1]->[0];
+                    my $diff                  = abs($current_cor_start_end->[1]-$next_cor_start_end->[0]);
                     if ( 142 <= $diff ) {
                         # if distance between 2 orf who have match with one protein is higher than 142 nt => Run exonerate
-                        my $info = [$name, $contigname, $prot, $strand, $homologous, $genefusionname, $origine, [$start_end_orf[$i], $start_end_orf[$i+1]]];
+                        my $info = [$name,
+                                    $contigname,
+                                    $prot,
+                                    $strand,
+                                    $homologous,
+                                    $genefusionname,
+                                    $origine,
+                                    [$start_end_orf[$i], $start_end_orf[$i+1]]
+                        ];
                         push(@PROT_FOR_EXONERATE, $info);
                         push(@index, $compt);
                     }
@@ -2509,34 +2521,7 @@ sub FindExonsInHypProtArray {
         $flobj->FillFeaturesFromTextOutput(\@tab);
 
         my $ExoReports      = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
-        my $grouped_reports = &SortAndGroupC4Report($ExoReports,$overlappe_authorized);
-
-        # In case of low score, we create an empty ORF
-        if (scalar(@$grouped_reports) == 0) {
-            my $emptyorf = new PirObject::EmptyOrf(
-                start        => $ORF_start,
-                end          => $ORF_end,
-                strand       => $strand,
-                evalue       => 9999,
-                contigname   => $contigname,
-                similar_prot => $name,
-            );
-            print Data::Dumper->Dump([$emptyorf],['emptyorf']);
-            push(@$EMPTYORFS,$emptyorf);
-        }
-
-        if ($name eq 'nad6') {
-            print "HERE\n";
-            my $emptyorf = new PirObject::EmptyOrf(
-                start        => 668,
-                end          => 1558,
-                strand       => 1,
-                evalue       => 1.77365e-12,
-                contigname   => 'contig1',
-                similar_prot => 'nad6',
-            );
-            push(@$EMPTYORFS,$emptyorf);
-        }
+        my $grouped_reports = &SortAndGroupC4Report($ExoReports,$overlappe_authorized,$info);
 
         my %group_len_covered = ();
         foreach my $groupref (@$grouped_reports) {
@@ -2845,13 +2830,53 @@ sub FindExonsInHypProtArray {
 } # End sub
 
 sub SortAndGroupC4Report {
-    my $ExoReports    = shift;
-    my $OV_authorized = shift;
+    my ($ExoReports,$OV_authorized,$info) = @_;
+    my $name           = $info->[0];
+
 
     my $Group_ER      = [];
     foreach my $ER (@$ExoReports) {
-        next if $ER->get_raw_score() < 200;
-        push(@$Group_ER,[$ER])
+        if ($ER->get_raw_score() >= 200) {
+            push(@$Group_ER,[$ER]);
+        } else {
+            my $name           = $info->[0];
+            my $contigname     = $info->[1];
+            my $strand         = $info->[3];
+            my $match_orf_info = $info->[7];
+
+            # If we $match_orf_info is an array we have the start and the end of the an ORF
+            if (!(ref($match_orf_info) eq 'ARRAY' && ref($match_orf_info->[0]) eq 'ARRAY')) {
+                my $emptyorf = new PirObject::EmptyOrf(
+                    start        => $match_orf_info->[0],
+                    end          => $match_orf_info->[1],
+                    strand       => $strand,
+                    evalue       => 9999,
+                    contigname   => $contigname,
+                    similar_prot => $name,
+                );
+                push(@$EMPTYORFS,$emptyorf);
+            } else {
+                # If we $match_orf_info is an array of array we have the start and the end of the an ORF for each ORF
+                # Iterate over each ORF
+                for (my $i = 0; $i < @$match_orf_info; $i++) {
+                    my $orf_info = $match_orf_info->[$i];
+                    my ($start,$end,$evalue)        = ($orf_info->[1]->[0],$orf_info->[1]->[1],$orf_info->[0]->[2]);
+                    my ($target_start,$target_stop) = ($ER->get_target_start(),$ER->get_target_stop());
+                    # TODO; should we use check of OV here?
+                    # Next if $start is not between $target_start and $target_stop
+                    # next if !($start >= $target_start && $start <= $target_stop);
+                    my $emptyorf = new PirObject::EmptyOrf(
+                        start        => $start,
+                        end          => $end,
+                        strand       => $strand,
+                        evalue       => 9999,
+                        contigname   => $contigname,
+                        similar_prot => $name,
+                    );
+                    push(@$EMPTYORFS,$emptyorf);
+                }
+            }
+        }
     }
 
     for (my $i = 0; ;) {
