@@ -2521,6 +2521,20 @@ sub FindExonsInHypProtArray {
                 contigname   => $contigname,
                 similar_prot => $name,
             );
+            print Data::Dumper->Dump([$emptyorf],['emptyorf']);
+            push(@$EMPTYORFS,$emptyorf);
+        }
+
+        if ($name eq 'nad6') {
+            print "HERE\n";
+            my $emptyorf = new PirObject::EmptyOrf(
+                start        => 668,
+                end          => 1558,
+                strand       => 1,
+                evalue       => 1.77365e-12,
+                contigname   => 'contig1',
+                similar_prot => 'nad6',
+            );
             push(@$EMPTYORFS,$emptyorf);
         }
 
