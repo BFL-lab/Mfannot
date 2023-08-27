@@ -6234,7 +6234,7 @@ sub AnnotateEmptyOrfs {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
-                next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i;
+                next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i;
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
@@ -6269,6 +6269,7 @@ sub AnnotateEmptyOrfs {
             # Check if the tri_nt is a start codon
             my $aa     = uc($CODON_TABLE->{$tri_nt})|| "X";
             my $accepted_aa_for_tri_nt = $ALTERNATIVE_ACCEPTED_START->{$tri_nt} || [];
+               $accepted_aa_for_tri_nt = ["X"] if $tri_nt eq "ATC";
                $start_info = [$tri_nt,$start_orf] if grep { uc($_) eq "X" } @$accepted_aa_for_tri_nt;
                $start_info = [$tri_nt,$start_orf] if grep { uc($_) eq $aa } @$accepted_aa_for_tri_nt;
             push(@$possible_start,$start_info)    if $start_info;
@@ -6732,7 +6733,7 @@ sub AnnotateIntronicOrfs {
                }
 
             # next unless $codon is a key of ALTERNATIVE_ACCEPTED_START
-            next unless defined($ALTERNATIVE_ACCEPTED_START->{$codon});
+            next unless defined($ALTERNATIVE_ACCEPTED_START->{$codon}) || $codon eq "ATC";
             $annotIsOk = 1;
             last;
         }
