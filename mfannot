@@ -3160,6 +3160,7 @@ sub Add_comment_for_transpliced {
     my ($contigname,$name,$exon_start_end) = @_;
 
     my $number         = 1;
+    # Comment all exons
     foreach my $exon (@$exon_start_end) {
         my ($start,$end,$strand,$start_query,$attributes,$end_query,$raw_score) = @$exon;
         my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
@@ -3181,6 +3182,24 @@ sub Add_comment_for_transpliced {
         &AddAnnotToPirMaster($contigname,$hyp_prot);
         $number++;
      }
+
+    # Add comment about start and end of gene
+    my $first_exon   = @$exon_start_end[0];
+    my $last_exon    = @$exon_start_end[-1];
+    my ($start,$end) = (@$first_exon[0], @$last_exon[1]);
+    my $arrow        = @$first_exon[2] eq "+" ? "==>" : "<==";
+
+
+    my $full_gene = new PirObject::AnnotPair(
+                                                 type      => "G",
+                                                 genename  => $name,
+                                                 startpos  => $start,
+                                                 endpos    => $end,
+                                                 startline => ";; G-$name $arrow /note=may be split by linearization of a circular-mapping genome",
+                                                 endline   => ";; G-$name  $arrow end",
+                                                 );
+    &AddAnnotToPirMaster($contigname,$full_gene);
+
 }
 
 sub MakeApCollection {
@@ -7288,6 +7307,7 @@ sub CreateAllHMMAnnot {
 
         my $HMMRes = new PirObject::HMMsearchOutput();
            $HMMRes->FillFeaturesFromTextOutput(\@tab);
+
         my $AllHMMRes =  $HMMRes->get_Iterations()->[0]->get_resume();
 
         my $resumes = $HMMRes->get_Iterations()->[0]->get_resume();
@@ -8071,7 +8091,6 @@ sub CreateAllEndoAnnotFindByHMM {
                         endline   => ";     G-orf${orfsize} $direction end",
                         score     => $fEvalue,
                         );
-
             push(@$sort_annots_simple,$new_annot)
          }
     }
