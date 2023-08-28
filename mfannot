@@ -6714,16 +6714,18 @@ sub AnnotateIntronicOrfs {
         my $posOffset         = ($isMinus ? -3 : 3);
 
         # Find the first ATG codon in the ORF
-        my $FirstATG = undef;
+        my $firstATG = undef;
         my $orf_seq  = $isMinus ? uc(substr($seq, $end_orf - 1, $start_orf - $end_orf + 1)) :
                                   uc(substr($seq, $start_orf - 1, $end_orf - $start_orf + 1));
            $orf_seq  =~ tr/ACGT/TGCA/   if $isMinus;
            $orf_seq  = reverse $orf_seq if $isMinus;
         my @orf_seq_a  = $orf_seq =~ /.{3}/g;
         my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
+
         if ($ATGindex != -1) {
-            $FirstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
-            $intronic_orf->set_firstATG($FirstATG);
+            $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
+            my $notes = $intronic_orf->get_notes() || [];
+            push(@$notes, "first ATG found at position $firstATG") if $firstATG;
         }
 
 
@@ -6751,7 +6753,11 @@ sub AnnotateIntronicOrfs {
         }
 
         # In case of no start was found
-        $start_orf = $intronic_orf->get_start() if ($annotIsOk != 1);
+        if ($annotIsOk != 1) {
+            $start_orf = $intronic_orf->get_start();
+            my $notes  = $intronic_orf->get_notes() || [];
+            push(@$notes, "no initiation codon identified");
+        }
 
         # Creating an annotation object for storing in the masterfile
         my $orfsize = $isMinus ? (($start_orf - $end_orf + 1)/3) - 1 : (($end_orf - $start_orf + 1)/3) -1;
@@ -6779,7 +6785,7 @@ sub AnnotateIntronicOrfs {
                                                               size       => $orfsize,
                                                               seq        => $seq_orf_aa,
                                                               firstAA    => $intronic_orf->get_firstAA(),
-                                                              firstATG   => $intronic_orf->get_firstATG(),
+                                                              notes      => $intronic_orf->get_notes(),
                                                              );
         push (@$potential_intronic_orfs, $potential_intronic_orf);
     }
@@ -6832,9 +6838,12 @@ sub AnnotateIntronicOrfs {
         my $endline     = ";     G-$GenenameORF $direction end";
            $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
 
-        # Add note about firstATG if present on startline
-        my $firstATG = $selected_orf->get_firstATG();
-        $startline   = $firstATG ? "$startline /note=first ATG found at $firstATG" : "$startline /note=no initiation codon identified";
+        # Extract note and add it in the startline
+        my $notes = $selected_orf->get_notes() || undef;
+        if (scalar(@$notes) != 0) {
+            my $string_notes = join(', ', @$notes);
+            $startline .= " /note=$string_notes";
+        }
 
         # Treatment to add a number after the genename #
         my $endo_list = $Endo_by_cg->{$contigname};
