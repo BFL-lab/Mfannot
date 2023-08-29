@@ -613,10 +613,12 @@ sub CreatePepfileWithLibrary {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
                     if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+([\S]+)\s*;/i));
                 my ($origine,$name) = (lc($1),$2);
+
                 $to_annot = scalar(grep( /^$name$/, @$JUST_SIMI)) == 0 ? 1 : 0;
-                if ($origine eq "pt" || $origine eq "mt") {
-                    $origine eq "pt" ? $chloro_gene->{$name}++ : $mito_gene->{$name}++;
-                }
+
+                $chloro_gene->{$name}++ if $origine eq "pt" || !$to_annot;
+                $mito_gene->{$name}++   if $origine eq "mt" || !$to_annot;
+
                 $desc = $line;
                 $desc =~ s/^>?\s*//;
                 $desc =~ s/\s*$//;
