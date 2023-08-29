@@ -604,6 +604,7 @@ sub CreatePepfileWithLibrary {
     my $desc = "";
     foreach my $file (@files) {
         my $loc_file = "$library/$file";
+        my $name = $file =~ s/\.faa$//r;
 
         my $PEP_F = new IO::File "<$loc_file" or die "Cannot open the pepfile '$loc_file': $!\n";
         my $to_annot = 0;
@@ -611,13 +612,12 @@ sub CreatePepfileWithLibrary {
             next if $line =~ /^;|^\s*$/;
             if ($line =~ /^>/) {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
-                    if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+([\S]+)\s*;/i));
-                my ($origine,$name) = (lc($1),$2);
-
+                if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+[\S]+\s*;/i));
+                my $origin = lc($1);
                 $to_annot = scalar(grep( /^$name$/, @$JUST_SIMI)) == 0 ? 1 : 0;
 
-                $chloro_gene->{$name}++ if $origine eq "pt" || !$to_annot;
-                $mito_gene->{$name}++   if $origine eq "mt" || !$to_annot;
+                $chloro_gene->{$name}++ if $origin =~ m/pt/ || !$to_annot;
+                $mito_gene->{$name}++   if $origin =~ m/mt/ || !$to_annot;
 
                 $desc = $line;
                 $desc =~ s/^>?\s*//;
@@ -629,7 +629,7 @@ sub CreatePepfileWithLibrary {
             }
             if ($to_annot) {
                 print $outfh $line; # seq line
-                $line =~ s/^\s*//; # cleanup seq line
+                $line =~ s/^\s*//;  # cleanup seq line
                 $line =~ s/\s*$//;
                 $desc_to_prot->{$desc} .= $line;
             }
