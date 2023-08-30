@@ -6727,7 +6727,7 @@ sub AnnotateIntronicOrfs {
         if ($ATGindex != -1) {
             $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
             my $notes = $intronic_orf->get_notes() || [];
-            push(@$notes, "first ATG found at position $firstATG") if $firstATG;
+            push(@$notes, "first ATG found at position $firstATG") if $firstATG && !$isInPhase;
         }
 
 
@@ -7065,6 +7065,40 @@ sub FindEndo {
     $endo->{"ReverseTranscriptase"}++; $endo->{"matR"}++; $endo->{"matK"}++;
     &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
     my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
+
+    # Select the best endonuclease for each contig
+    my $best_endo_by_cg = {};
+    foreach my $contig_name ( keys %$Endo_by_cg ) {
+        my $endo_list = $Endo_by_cg->{$contig_name};
+        foreach my $endo_name (keys %$endo_list) {
+            my $all_match_by_name = $endo_list->{$endo_name};
+            foreach my $match_name (keys %$all_match_by_name) {
+                my $fValue = $all_match_by_name->{$match_name}->[1]->fEvalue;
+                # Add an entry in best_endo_by_cg if it doesn't exist or if the fValue is better
+                # than the previous one key of the entry == name of endonuclease, value == contig name
+                if (!$best_endo_by_cg->{$match_name}) {
+                    $best_endo_by_cg->{$match_name} = [$endo_name,$fValue];
+                } else {
+                    my $best_endo_evalue = $best_endo_by_cg->{$match_name}->[1];
+                    next if &CompareHighPrecisionFloats($fValue,$best_endo_evalue) == 1;
+                    $best_endo_by_cg->{$match_name} = [$endo_name,$fValue];
+                }
+            }
+        }
+    }
+
+    # Delete all the endonuclease which are not the best
+    foreach my $contig_name ( keys %$Endo_by_cg ) {
+        my $endo_list = $Endo_by_cg->{$contig_name};
+        foreach my $endo_name (keys %$endo_list) {
+          my $all_match_by_name = $endo_list->{$endo_name};
+            foreach my $match_name (keys %$all_match_by_name) {
+                my $best_match = $best_endo_by_cg->{$match_name};
+                delete($Endo_by_cg->{$contig_name}->{$endo_name}->{$match_name}) if
+                    $endo_name ne $best_match->[0];
+            }
+        }
+    }
 
     return $Endo_by_cg;
 }
