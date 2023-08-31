@@ -6742,13 +6742,6 @@ sub AnnotateIntronicOrfs {
         my @orf_seq_a  = $orf_seq =~ /.{3}/g;
         my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
 
-        if ($ATGindex != -1) {
-            $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
-            my $notes = $intronic_orf->get_notes() || [];
-            push(@$notes, "first ATG found at position $firstATG") if $firstATG && !$isInPhase;
-        }
-
-
         # Iterate over the ORF to find the first accepted start codon
         for (;;$start_orf += $posOffset) {
             last if $start_orf >= $end_orf   && !$isMinus;
@@ -6771,6 +6764,15 @@ sub AnnotateIntronicOrfs {
             $annotIsOk = 1;
             last;
         }
+
+        # Add not to the 1st ATG
+        my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
+        if ($ATGindex != -1 && !$isInPhase && !$annotIsOk) {
+            $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
+            my $notes = $intronic_orf->get_notes() || [];
+            push(@$notes, "first ATG found at position $firstATG") if $firstATG;
+        }
+
 
         # In case of no start was found
         if ($annotIsOk != 1) {
