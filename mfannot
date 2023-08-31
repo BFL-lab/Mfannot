@@ -6381,6 +6381,24 @@ sub CheckIfOrfIsToAnnot {
                     }
                 }
             }
+
+            if ($isLongORF) {
+                # If it is in phase with the gene, then annotate the gene and add comment on startline of the gene
+
+                # Should be on same strand and in phase, check for gene without intron and for first exon
+                my $annot_direction = $emptyorf->get_strand() eq "==>" ? 1 : -1;
+                if ( $annot_direction eq $emptyorf->get_strand() &&
+                     (($features_who_overlap->[3] eq "YES" && !$features_who_overlap->[4]) ||
+                      ($features_who_overlap->[3] eq "YES" && ($features_who_overlap->[4] && $features_who_overlap->[4]) eq "FIRST"))
+                    ) {
+                        my $gene_start = $features_who_overlap->[2]->get_startpos();
+                        my $orf_start  = $emptyorf->get_start();
+
+                        my $diff = (int($gene_start) - int($orf_start));
+                        return($tab_OV,$isOV,$ToAnnot) if ( (int($gene_start) - int($orf_start)) % 3 == 0 );
+                }
+            }
+
             if ($feature_annot_type eq "O") {
                 push(@$tab_OV,$features_who_overlap->[2]);
                 $isOV = 1;
