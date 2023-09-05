@@ -6641,6 +6641,49 @@ sub AddEndoNoteToEmptyOrf {
     }
 }
 
+sub GetFirstATGIndex {
+    my ($isMinus,$seq,$start_orf,$end_orf) = @_;
+
+    my $orf_seq  = $isMinus ? uc(substr($seq, $end_orf - 1, $start_orf - $end_orf + 1)) :
+                              uc(substr($seq, $start_orf - 1, $end_orf - $start_orf + 1));
+        $orf_seq  =~ tr/ACGT/TGCA/   if $isMinus;
+        $orf_seq  = reverse $orf_seq if $isMinus;
+    my @orf_seq_a  = $orf_seq =~ /.{3}/g;
+    my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
+
+    return $ATGindex;
+}
+
+sub FindORFFirstStartAndValidate {
+    my ($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$orf,$annotIsOk) = @_;
+
+    my $posOffset = $isMinus ? -3 : 3;
+
+    for (;;$start_orf += $posOffset) {
+        last if $start_orf >= $end_orf   && !$isMinus;
+        last if $end_orf   >= $start_orf && $isMinus;
+        last if (($end_orf - $start_orf + 1 ) < $minimumlengthorf_nt) && !$isMinus;
+        last if (($start_orf - $end_orf + 1 ) < $minimumlengthorf_nt) &&  $isMinus;  #  Size verification
+
+        my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
+           $codon = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
+           $codon =~ tr/ACGT/TGCA/ if $isMinus;
+           $codon = reverse $codon if $isMinus;
+            if ($isInPhase) {
+                my $aa = $CODON_TABLE->{$codon};
+                $orf->set_firstAA($aa);
+                $codon = "ATG" if $isInPhase;
+            }
+
+        # next unless $codon is a key of ALTERNATIVE_ACCEPTED_START
+        next unless defined($ALTERNATIVE_ACCEPTED_START->{$codon});
+        $annotIsOk = 1;
+        last;
+    }
+
+    return ($start_orf, $annotIsOk)
+}
+
 #------------------------------------#
 # Subs for processing intronic ORFs  #
 #------------------------------------#
@@ -6734,50 +6777,27 @@ sub AnnotateIntronicOrfs {
         my $posOffset         = ($isMinus ? -3 : 3);
 
         # Find the first ATG codon in the ORF
-        my $firstATG = undef;
-        my $orf_seq  = $isMinus ? uc(substr($seq, $end_orf - 1, $start_orf - $end_orf + 1)) :
-                                  uc(substr($seq, $start_orf - 1, $end_orf - $start_orf + 1));
-           $orf_seq  =~ tr/ACGT/TGCA/   if $isMinus;
-           $orf_seq  = reverse $orf_seq if $isMinus;
-        my @orf_seq_a  = $orf_seq =~ /.{3}/g;
-        my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
+        my $ATGindex = &GetFirstATGIndex($isMinus,$seq,$start_orf,$end_orf);
 
         # Iterate over the ORF to find the first accepted start codon
-        for (;;$start_orf += $posOffset) {
-            last if $start_orf >= $end_orf   && !$isMinus;
-            last if $end_orf   >= $start_orf && $isMinus;
-            last if (($end_orf - $start_orf + 1 ) < $minimumlengthorf_nt) && !$isMinus;
-            last if (($start_orf - $end_orf + 1 ) < $minimumlengthorf_nt) &&  $isMinus;  #  Size verification
+        ($start_orf,$annotIsOk) = &FindORFFirstStartAndValidate($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$intronic_orf);
 
-            my $codon = uc (substr($seq, $start_orf - 1, 3)) if !$isMinus;
-               $codon = uc (substr($seq, $start_orf - 3, 3)) if $isMinus;
-               $codon =~ tr/ACGT/TGCA/ if $isMinus;
-               $codon = reverse $codon if $isMinus;
-               if ($isInPhase) {
-                   my $aa = $CODON_TABLE->{$codon};
-                   $intronic_orf->set_firstAA($aa);
-                   $codon = "ATG" if $isInPhase;
-               }
-
-            # next unless $codon is a key of ALTERNATIVE_ACCEPTED_START
-            next unless defined($ALTERNATIVE_ACCEPTED_START->{$codon});
-            $annotIsOk = 1;
-            last;
+        # Add note to the 1st ATG
+        if ($ATGindex != -1 && !$isInPhase) {
+            my $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
+            if ($firstATG != $start_orf) {
+                my $notes    = $intronic_orf->get_notes() || [];
+                push(@$notes, "first ATG found at position $firstATG");
+                $intronic_orf->set_notes($notes);
+            }
         }
 
-        # Add not to the 1st ATG
-        if ($ATGindex != -1 && !$isInPhase && !$annotIsOk) {
-            $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
-            my $notes = $intronic_orf->get_notes() || [];
-            push(@$notes, "first ATG found at position $firstATG") if $firstATG;
-        }
-
-
-        # In case of no start was found
+        # In case of no start was found but ORF is long enough, add a note
         if ($annotIsOk != 1) {
             $start_orf = $intronic_orf->get_start();
             my $notes  = $intronic_orf->get_notes() || [];
             push(@$notes, "no initiation codon identified");
+            $intronic_orf->set_notes($notes);
         }
 
         # Creating an annotation object for storing in the masterfile
@@ -6859,13 +6879,6 @@ sub AnnotateIntronicOrfs {
         my $endline     = ";     G-$GenenameORF $direction end";
            $endline     = ";     G-$prefix-"."$GenenameORF $direction end" if $prefix ne "";
 
-        # Extract note and add it in the startline
-        my $notes = $selected_orf->get_notes() || undef;
-        if (scalar(@$notes) != 0) {
-            my $string_notes = join(', ', @$notes);
-            $startline .= " /note=$string_notes";
-        }
-
         # Treatment to add a number after the genename #
         my $endo_list = $Endo_by_cg->{$contigname};
         my $contig    = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
@@ -6873,8 +6886,8 @@ sub AnnotateIntronicOrfs {
 
         &AddEndoNoteToEmptyOrf($endo_list,$selected_orf,$selected_orf->get_strand(),$contiglen);
 
-        # Add information about endonuclease
-        $notes = $selected_orf->get_notes() || undef;
+        # Add notes information on startline
+        my $notes = $selected_orf->get_notes() || undef;
         my $str_notes = join(', ', @$notes) if $notes;
         $startline .= " /note=$str_notes" if $str_notes;
 
