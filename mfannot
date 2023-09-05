@@ -140,6 +140,7 @@ my $USER = getpwuid($<) or getlogin or die "Can't find USER from environment!\n"
 my $ANNOT_STATS         = {'Added' => {} };        # Use for create the header.
 my $FLIPBLASTPROTS      = [];                      # Array containing the Proteins predicted by Blast and Flip
 my $HYPPROTS            = [];                      # Array containing the Proteins predicted by Blast and Flip and reprocessed after
+my $ENDO_BY_CG          = {};                      # Hash with endonuclease by contig
 my $EMPTYORFS           = [];                      # Array containing ORFs having no corresponding genes
 my $TRI_NT_START_COUNT  = {};                      # Hash with count of tri_nt start.
 my $FAMILY_LIST         = {};                      # Hash with family list.
@@ -486,7 +487,7 @@ $step += 1;
 
 print "$step) Find extra genes with HMM\n";
 $step +=1;
-my $Endo_by_cg = &FindLowConservedGenesAndEndoByHMM();
+$ENDO_BY_CG = &FindLowConservedGenesAndEndoByHMM();
 
 # Process empty orfs, -> annotate empty ORFs in the masterfile (whose who correspond to something good)
 if ($ORFPROCESS) {
@@ -498,7 +499,7 @@ if ($ORFPROCESS) {
 # Process intronical ORF -> annotate intronicale ORF not detected by Blast
 print "$step) Intron ORF annotation...\n";
 $step += 1;
-&AnnotateIntronicOrfs($Endo_by_cg);
+&AnnotateIntronicOrfs($ENDO_BY_CG);
 
 &MulticommentConfidence;
 &LcIntrons;
@@ -5356,8 +5357,7 @@ sub ExecuteExternalProgram {
 }
 
 sub ReconstructFullRNA {
-    my $genename             = shift;
-    my $annotpaircollections = shift; # Ref to array of APC
+    my ($genename,$annotpaircollections) = @_;
 
     foreach my $annotcollection (@$annotpaircollections) {
         my $header       = $annotcollection->get_contigname();
@@ -5501,8 +5501,7 @@ sub ReconstructFullRNA {
 }
 
 sub AnnotateFromExternalAPC {
-    my $genename             = shift;
-    my $annotpaircollections = shift; # Ref to array of APC
+    my ($genename,$annotpaircollections) = @_;
 
     # Process each AnnotPairCollection
     foreach my $annotcollection (@$annotpaircollections) {
@@ -5860,10 +5859,7 @@ sub Adjust_TypeII {
 } # End sub
 
 sub Add_splicescore {
-    my $contig      = shift;
-    my $annot       = shift;
-    my $use_seq     = shift;
-    my $adjustement = shift;
+    my ($contig,$annot,$use_seq,$adjustement) = @_;
 
     my $contig_name = $contig->get_name();
     my $a_start     = $annot->startpos()   || next;
@@ -5920,9 +5916,7 @@ sub Add_splicescore {
 } # End sub
 
 sub ScoreNtLTypeII {
-    my $use_seq          = shift;
-    my $start_pos        = shift;
-    my $adjust_start_pos = shift;
+    my ($use_seq,$start_pos,$adjust_start_pos) = @_;
 
     my $start_char_plus1 = substr($use_seq,$start_pos + $adjust_start_pos - 1,1);  # Each nt between -6 and 6 of feature_min
     my $start_char_plus2 = substr($use_seq,$start_pos + $adjust_start_pos ,1);
@@ -5941,9 +5935,7 @@ sub ScoreNtLTypeII {
 }
 
 sub ScoreNtRTypeII {
-    my $use_seq        = shift;
-    my $end_pos        = shift;
-    my $adjust_end_pos = shift;
+    my ($use_seq,$end_pos,$adjust_end_pos) = @_;
 
     my $end_char_minus1  = substr($use_seq,$end_pos + $adjust_end_pos -1,1);
     my $end_char_minus2  = substr($use_seq,$end_pos + $adjust_end_pos -2,1);
@@ -6223,8 +6215,14 @@ sub AnnotateEmptyOrfs {
         # Get informations  about empty ORF
         my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
-        my $strand_orf = $emptyorf->get_strand();
+        my $contiglen = $contig->get_sequencelength();
 
+        my $endo_list  = $ENDO_BY_CG->{$contigname};
+
+        my $orf_strand = $emptyorf->get_strand() == 1 ? "==>" : "<==";
+        &AddEndoNoteToEmptyOrf($endo_list,$emptyorf,$orf_strand,$contiglen);
+
+        my $strand_orf           = $emptyorf->get_strand();
         my ($isMinus,$step)      = ($strand_orf == 1 ? (0,3) : (1,-3));
         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
@@ -6330,7 +6328,7 @@ sub AnnotateEmptyOrfs {
 
         # Annotate the ORF
         if ( $ToAnnot == 1) {
-            my $orfannot = &CreateOrfAnnot($end_orf,$start_orf,$isMinus,$possible_starts, $emptyorf->get_similar_prot());
+            my $orfannot = &CreateOrfAnnot($end_orf,$start_orf,$isMinus,$possible_starts,$emptyorf);
             &AddAnnotToPirMaster($contigname,$orfannot);
             push(@$tab_OV,$orfannot) if $isOV;
         } # End of if
@@ -6384,7 +6382,6 @@ sub CheckIfOrfIsToAnnot {
 
             if ($isLongORF) {
                 # If it is in phase with the gene, then annotate the gene and add comment on startline of the gene
-
                 # Should be on same strand and in phase, check for gene without intron and for first exon
                 my $annot_direction = $emptyorf->get_strand() eq "==>" ? 1 : -1;
                 if ( $annot_direction eq $emptyorf->get_strand() &&
@@ -6459,7 +6456,7 @@ sub DefineCutForGeneWithIntron {
 }
 
 sub CreateOrfAnnot {
-    my ($end_orf,$start_orf,$isMinus,$possible_starts, $similar_prot) = @_;
+    my ($end_orf,$start_orf,$isMinus,$possible_starts, $empty_orf) = @_;
 
     my $arrow   = !$isMinus ? "==>" : "<==";
     my $orfsize = !$isMinus ? (($end_orf - $start_orf + 1)/3) - 1 : (($start_orf - $end_orf + 1)/3) -1;
@@ -6468,7 +6465,14 @@ sub CreateOrfAnnot {
     # Annotate the longer ORF and keep the other in comment.
     my ($startline,$endline,$orfannot) = ("","","");
     $startline    = ";     G-$GenenameORF $arrow start";
+    # Add info about similar protein
+    my $similar_prot = $empty_orf->get_similar_prot();
     $startline   .= " /note=(partially similar to $similar_prot)" if $similar_prot;
+    # Add other notes
+    my $notes = $empty_orf->get_notes() || undef;
+    my $str_notes = join(', ', @$notes) if $notes;
+    $startline .= " /note=$str_notes" if $str_notes;
+
     $endline      = ";     G-$GenenameORF $arrow end";
 
     $orfannot = new PirObject::AnnotPair(
@@ -6641,6 +6645,50 @@ sub DefineAlternativeUpstreamStart {
     $annot->set_startline($startline);
 }
 
+#---------------------------------#
+# Subs used to annotate ORFs      #
+#     intronic and empty          #
+#---------------------------------#
+
+sub AddEndoNoteToEmptyOrf {
+    my ($endo_list,$orf,$orf_strand,$contiglen) = @_;
+
+    foreach my $endo_name(keys %$endo_list) {
+        my $info_by_endo = $endo_list->{$endo_name};
+        foreach my $contig_name_match( keys %$info_by_endo) {
+            my $annots  = $info_by_endo->{$contig_name_match}->[0];
+            my $fEvalue = $info_by_endo->{$contig_name_match}->[1]->fEvalue;
+            foreach my $match_number (keys %$annots){
+                my $endo = $annots->{$match_number};
+
+                next if $orf_strand ne $endo->get_direction();
+
+                # Endonuclease
+                my $endo_start = $endo->get_startpos();
+                my $endo_end   = $endo->get_endpos();
+
+                # ORF
+                my $orf_start  = $orf->get_start();
+                my $orf_end    = $orf->get_end();
+
+                my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$orf_strand,
+                                                          $endo_start,$endo_end,$endo->get_direction());
+                next if !$isOV;
+                my ($first_start,$second_start)
+                            = $endo_start < $orf_start ? ( $endo_start, $orf_start) : ($orf_start, $endo_start);
+                my $distance = $second_start - $first_start;
+
+                next if ($distance % 3 != 0);
+                my $empty_orf_note = $orf->get_notes() || [];
+                my $name          = $endo->get_genename();
+                push(@$empty_orf_note, "$endo_name ;; evalue:$fEvalue");
+                $orf->set_notes($empty_orf_note);
+                last
+            }
+        }
+    }
+}
+
 #------------------------------------#
 # Subs for processing intronic ORFs  #
 #------------------------------------#
@@ -6766,7 +6814,6 @@ sub AnnotateIntronicOrfs {
         }
 
         # Add not to the 1st ATG
-        my $ATGindex = first_index { uc($_) eq 'ATG' } @orf_seq_a;
         if ($ATGindex != -1 && !$isInPhase && !$annotIsOk) {
             $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
             my $notes = $intronic_orf->get_notes() || [];
@@ -6872,40 +6919,13 @@ sub AnnotateIntronicOrfs {
         my $contig    = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
         my $contiglen = $contig->get_sequencelength();
 
+        &AddEndoNoteToEmptyOrf($endo_list,$selected_orf,$selected_orf->get_strand(),$contiglen);
+
         # Add information about endonuclease
-        my $add_to_startline = "";
-        my $endo_evalue      = "";
-        foreach my $key(keys %$endo_list) {
-            my $info_by_endo = $endo_list->{$key};
-            foreach my $key( keys %$info_by_endo) {
-                my $annots  = $info_by_endo->{$key}->[0];
-                my $fEvalue = $info_by_endo->{$key}->[1]->fEvalue;
-                foreach my $key (keys %$annots){
-                    my $endo = $annots->{$key};
+        $notes = $selected_orf->get_notes() || undef;
+        my $str_notes = join(', ', @$notes) if $notes;
+        $startline .= " /note=$str_notes" if $str_notes;
 
-                    next if $direction ne $endo->get_direction();
-                    # Endonuclease
-                    my $endo_start = $endo->get_startpos();
-                    my $endo_end   = $endo->get_endpos();
-
-                    # ORF
-                    my $orf_start  = $selected_orf->get_start();
-                    my $orf_end    = $selected_orf->get_end();
-
-                    my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$direction,
-                                                            $endo_start,$endo_end,$direction);
-                    next if !$isOV;
-                    my $isMinus  = ($direction eq "==>" ? 0 : 1);
-                    my ($first_start,$second_start)
-                               = $endo_start < $orf_start ? ( $endo_start, $orf_start) : ($orf_start, $endo_start);
-                    my $distance = $second_start - $first_start;
-
-                    next if ($distance % 3 != 0);
-                    my $name          = $endo->get_genename();
-                    $add_to_startline = " /note=$name ;; evalue:$fEvalue";
-                }
-            }
-        }
 
         my $orfannot = new PirObject::AnnotPair(
                                                 type      => "O",
@@ -6913,7 +6933,7 @@ sub AnnotateIntronicOrfs {
                                                 startpos  => $selected_orf->get_start(),
                                                 endpos    => $selected_orf->get_end(),
                                                 direction => $direction,
-                                                startline => "${startline}${add_to_startline}",
+                                                startline => $startline,
                                                 endline   => $endline,
                                                );
 
@@ -8136,62 +8156,63 @@ sub CreateAllEndoAnnotFindByHMM {
     my ($HighDir,$ResDir,$contigname) = @_;
 
     my $contig     = $pirmaster->GetContigByName($contigname);
-    my $seq        = $contig->get_sequence();
-       $seq        = lc($seq);
-    my $contiglen  = $contig->get_sequencelength();
-
-    my $AllHMMAnnot = &CreateAllHMMAnnot($ResDir,$contigname,$contig,1);
-
-    my $sort_annots_simple = [];
-    foreach my $name (keys %$AllHMMAnnot) {
-        my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
-        foreach my $Orf (keys %$AllHMMAnnotByGene) {
-            my $annots  = $AllHMMAnnotByGene->{$Orf}->[0];
-            # In case of multiple match keep the fEvalue (the global evalue)
-            my $fEvalue = $AllHMMAnnotByGene->{$Orf}->[1]->fEvalue;
-
-            # Extract information
-            my $annot              = $annots->{1};
-            my $idORF              = $annot->get_IdORF();
-            my $direction          = $annot->get_direction();
-            my $name               = $annot->get_genename();
-            my $isMinus            = $direction eq "==>" ? 0 : 1;
-            my ($StartOrf,$EndOrf) = ($1,$2) if $idORF =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-            my $start              = $StartOrf; ;
-            my $end                = $isMinus ? $EndOrf   - 3 : $EndOrf   + 3;
-            my $orfsize            = !$isMinus ? (($end - $start + 1)/3) - 1 : (($start - $end + 1)/3) -1;
-
-            # Create new annot
-            my $new_annot = new PirObject::AnnotPair( type      => "G",
-                        IdORF     => $idORF,
-                        genename  => "orf${orfsize}",
-                        startpos  => $start,
-                        endpos    => $end,
-                        direction => $direction,
-                        startline => ";     G-orf${orfsize} $direction start /note=$name ;; evalue:$fEvalue",
-                        endline   => ";     G-orf${orfsize} $direction end",
-                        score     => $fEvalue,
-                        );
-            push(@$sort_annots_simple,$new_annot)
-         }
-    }
-
-    # Make selection which orf need to be annot
-    @$sort_annots_simple  = sort { &CompareHighPrecisionFloats($a->get_score(),$b->get_score) } @$sort_annots_simple;
-    $sort_annots_simple   = &MakeSelectionForSimpleCase($sort_annots_simple,$contig);
-
-    # Keep in mind wich orf has not been annotated, annot other.
-    foreach my $annot (@$sort_annots_simple){
-        my $startline = $annot->get_startline();
-        my $name      = lc($1) if $annot->get_startline() =~ m/note=(\w+)/;
-        &AddAnnotToPirMaster($contigname,$annot);
-        delete $AllHMMAnnot->{$name}->{$annot->get_IdORF()};
-    }
 
     my $Endo_by_cg = {};
-    $Endo_by_cg->{$contigname} = $AllHMMAnnot;
-
+    $Endo_by_cg->{$contigname} = &CreateAllHMMAnnot($ResDir,$contigname,$contig,1);
     return $Endo_by_cg;
+
+    # my $seq        = $contig->get_sequence();
+    #    $seq        = lc($seq);
+    # my $contiglen  = $contig->get_sequencelength();
+    # my $AllHMMAnnot = &CreateAllHMMAnnot($ResDir,$contigname,$contig,1);
+
+    # my $sort_annots_simple = [];
+    # foreach my $name (keys %$AllHMMAnnot) {
+    #     my $AllHMMAnnotByGene = $AllHMMAnnot->{$name};
+    #     foreach my $Orf (keys %$AllHMMAnnotByGene) {
+    #         my $annots  = $AllHMMAnnotByGene->{$Orf}->[0];
+    #         # In case of multiple match keep the fEvalue (the global evalue)
+    #         my $fEvalue = $AllHMMAnnotByGene->{$Orf}->[1]->fEvalue;
+
+    #         # Extract information
+    #         my $annot              = $annots->{1};
+    #         my $idORF              = $annot->get_IdORF();
+    #         my $direction          = $annot->get_direction();
+    #         my $name               = $annot->get_genename();
+    #         my $isMinus            = $direction eq "==>" ? 0 : 1;
+    #         my ($StartOrf,$EndOrf) = ($1,$2) if $idORF =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    #         my $start              = $StartOrf; ;
+    #         my $end                = $isMinus ? $EndOrf   - 3 : $EndOrf   + 3;
+    #         my $orfsize            = !$isMinus ? (($end - $start + 1)/3) - 1 : (($start - $end + 1)/3) -1;
+
+    #         # Create new annot
+    #         my $new_annot = new PirObject::AnnotPair( type      => "G",
+    #                     IdORF     => $idORF,
+    #                     genename  => "orf${orfsize}",
+    #                     startpos  => $start,
+    #                     endpos    => $end,
+    #                     direction => $direction,
+    #                     startline => ";     G-orf${orfsize} $direction start /note=$name ;; evalue:$fEvalue !!!!!!!",
+    #                     endline   => ";     G-orf${orfsize} $direction end",
+    #                     score     => $fEvalue,
+    #                     );
+    #         push(@$sort_annots_simple,$new_annot)
+    #      }
+    # }
+
+    # # Make selection which orf need to be annot
+    # @$sort_annots_simple  = sort { &CompareHighPrecisionFloats($a->get_score(),$b->get_score) } @$sort_annots_simple;
+    # $sort_annots_simple   = &MakeSelectionForSimpleCase($sort_annots_simple,$contig);
+
+
+    # XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    # # Keep in mind wich orf has not been annotated, annot other.
+    # foreach my $annot (@$sort_annots_simple){
+    #     my $startline = $annot->get_startline();
+    #     my $name      = lc($1) if $annot->get_startline() =~ m/note=(\w+)/;
+    #     &AddAnnotToPirMaster($contigname,$annot);
+    #     delete $AllHMMAnnot->{$name}->{$annot->get_IdORF()};
+    # }
 }
 
 #--------------------------------------------------#
