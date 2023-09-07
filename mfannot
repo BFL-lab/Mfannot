@@ -179,7 +179,6 @@ my $PARTIAL;                                    # This will cause mfannot to onl
 my $INSERTION;                                  # Minimum length for report insertion.
 my $LIGHT;                                      # Don't run endonuclease search and don't search for every gene by HMM
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
-my $JUST_SIMI;                                  # An array containing names of gene to annotate by HMM similarity
 my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
 my $TBL_FORMAT;                                 # Boolean if set save tbl output
 
@@ -615,7 +614,6 @@ sub CreatePepfileWithLibrary {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
                 if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+[\S]+\s*;/i));
                 my $origin = lc($1);
-                $to_annot = scalar(grep( /^$name$/, @$JUST_SIMI)) == 0 ? 1 : 0;
 
                 $chloro_gene->{$name}++ if $origin =~ m/pt/ || !$to_annot;
                 $mito_gene->{$name}++   if $origin =~ m/mt/ || !$to_annot;
@@ -623,17 +621,15 @@ sub CreatePepfileWithLibrary {
                 $desc = $line;
                 $desc =~ s/^>?\s*//;
                 $desc =~ s/\s*$//;
-                print $outfh ">$desc\n" if $to_annot;
+                print $outfh ">$desc\n";
                 die "Error in library $library: duplicated FASTA header '$desc'.\n"
                     if exists $desc_to_prot->{$desc};
                 next;
             }
-            if ($to_annot) {
-                print $outfh $line; # seq line
-                $line =~ s/^\s*//;  # cleanup seq line
-                $line =~ s/\s*$//;
-                $desc_to_prot->{$desc} .= $line;
-            }
+            print $outfh $line; # seq line
+            $line =~ s/^\s*//;  # cleanup seq line
+            $line =~ s/\s*$//;
+            $desc_to_prot->{$desc} .= $line;
         }
         $PEP_F->close();
     }
@@ -679,8 +675,6 @@ sub GetOptions {
     $TBL_FORMAT              = $option->tblformat;         # If true save tbl file
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
-    $JUST_SIMI               = ["dpo","rpo"];              # XXXX Need to be an option
-
 
     if($option->islogfile and defined($option->logfile)) {
         if(-w (dirname($option->logfile))) {
@@ -6169,8 +6163,8 @@ sub AnnotateEmptyOrfs {
         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
         my $contiglen = $contig->get_sequencelength();
 
+        # Add endo note
         my $endo_list  = $ENDO_BY_CG->{$contigname};
-
         my $orf_strand = $emptyorf->get_strand() == 1 ? "==>" : "<==";
         &AddEndoNoteToEmptyOrf($endo_list,$emptyorf,$orf_strand,$contiglen);
 
@@ -6248,13 +6242,27 @@ sub AnnotateEmptyOrfs {
         my $annotIsOK_gene_without_intron =  scalar(@$possible_starts) != 0 ? 1 : 0;
         next if $annotIsOK_gene_without_intron == 0;
 
-        # Decide if the ORF is to be annotated by setting $ToAnnot to 1
-        my ($ToAnnot,$isOV) = (0,0);
+        # The only case to annotate a ORF without know start is when it is long enough
+        if (scalar(@$possible_starts) == 0) {
+            my ($min_orf,$max_orf) = ($strand_orf == 1 ? ($start_orf,$end_orf) : ($end_orf,$start_orf));
+            my $isLongOrf = ((($max_orf-$min_orf+1)/3)-1 >= $OVERLAPORFOVGENE) ? 1 : 0;
+            if ($isLongOrf) {
+                # Add note about no start found
+                my $notes    = $emptyorf->get_notes() || [];
+                push(@$notes, "no initiation codon identified");
+                $emptyorf->set_notes($notes);
+            }
+        }
+
+        my ($ToAnnot,$isOV,$start_index) = (0,0,-1);
+
+        # my $remaining_possible_starts = @$possible_starts;
+
         foreach my $possible_start (@$possible_starts) {
+            $start_index++;
             # Accept only ATG as start codon for the ORF
             # then all the other start codons will be considered as alternative start codons
             my $tri_nt    = $possible_start->[0];
-            next if $tri_nt ne "ATG";
 
             $start_orf    = $possible_start->[1];
             # Use the strand of the ORF to define the min and max of the ORF
@@ -6265,21 +6273,34 @@ sub AnnotateEmptyOrfs {
             $ToAnnot      = 1 if $isLongOrf;
 
             # Check if the ORF overlaps a gene or not.
-            # If it does not overlap a gene, then it is annotated
-            # If it overlaps a gene, check if we need to annotate.
             my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+            # If it does not overlap a gene, then it is annotated
             if (scalar(@$annot_who_overlap) == 0) {
                 $ToAnnot = 1;
                 last;
             }
+            # If it overlaps a gene, check if we need to annotate.
             else {
-                ($tab_OV,$isOV,$ToAnnot) = &CheckIfOrfIsToAnnot($annot_who_overlap,$min_orf,$max_orf,$isLongOrf,$emptyorf,$tab_OV,$isOV);
+                ($tab_OV,$isOV,$ToAnnot) = &CheckIfOrfIsToAnnot($annot_who_overlap,$min_orf,$max_orf,$emptyorf,$tab_OV,$isOV,$isLongOrf);
                 last if $ToAnnot;
             }
         }
 
+        # Add information about first ATG
+        my $firstATG = -1;
+        foreach my $possible_start (@$possible_starts[$start_index..$#$possible_starts]) {
+            next if $possible_start->[0] ne "ATG";
+            $firstATG = $possible_start->[1];
+            last;
+        }
+
         # Annotate the ORF
         if ( $ToAnnot == 1) {
+            if ($firstATG != -1 && $start_orf != $firstATG) {
+                my $notes    = $emptyorf->get_notes() || [];
+                push(@$notes, "first ATG found at position $firstATG");
+                $emptyorf->set_notes($notes);
+            }
             my $orfannot = &CreateOrfAnnot($end_orf,$start_orf,$isMinus,$possible_starts,$emptyorf);
             &AddAnnotToPirMaster($contigname,$orfannot);
             push(@$tab_OV,$orfannot) if $isOV;
@@ -6287,12 +6308,10 @@ sub AnnotateEmptyOrfs {
         $hash_OV->{$contigname} = $tab_OV;
     } # End of for each empty orfs
     &RemovedOVOrfs($hash_OV);
-    # Maybe not usefull anymore since we accept all start codons
-    &AnnotateUpstreamAlternativeStart();
 }
 
 sub CheckIfOrfIsToAnnot {
-    my ($annot_who_overlap,$min_orf,$max_orf,$isLongORF,$emptyorf,$tab_OV,$isOV) = @_;
+    my ($annot_who_overlap,$min_orf,$max_orf,$emptyorf,$tab_OV,$isOV,$isLongORF) = @_;
 
     my $ToAnnot = 0;
     my $overlappingcutoff = "";
@@ -6309,12 +6328,11 @@ sub CheckIfOrfIsToAnnot {
 
             #       ------------         ORF
             # * ------------------- **   Gene
-            return ($tab_OV,$isOV,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "G" );
-            return ($tab_OV,$isOV,$ToAnnot) if ( $feature_annot_type eq "O" && $features_who_overlap->[2]->containStruc);
+            return ($tab_OV,1,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "G" );
+            return ($tab_OV,1,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "O" );
 
             # No overlap with tRNA
             if ($isLongORF == 0) {
-
                 $overlappingcutoff = &DefineOVByPercent($min_orf,$max_orf,$info_who_overlap,$emptyorf)
                     if $feature_annot_type ne "O" && $overlappingcutoff eq "";
 
@@ -6337,8 +6355,8 @@ sub CheckIfOrfIsToAnnot {
                 # Should be on same strand and in phase, check for gene without intron and for first exon
                 my $annot_direction = $emptyorf->get_strand() eq "==>" ? 1 : -1;
                 if ( $annot_direction eq $emptyorf->get_strand() &&
-                     (($features_who_overlap->[3] eq "YES" && !$features_who_overlap->[4]) ||
-                      ($features_who_overlap->[3] eq "YES" && ($features_who_overlap->[4] && $features_who_overlap->[4]) eq "FIRST"))
+                        (($features_who_overlap->[3] eq "YES" && !$features_who_overlap->[4]) ||
+                        ($features_who_overlap->[3] eq "YES" && ($features_who_overlap->[4] && $features_who_overlap->[4]) eq "FIRST"))
                     ) {
                         my $gene_start = $features_who_overlap->[2]->get_startpos();
                         my $orf_start  = $emptyorf->get_start();
@@ -6417,9 +6435,11 @@ sub CreateOrfAnnot {
     # Annotate the longer ORF and keep the other in comment.
     my ($startline,$endline,$orfannot) = ("","","");
     $startline    = ";     G-$GenenameORF $arrow start";
+
     # Add info about similar protein
     my $similar_prot = $empty_orf->get_similar_prot();
     $startline   .= " /note=(partially similar to $similar_prot)" if $similar_prot;
+
     # Add other notes
     my $notes = $empty_orf->get_notes() || undef;
     my $str_notes = join(', ', @$notes) if $notes;
@@ -6455,11 +6475,12 @@ sub RemovedOVOrfs() {
             push(@$clean_ORFs,$ORF);
         }
 
-        # Set ATG start foreach ORF in $OV_orfs
-        my $ATG_ORFs = &SetATGstartForOrfs($clean_ORFs);
-
         # Make a list of AP to rm.
-        my $AP_toRM = &MakeListOfORFsToRM($ATG_ORFs);
+        @$clean_ORFs = sort { abs($b->get_startpos() - $b->get_endpos()) <=> abs($a->get_startpos() - $a->get_endpos()) ||
+                        $b->get_direction()                        cmp $a->get_direction()                        ||
+                        $a->get_startpos()                         <=> $b->get_startpos()} @$clean_ORFs;
+
+        my $AP_toRM = &MakeListOfORFsToRM($clean_ORFs);
 
         my $tab_AP_toRM = ();
         foreach my $id (keys %$AP_toRM) {
@@ -6471,34 +6492,8 @@ sub RemovedOVOrfs() {
     }
 }
 
-sub SetATGstartForOrfs {
-    my ($clean_ORFs) = @_;
-
-    my $ATG_ORFs = ();
-    foreach my $ORF (@$clean_ORFs) {
-        my $possStarts = $ORF->get_possStart();
-        my $first_ATG  = "";
-        foreach my $posStart (@$possStarts) {
-            next if $posStart->[0] ne "ATG";
-            $first_ATG = $posStart->[1];
-            last if $first_ATG ne "";
-        }
-        next if !$first_ATG;
-        $ORF->set_startpos($first_ATG) if $ORF->get_startpos() != $first_ATG;
-        push(@$ATG_ORFs,$ORF);
-    }
-
-    return $ATG_ORFs if !$ATG_ORFs;
-    @$ATG_ORFs = sort { abs($b->get_startpos() - $b->get_endpos()) <=> abs($a->get_startpos() - $a->get_endpos()) ||
-                        $b->get_direction()                        cmp $a->get_direction()                        ||
-                        $a->get_startpos()                         <=> $b->get_startpos()} @$ATG_ORFs;
-
-    return $ATG_ORFs;
-}
-
 sub MakeListOfORFsToRM {
     my ($ATG_ORFs) = @_;
-
     my $AP_toRM = {};
     foreach my $ORF_1 (@$ATG_ORFs) {
         my $id_1 = $1 if scalar($ORF_1) =~ m/0x(.+)\)/;
@@ -6531,19 +6526,19 @@ sub MakeListOfORFsToRM {
     return $AP_toRM;
 }
 
-sub AnnotateUpstreamAlternativeStart {
-    my $contigs   = $pirmaster->get_contigs();
+# sub AnnotateUpstreamAlternativeStart {
+#     my $contigs   = $pirmaster->get_contigs();
 
-    foreach my $contig (@$contigs) {
-        my $annotations = $contig->get_annotations();
-        my $cg_len      = $contig->get_sequencelength();
-        foreach my $annot (@$annotations) {
-        next if $annot->get_type() ne "O";
-        my $lim_5 = &define5lim($annot,$annotations,$cg_len);
-        &DefineAlternativeUpstreamStart($annot,$lim_5);
-        }
-    }
-}
+#     foreach my $contig (@$contigs) {
+#         my $annotations = $contig->get_annotations();
+#         my $cg_len      = $contig->get_sequencelength();
+#         foreach my $annot (@$annotations) {
+#         next if $annot->get_type() ne "O";
+#         my $lim_5 = &define5lim($annot,$annotations,$cg_len);
+#         &DefineAlternativeUpstreamStart($annot,$lim_5);
+#         }
+#     }
+# }
 
 sub define5lim {
     my ($ORFannot,$annotations,$cg_len)= @_;
@@ -6891,7 +6886,6 @@ sub AnnotateIntronicOrfs {
         my $str_notes = join(', ', @$notes) if $notes;
         $startline .= " /note=$str_notes" if $str_notes;
 
-
         my $orfannot = new PirObject::AnnotPair(
                                                 type      => "O",
                                                 genename  => $GenenameORF,
@@ -7068,6 +7062,7 @@ sub FindEndo {
     my $endo = {};
     $endo->{"HNH"}++; $endo->{"GIY-YIG"}++ ;$endo->{"LAGLIDADG"}++;
     $endo->{"ReverseTranscriptase"}++; $endo->{"matR"}++; $endo->{"matK"}++;
+    $endo->{"rpo"}++; $endo->{"dpo"}++;
     &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
     my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
 
@@ -7321,7 +7316,6 @@ sub CreateAllGeneAnnotFindByHMM {
         if (scalar(@$tab_exons) == 0) {
             $annot = &FindStartAndStopForSimpleGeneIdByHMM($annot,$seq,$contiglen);
             my $genename = $annot->get_genename;
-            $annot = &AddInfoWhenJUST_SIMI($annot) if ( grep( /^$genename$/, @$JUST_SIMI ) )
             &AddAnnotToPirMaster($contigname,$annot);
         }
         else {
@@ -7334,26 +7328,8 @@ sub CreateAllGeneAnnotFindByHMM {
             }
             &FindStartAndStopForComplexGeneIdByHMM($annot,$tab_exons,$OrfFile,$seq);
             my $genename = $annot->get_genename;
-            $annot = &AddInfoWhenJUST_SIMI($annot) if ( grep( /^$genename$/, @$JUST_SIMI ) )
-            &AddAnnotToPirMaster($contigname,$annot);
         }
     }
-}
-
-sub AddInfoWhenJUST_SIMI {
-  my $annot = shift;
-
-  my $HMMmatch  = $annot->get_HMMmatch();
-  my $score     = $annot->get_score();
-  my $startline = $annot->get_startline();
-
-  $startline    = $startline .
-  ";; likely a pseudo-gene, introduced by plasmid integration (partial) HMM match pos. " .
-  $HMMmatch . " score " . $score;
-
-  $annot->set_startline($startline);
-
-  return $annot;
 }
 
 sub CreateAllHMMAnnot {
