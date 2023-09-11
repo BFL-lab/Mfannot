@@ -2455,7 +2455,6 @@ sub FindExonsInHypProtArray {
 
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
         my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine, $ORF_start_end) = @$info;
-        my ($ORF_start, $ORF_end) = @$ORF_start_end;
 
         # In order to have the contig sequence
         my $contig  = $pirmaster->GetContigByName($contigname)
@@ -4086,7 +4085,7 @@ sub AddGroupUseAP {
     my $AP_endline   = $AP->get_endline();
 
     my $type        = $1    if $AP_startline =~ m#group=(.+)#;
-       die "Internal error: external AP does not contain type on startline?!?\n" unless $type;
+    return if !$type;
 
     my $intron_type  = $intron->get_type() || "";
        $intron_type .= "," if $intron_type;
@@ -5999,7 +5998,7 @@ sub Previous_and_next_exons {
     foreach my $annotation_who_overlap (@$annot_who_overlap){
         foreach my $feature_overlap (@$annotation_who_overlap) {
             my $feature            = $feature_overlap->[2];
-            next if $feature->get_genename() eq "comment";
+            next if $feature->get_genename() eq "comment" || $feature->get_type eq "G";
             my $feature_startline  = $feature->get_startline();
             my ($annotname)        = ($feature_startline =~ m#^;\s+(\S+)#);
             $previous_exon_feat    = $feature if ($annotname eq $previous_exon_name);
@@ -6162,6 +6161,8 @@ sub AnnotateEmptyOrfs {
         my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
         my $contiglen = $contig->get_sequencelength();
+
+        next if $emptyorf->get_strand() == 2; # Skip ORF on both strand
 
         # Add endo note
         my $endo_list  = $ENDO_BY_CG->{$contigname};
@@ -6618,6 +6619,10 @@ sub AddEndoNoteToEmptyOrf {
                 my $orf_start  = $orf->get_start();
                 my $orf_end    = $orf->get_end();
 
+                # TOFIX: HACK to be sure to have a string for comparaison
+                $orf_strand = "$orf->get_strand()";
+                next if $orf_strand eq 2;
+
                 my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$orf_strand,
                                                           $endo_start,$endo_end,$endo->get_direction());
                 next if !$isOV;
@@ -6775,7 +6780,7 @@ sub AnnotateIntronicOrfs {
         my $ATGindex = &GetFirstATGIndex($isMinus,$seq,$start_orf,$end_orf);
 
         # Iterate over the ORF to find the first accepted start codon
-        ($start_orf,$annotIsOk) = &FindORFFirstStartAndValidate($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$intronic_orf);
+        ($start_orf,$annotIsOk) = &FindORFFirstStartAndValidate($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$intronic_orf,$annotIsOk);
 
         # Add note to the 1st ATG
         if ($ATGindex != -1 && !$isInPhase) {
