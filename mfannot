@@ -181,6 +181,11 @@ my $LIGHT;                                      # Don't run endonuclease search 
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
 my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
 my $TBL_FORMAT;                                 # Boolean if set save tbl output
+my $ENDO_HASH = {};                             # Hash with endonuclease list.
+
+$ENDO_HASH->{"HNH"}++; $ENDO_HASH->{"GIY-YIG"}++ ;$ENDO_HASH->{"LAGLIDADG"}++;
+$ENDO_HASH->{"ReverseTranscriptase"}++; $ENDO_HASH->{"matR"}++; $ENDO_HASH->{"matK"}++;
+$ENDO_HASH->{"rpo"} = "PSEUDO"; $ENDO_HASH->{"dpo"} = "PSEUDO";
 
 # Command line Program's paths
 my $PATH = $ENV{"PATH"} || "";
@@ -6631,7 +6636,10 @@ sub AddEndoNoteToEmptyOrf {
                 next if ($distance % 3 != 0);
                 my $empty_orf_note = $orf->get_notes() || [];
                 my $name          = $endo->get_genename();
-                push(@$empty_orf_note, "$endo_name ;; evalue:$fEvalue");
+                my $note          = $name;
+                $note            .= " (likely a pseudo-gene, introduced by plasmid integration)" if $ENDO_HASH->{$name} eq "PSEUDO";
+                $note            .= " ;; evalue:$fEvalue";
+                push(@$empty_orf_note, $note);
                 $orf->set_notes($empty_orf_note);
                 last
             }
@@ -7065,10 +7073,7 @@ sub FindEndo {
 
     return {} if ($LIGHT);
 
-    my $endo = {};
-    $endo->{"HNH"}++; $endo->{"GIY-YIG"}++ ;$endo->{"LAGLIDADG"}++;
-    $endo->{"ReverseTranscriptase"}++; $endo->{"matR"}++; $endo->{"matK"}++;
-    $endo->{"rpo"}++; $endo->{"dpo"}++;
+    my $endo = $ENDO_HASH;
     &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
     my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
 
