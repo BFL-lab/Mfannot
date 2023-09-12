@@ -6776,13 +6776,12 @@ sub AnnotateIntronicOrfs {
 
         # Find the first ATG codon in the ORF
         my $ATGindex = &GetFirstATGIndex($isMinus,$seq,$start_orf,$end_orf);
-
         # Iterate over the ORF to find the first accepted start codon
         ($start_orf,$annotIsOk) = &FindORFFirstStartAndValidate($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$intronic_orf,$annotIsOk);
 
         # Add note to the 1st ATG
         if ($ATGindex != -1 && !$isInPhase) {
-            my $firstATG = $isMinus ? $end_orf - $ATGindex * 3 : $start_orf + $ATGindex * 3 ;
+            my $firstATG = $isMinus ? $intronic_orf->get_start() - $ATGindex * 3 + 1 : $intronic_orf->get_start() + $ATGindex * 3 ;
             if ($firstATG != $start_orf) {
                 my $notes    = $intronic_orf->get_notes() || [];
                 push(@$notes, "first ATG found at position $firstATG");
