@@ -4086,6 +4086,7 @@ sub AddGroupUseAP {
 
     my $type        = $1    if $AP_startline =~ m#group=(.+)#;
     return if !$type;
+    #    die "Internal error: external AP does not contain type on startline?!?\n" unless $type;
 
     my $intron_type  = $intron->get_type() || "";
        $intron_type .= "," if $intron_type;
@@ -5998,6 +5999,7 @@ sub Previous_and_next_exons {
     foreach my $annotation_who_overlap (@$annot_who_overlap){
         foreach my $feature_overlap (@$annotation_who_overlap) {
             my $feature            = $feature_overlap->[2];
+            # next if $feature->get_genename() eq "comment";
             next if $feature->get_genename() eq "comment" || $feature->get_type eq "G";
             my $feature_startline  = $feature->get_startline();
             my ($annotname)        = ($feature_startline =~ m#^;\s+(\S+)#);
@@ -6619,10 +6621,6 @@ sub AddEndoNoteToEmptyOrf {
                 my $orf_start  = $orf->get_start();
                 my $orf_end    = $orf->get_end();
 
-                # TOFIX: HACK to be sure to have a string for comparaison
-                $orf_strand = "$orf->get_strand()";
-                next if $orf_strand eq 2;
-
                 my $isOV = &OverlappingRegions($contiglen,$orf_start ,$orf_end ,$orf_strand,
                                                           $endo_start,$endo_end,$endo->get_direction());
                 next if !$isOV;
@@ -6884,7 +6882,11 @@ sub AnnotateIntronicOrfs {
         my $contig    = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateIntronicOrfs\n";
         my $contiglen = $contig->get_sequencelength();
 
-        &AddEndoNoteToEmptyOrf($endo_list,$selected_orf,$selected_orf->get_strand(),$contiglen);
+        my $strand = $selected_orf->get_strand();
+        my $string_strand = "$strand";
+        if ($string_strand ne "2") {
+            &AddEndoNoteToEmptyOrf($endo_list,$selected_orf,$selected_orf->get_strand(),$contiglen);
+        }
 
         # Add notes information on startline
         my $notes = $selected_orf->get_notes() || undef;
