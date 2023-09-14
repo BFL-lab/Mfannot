@@ -6181,13 +6181,13 @@ sub AnnotateEmptyOrfs {
         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
-        # Keep only RNA
+        # Keep only !RNA
         my $list_of_pos = [];
         foreach my $list_who_overlap (@$annot_who_overlap) {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
-                next if $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i;
+                next if !($name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
@@ -6282,6 +6282,8 @@ sub AnnotateEmptyOrfs {
 
             # Check if the ORF overlaps a gene or not.
             my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+            @$annot_who_overlap = grep { my $name = $_->[0]->[2]->get_genename(); $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i } @$annot_who_overlap;
+
             # If it does not overlap a gene, then it is annotated
             if (scalar(@$annot_who_overlap) == 0) {
                 $ToAnnot = 1;
@@ -6304,6 +6306,11 @@ sub AnnotateEmptyOrfs {
 
         # Annotate the ORF
         if ( $ToAnnot == 1) {
+            if ($firstATG == -1) {
+                my $notes    = $emptyorf->get_notes() || [];
+                push(@$notes, "no ATG initiation codon identified' is missing");
+                $emptyorf->set_notes($notes);
+            }
             if ($firstATG != -1 && $start_orf != $firstATG) {
                 my $notes    = $emptyorf->get_notes() || [];
                 push(@$notes, "first ATG found at position $firstATG");
@@ -6787,9 +6794,13 @@ sub AnnotateIntronicOrfs {
         # Iterate over the ORF to find the first accepted start codon
         ($start_orf,$annotIsOk) = &FindORFFirstStartAndValidate($start_orf,$end_orf,$isMinus,$isInPhase,$seq,$minimumlengthorf_nt,$intronic_orf,$annotIsOk);
 
-        # Add note to the 1st ATG
         if ($ATGindex != -1 && !$isInPhase) {
             my $firstATG = $isMinus ? $intronic_orf->get_start() - $ATGindex * 3 + 1 : $intronic_orf->get_start() + $ATGindex * 3 ;
+            if ($firstATG == -1) {
+                my $notes    = $intronic_orf->get_notes() || [];
+                push(@$notes, "no ATG initiation codon identified' is missing");
+                $intronic_orf->set_notes($notes);
+            }
             if ($firstATG != $start_orf) {
                 my $notes    = $intronic_orf->get_notes() || [];
                 push(@$notes, "first ATG found at position $firstATG");
