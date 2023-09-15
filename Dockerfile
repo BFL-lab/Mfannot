@@ -1,7 +1,7 @@
 FROM ubuntu:18.04
 
 # File Author / Maintainer MAINTAINER
-MAINTAINER Natacha Beck <natabeck@gmail.com>
+LABEL author="Natacha Beck <natabeck@gmail.com>"
 
 RUN apt-get update
 
@@ -60,7 +60,10 @@ RUN apt-get install -y emboss
 RUN wget -L http://rna.igmors.u-psud.fr/download/Erpin/erpin5.5.4.serv.tar.gz; tar xzvf erpin5.5.4.serv.tar.gz; cp erpin5.5.4.serv/bin/erpin /usr/local/bin/
 
 # Install tbl2asn
-RUN wget ftp://ftp.ncbi.nih.gov/toolbox/ncbi_tools/converters/by_program/tbl2asn/linux.tbl2asn.gz; gunzip linux.tbl2asn.gz; chmod 755 linux.tbl2asn; cp linux.tbl2asn /usr/local/bin/tbl2asn
+RUN wget https://ftp.ncbi.nih.gov/toolbox/ncbi_tools/converters/by_program/table2asn/linux64.table2asn.gz; gunzip linux64.table2asn.gz; chmod 755 linux64.table2asn; cp linux64.table2asn /usr/local/tbl2asn
+
+# Install cmsearch
+RUN wget http://eddylab.org/infernal/infernal-1.1.4-linux-intel-gcc.tar.gz; tar xzvf infernal-1.1.4-linux-intel-gcc.tar.gz; cp infernal-1.1.4-linux-intel-gcc/binaries/cmsearch /usr/local/bin/
 
 ############################
 # Install internal progam #
@@ -83,6 +86,9 @@ RUN git clone https://github.com/BFL-lab/umac.git; cp umac/umac /usr/local/bin/
 
 # Install HMMsearchWC
 RUN git clone https://github.com/BFL-lab/HMMsearchWC.git; cp HMMsearchWC/HMMsearchCombiner /usr/local/bin/; cp HMMsearchWC/HMMsearchWrapper /usr/local/bin/
+
+# Install CMsearchW
+RUN git clone https://github.com/BFL-lab/CMsearchW.git; cp CMsearchW/CMsearchWrapper /usr/local/bin/
 
 # Install RNAfinder
 RUN git clone https://github.com/BFL-lab/RNAfinder.git; cp RNAfinder/RNAfinder /usr/local/bin/; cp RNAfinder/DOT_RNAfinder.cfg /.RNAfinder.cfg
