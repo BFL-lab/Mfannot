@@ -3571,7 +3571,7 @@ sub RunHMMSearchForMiniEx {
     foreach my $exon (@$ListHypExons) {
         my $exon_seq = $exon->{seq} || "";
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
-        print $fasta_fh ">Sol_$i\n$seq\n";
+        print $fasta_fh ">Sol_$i\n$seq\n" if $seq !~ m/\*/;
         $i++;
     }
     $fasta_fh->close();
@@ -6187,7 +6187,7 @@ sub AnnotateEmptyOrfs {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
-                next if !($name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
+                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
