@@ -6308,7 +6308,7 @@ sub AnnotateEmptyOrfs {
         if ( $ToAnnot == 1) {
             if ($firstATG == -1) {
                 my $notes    = $emptyorf->get_notes() || [];
-                push(@$notes, "no ATG initiation codon identified' is missing");
+                push(@$notes, "no ATG initiation codon identified");
                 $emptyorf->set_notes($notes);
             }
             if ($firstATG != -1 && $start_orf != $firstATG) {
@@ -6793,7 +6793,7 @@ sub AnnotateIntronicOrfs {
         my $ATGindex = &GetFirstATGIndex($isMinus,$seq,$start_orf,$end_orf);
         if ($ATGindex == -1) {
             my $notes    = $intronic_orf->get_notes() || [];
-            push(@$notes, "no ATG initiation codon identified' is missing");
+            push(@$notes, "no ATG initiation codon identified");
             $intronic_orf->set_notes($notes);
         }
 
