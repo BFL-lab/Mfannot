@@ -6282,7 +6282,7 @@ sub AnnotateEmptyOrfs {
 
             # Check if the ORF overlaps a gene or not.
             my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
-            @$annot_who_overlap   = grep { my $name = $_->[0]->[2]->get_genename(); !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) } @$annot_who_overlap;
+            @$annot_who_overlap = grep { my $name = $_->[0]->[2]->get_genename(); $name =~ m/^trn/i || ($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) } @$annot_who_overlap;
 
             # If it does not overlap a gene, then it is annotated
             if (scalar(@$annot_who_overlap) == 0) {
