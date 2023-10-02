@@ -46,7 +46,7 @@ RUN apt-get install -y hmmer
 
 # Install Exonerate
 RUN apt-get install -y libglib2.0-dev
-RUN cd git_repositories
+RUN cd /git_repositories
 RUN git clone https://github.com/nathanweeks/exonerate.git; cd exonerate; git checkout v2.4.0; ./configure; make; make check;autoreconf -f -i; make install
 RUN cd ..
 
@@ -59,18 +59,19 @@ RUN apt-get install -y emboss
 # Install Erpin
 RUN wget -L http://rna.igmors.u-psud.fr/download/Erpin/erpin5.5.4.serv.tar.gz; tar xzvf erpin5.5.4.serv.tar.gz; cp erpin5.5.4.serv/bin/erpin /usr/local/bin/
 
-# Install tbl2asn
-RUN wget https://ftp.ncbi.nih.gov/toolbox/ncbi_tools/converters/by_program/table2asn/linux64.table2asn.gz; gunzip linux64.table2asn.gz; chmod 755 linux64.table2asn; cp linux64.table2asn /usr/local/tbl2asn
-
 # Install cmsearch
 RUN wget http://eddylab.org/infernal/infernal-1.1.4-linux-intel-gcc.tar.gz; tar xzvf infernal-1.1.4-linux-intel-gcc.tar.gz; cp infernal-1.1.4-linux-intel-gcc/binaries/cmsearch /usr/local/bin/
+
+# Install tbl2asn
+RUN mkdir /tbl2asn; cd /tbl2asn; wget https://anaconda.org/bioconda/tbl2asn/25.7/download/linux-64/tbl2asn-25.7-0.tar.bz2; tar jxvf tbl2asn-25.7-0.tar.bz2; chmod 755 bin/tbl2asn; cp bin/tbl2asn /usr/local/bin/tbl2asn
+
 
 ############################
 # Install internal progam #
 ############################
 
 # Go in git_repositories
-RUN cd git_repositories
+RUN cd /git_repositories
 
 # Install PirObject
 RUN git clone https://github.com/prioux/PirObject.git; cp PirObject/lib/PirObject.pm /etc/perl/;
