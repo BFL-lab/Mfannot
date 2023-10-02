@@ -3571,7 +3571,7 @@ sub RunHMMSearchForMiniEx {
     foreach my $exon (@$ListHypExons) {
         my $exon_seq = $exon->{seq} || "";
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
-        print $fasta_fh ">Sol_$i\n$seq\n";
+        print $fasta_fh ">Sol_$i\n$seq\n" if $seq !~ m/\*/;
         $i++;
     }
     $fasta_fh->close();
@@ -6187,7 +6187,7 @@ sub AnnotateEmptyOrfs {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
-                next if !($name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
+                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
@@ -6232,7 +6232,7 @@ sub AnnotateEmptyOrfs {
     my $hash_OV    = {};
     foreach my $emptyorf (@$EMPTYORFS) {
         # Process each non corresponding orf
-        # Get informations  about empty ORF
+        # Get informations about empty ORF
         my $possible_starts   = $emptyorf->get_possible_start();
         next if !$possible_starts || scalar(@$possible_starts) == 0;
 
@@ -6282,7 +6282,7 @@ sub AnnotateEmptyOrfs {
 
             # Check if the ORF overlaps a gene or not.
             my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
-            @$annot_who_overlap = grep { my $name = $_->[0]->[2]->get_genename(); $name !~ m/^trn/i && $name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i } @$annot_who_overlap;
+            @$annot_who_overlap = grep { my $name = $_->[0]->[2]->get_genename(); $name =~ m/^trn/i || ($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) } @$annot_who_overlap;
 
             # If it does not overlap a gene, then it is annotated
             if (scalar(@$annot_who_overlap) == 0) {
@@ -6308,7 +6308,7 @@ sub AnnotateEmptyOrfs {
         if ( $ToAnnot == 1) {
             if ($firstATG == -1) {
                 my $notes    = $emptyorf->get_notes() || [];
-                push(@$notes, "no ATG initiation codon identified' is missing");
+                push(@$notes, "no ATG initiation codon identified");
                 $emptyorf->set_notes($notes);
             }
             if ($firstATG != -1 && $start_orf != $firstATG) {
@@ -6793,7 +6793,7 @@ sub AnnotateIntronicOrfs {
         my $ATGindex = &GetFirstATGIndex($isMinus,$seq,$start_orf,$end_orf);
         if ($ATGindex == -1) {
             my $notes    = $intronic_orf->get_notes() || [];
-            push(@$notes, "no ATG initiation codon identified' is missing");
+            push(@$notes, "no ATG initiation codon identified");
             $intronic_orf->set_notes($notes);
         }
 
